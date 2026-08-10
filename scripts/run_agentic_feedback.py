@@ -144,6 +144,15 @@ def changed_lines_by_path(diff: str) -> dict[str, set[int]]:
     return lines_by_path
 
 
+def suggestion_body(feedback: str, suggestion: str) -> str:
+    """Format a GitHub suggested-change comment from feedback and replacement.
+
+    GitHub renders this fenced block with controls that let a reviewer apply
+    the replacement directly from the pull-request conversation.
+    """
+    return f"{feedback}\n\n```suggestion\n{suggestion}\n```"
+
+
 def parse_review_output(output: str, changed_lines: dict[str, set[int]]) -> tuple[str, list[dict[str, object]]]:
     """Parse and validate the structured response requested from OpenCode.
 
@@ -173,6 +182,17 @@ def parse_review_output(output: str, changed_lines: dict[str, set[int]]) -> tupl
         if not isinstance(item, dict):
             continue
         path, line, body = item.get("path"), item.get("line"), item.get("body")
+        start_line, suggestion = item.get("start_line"), item.get("suggestion")
+        has_valid_range = (
+            start_line is None
+            or (
+                isinstance(start_line, int)
+                and not isinstance(start_line, bool)
+                and isinstance(line, int)
+                and start_line < line
+                and all(candidate in changed_lines.get(path, set()) for candidate in range(start_line, line + 1))
+            )
+        )
         if (
             isinstance(path, str)
             and isinstance(line, int)
@@ -180,8 +200,15 @@ def parse_review_output(output: str, changed_lines: dict[str, set[int]]) -> tupl
             and isinstance(body, str)
             and body.strip()
             and line in changed_lines.get(path, set())
+            and has_valid_range
         ):
-            comments.append({"path": path, "line": line, "side": "RIGHT", "body": body.strip()})
+            comment: dict[str, object] = {"path": path, "line": line, "side": "RIGHT", "body": body.strip()}
+            if start_line is not None:
+                comment["start_line"] = start_line
+                comment["start_side"] = "RIGHT"
+            if isinstance(suggestion, str) and suggestion.strip() and "```" not in suggestion:
+                comment["body"] = suggestion_body(body.strip(), suggestion.strip())
+            comments.append(comment)
         elif isinstance(body, str) and body.strip():
             location = f"`{path}:{line}`" if isinstance(path, str) and isinstance(line, int) else "an unavailable location"
             unlocated.append(f"- **Additional feedback ({location}):** {body.strip()}")
@@ -248,9 +275,11 @@ def main() -> int:
         f"The verified GitHub login of this contribution's author is '@{args.author}'. "
         "When referring to the author, use that exact handle; do not infer an author from issue or pull-request numbers. "
         "Return JSON only, with this exact shape: "
-        '{"summary":"overall Markdown review", "comments":[{"path":"repository-relative path", "line":123, "body":"concise Markdown feedback"}]}. '
+        '{"summary":"overall Markdown review", "comments":[{"path":"repository-relative path", "line":123, "body":"concise Markdown feedback", "suggestion":"exact replacement text"}]}. '
         "The summary is always published as the overall review comment. Add a comments item only for a changed new-file line visible in the supplied diff. "
-        "Use no Markdown code fence and do not include a 'side' field."
+        "Use an optional 'suggestion' only when you can provide an exact replacement; it becomes an apply-able GitHub suggested change. "
+        "For a multi-line suggestion, also provide 'start_line' and ensure every line from start_line through line is a changed new-file line. "
+        "Use no Markdown code fence and do not include 'side' or 'start_side' fields."
     )
     result = subprocess.run(
         ["opencode", "run", "--agent", agent_name, prompt, "--file", str(args.input)],

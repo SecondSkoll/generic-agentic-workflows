@@ -42,7 +42,8 @@ or surrounding prose. Use this shape:
     {
       "path": "README.md",
       "line": 42,
-      "body": "Actionable feedback for this changed line."
+      "body": "Explain why this change is needed.",
+      "suggestion": "Replacement text that a reviewer can apply."
     }
   ]
 }
@@ -51,3 +52,10 @@ or surrounding prose. Use this shape:
 Only include a `comments` item when its `path` and new-file `line` identify a
 changed line in the supplied diff. Put feedback that cannot be tied to a
 changed line in `summary` instead.
+
+Include `suggestion` only when you can safely provide the exact replacement.
+The runner turns it into a GitHub `suggestion` block so the reviewer can apply
+it from the PR. Keep the explanation in `body`; place only replacement text in
+`suggestion`. For a multi-line replacement, include `start_line` as well as
+`line`, and make sure every line in that inclusive range is a changed new-file
+line in the supplied diff.

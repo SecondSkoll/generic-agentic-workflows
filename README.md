@@ -45,7 +45,8 @@ or more inline `comments`:
 		{
 			"path": "docs/configuration.md",
 			"line": 42,
-			"body": "Explain the default value for this new option."
+			"body": "State the default value explicitly.",
+			"suggestion": "The default timeout is 30 seconds."
 		}
 	]
 }
@@ -55,6 +56,12 @@ Each inline location must reference an added line in the supplied diff. The
 runner validates these locations before calling GitHub; feedback with an
 invalid location is retained in the overall review body rather than causing
 the review to fail.
+
+When an inline item includes a `suggestion`, the runner produces GitHub's
+`suggestion` block, which gives reviewers an **Apply suggestion** control. The
+`body` explains the recommendation and `suggestion` contains only the exact
+replacement. For a multi-line replacement, include `start_line` and `line`; the
+inclusive range must consist entirely of added lines in the diff.
 
 ## Secrets and least-privilege tokens
 

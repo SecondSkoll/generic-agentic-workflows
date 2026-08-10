@@ -1,8 +1,6 @@
 name: OpenCode issue implementation
 
 on:
-  schedule:
-    - cron: '17 5 * * 1-5'
   workflow_dispatch:
     inputs:
       issue_number:
