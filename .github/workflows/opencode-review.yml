@@ -1,0 +1,52 @@
+name: Opencode PR diff for doc check
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Get PR diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git diff "$BASE_SHA" "$HEAD_SHA" -- > pr.diff
+          cat pr.diff
+
+      - name: Install opencode
+        run: npm install -g opencode-ai
+
+      - name: Analyze diff with opencode agent
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          export OPENROUTER_API_KEY="${OPENROUTER_API_KEY}"
+          opencode run --agent example-skill -f pr.diff "Evaluate this diff for impact on documentation." > review.txt
+          cat review.txt
+
+      - name: Post review as PR comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          review=$(cat review.txt)
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            -d "$(jq -n --arg body "$review" '{body: $body}')"
