@@ -123,11 +123,14 @@ def main() -> int:
     parser.add_argument("--skill-file", type=Path, required=True)
     parser.add_argument("--comments-url", required=True, help="GitHub issue/PR comments API URL")
     parser.add_argument("--feedback-kind", required=True, help="Stable identifier used to avoid duplicate comments")
+    parser.add_argument("--author", required=True, help="Verified GitHub login of the issue or pull-request author")
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
         parser.error("GITHUB_TOKEN must be set")
+    if not args.author.strip() or args.author.startswith("@"):
+        parser.error("--author must be a non-empty GitHub login without a leading @")
     for path in (args.input, args.agent_file, args.skill_file):
         if not path.is_file():
             parser.error(f"Required file not found: {path}")
@@ -146,6 +149,8 @@ def main() -> int:
     prompt = (
         f"{args.prompt}\n\n"
         f"Use the repository custom agent '{agent_name}' and skill '{skill_name}'. "
+        f"The verified GitHub login of this contribution's author is '@{args.author}'. "
+        "When referring to the author, use that exact handle; do not infer an author from issue or pull-request numbers. "
         "Return concise, actionable Markdown feedback only."
     )
     result = subprocess.run(

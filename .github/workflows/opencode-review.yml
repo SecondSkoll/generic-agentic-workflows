@@ -49,4 +49,5 @@ jobs:
             --agent-file "$CUSTOM_AGENT_FILE" \
             --skill-file "$CUSTOM_SKILL_FILE" \
             --comments-url "${{ github.event.pull_request.comments_url }}" \
-            --feedback-kind "$FEEDBACK_KIND"
+            --feedback-kind "$FEEDBACK_KIND" \
+            --author "${{ github.event.pull_request.user.login }}"

@@ -43,12 +43,18 @@ jobs:
         run: |
           jq -c '.[] | select(has("pull_request") | not)' open-issues.json | while read -r issue; do
             issue_number=$(jq -r '.number' <<< "$issue")
+            issue_author=$(jq -r '.user.login // empty' <<< "$issue")
+            if [[ -z "$issue_author" ]]; then
+              echo "Issue #$issue_number has no GitHub author login; skipping." >&2
+              continue
+            fi
             jq -r '"# Issue #\(.number): \(.title)\n\n\(.body // "")"' <<< "$issue" > issue.txt
             python scripts/run_agentic_feedback.py \
               --input issue.txt \
-              --prompt 'Review this open issue and identify missing information, risks, or useful next steps.' \
+              --prompt 'Review this open issue and identify missing information, risks, or useful next steps. Be concise and only offer constructive feedback.' \
               --agent-file "$CUSTOM_AGENT_FILE" \
               --skill-file "$CUSTOM_SKILL_FILE" \
               --comments-url "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number/comments" \
-              --feedback-kind "$FEEDBACK_KIND"
+              --feedback-kind "$FEEDBACK_KIND" \
+              --author "$issue_author"
           done

@@ -9,6 +9,15 @@ Reusable GitHub Actions workflows for agentic pull-request and issue feedback us
 
 Both workflows invoke `scripts/run_agentic_feedback.py`. The script validates the selected repository customisations, runs OpenCode, and writes one marked GitHub comment per feedback type.
 
+### Contributor handles
+
+The workflows pass the authoritative GitHub login from the event or issue API to
+the feedback runner: `${{ github.event.pull_request.user.login }}` for pull
+requests and `.user.login` for each issue. The runner tells OpenCode to use
+that exact `@handle`. Skills should follow this instruction rather than using
+an unresolved placeholder such as `{author}` or deriving a name from an issue
+number.
+
 ### Customise the agent and skill
 
 Each workflow sets the following job environment variables. Change their paths to choose custom guidance stored in the repository's trusted default branch:

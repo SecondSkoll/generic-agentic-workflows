@@ -21,6 +21,11 @@ Structure the output as follows in Markdown:
 ---
 # Agentic review
 
-Thank you for your contribution, `{author}`!
----
+Thank the contributor using the exact verified GitHub handle supplied in the
+calling prompt. Do not use the literal `{author}` placeholder and do not infer
+the handle from an issue or pull-request number.
 
+For example, when the prompt identifies the contributor as `@octocat`:
+
+Thank you for your contribution, `@octocat`!
+---
