@@ -9,6 +9,8 @@ permission:
   bash:
     "curl": deny
     "wget": deny
+  external_directory:
+    "/home/runner/work/**": allow
 ---
 You are the implementation stage of the GitHub Actions issue workflow. You
 receive a trusted, structured plan from `issue-implementation` and implement

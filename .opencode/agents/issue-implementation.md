@@ -7,6 +7,9 @@ temperature: 0.1
 permission:
   edit: deny
   bash: allow
+  read: allow
+  external_directory:
+    "/home/runner/work/**": allow
   task:
     executor: allow
 skill:
