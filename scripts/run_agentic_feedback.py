@@ -107,6 +107,12 @@ def has_marker(url: str, token: str, marker: str) -> bool:
     return False
 
 
+def feedback_marker(feedback_kind: str, head_sha: str | None = None) -> str:
+    """Return the idempotency marker, scoped to a PR commit when available."""
+    suffix = f":{head_sha}" if head_sha else ""
+    return f"<!-- agentic-workflow:{feedback_kind}:v1{suffix} -->"
+
+
 def changed_lines_by_path(diff: str) -> dict[str, set[int]]:
     """Return changed new-file line numbers, indexed by repository path.
 
@@ -271,6 +277,11 @@ def main() -> int:
     parser.add_argument("--head-sha", help="Current pull request head SHA for an inline review")
     parser.add_argument("--feedback-kind", required=True, help="Stable identifier used to avoid duplicate comments")
     parser.add_argument("--author", required=True, help="Verified GitHub login of the issue or pull-request author")
+    parser.add_argument(
+        "--fail-if-reviewed",
+        action="store_true",
+        help="Fail instead of skipping when feedback for this pull-request commit already exists",
+    )
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN")
@@ -291,13 +302,16 @@ def main() -> int:
     except (OSError, ValueError) as error:
         parser.error(str(error))
 
-    marker = f"<!-- agentic-workflow:{args.feedback_kind}:v1 -->"
+    marker = feedback_marker(args.feedback_kind, args.head_sha)
     reviews_url = ""
     marker_url = args.comments_url
     if args.repository:
         reviews_url = f"https://api.github.com/repos/{args.repository}/pulls/{args.pull_number}/reviews"
         marker_url = reviews_url
     if has_marker(marker_url, token, marker):
+        if args.fail_if_reviewed:
+            print("This pull-request commit has already received feedback from this workflow.", file=sys.stderr)
+            return 1
         print("Feedback from this workflow already exists; skipping.")
         return 0
 
