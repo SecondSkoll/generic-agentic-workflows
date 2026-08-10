@@ -3,6 +3,12 @@ name: OpenCode PR documentation review
 on:
   pull_request_target:
     types: [opened, edited, synchronize]
+  workflow_dispatch:
+    inputs:
+      pull_number:
+        description: Pull-request number to review
+        required: true
+        type: string
 
 jobs:
   review:
@@ -16,10 +22,34 @@ jobs:
       CUSTOM_SKILL_FILE: .opencode/skills/example-skill/SKILL.md
       FEEDBACK_KIND: pr-documentation-review
     steps:
+      - name: Resolve pull request
+        id: pull-request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pull_number || github.event.pull_request.number }}
+        run: |
+          if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "A positive pull-request number is required." >&2
+            exit 1
+          fi
+
+          pull_request=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+          if [[ $(jq -r '.state' <<< "$pull_request") != "open" ]]; then
+            echo "Pull request #$PR_NUMBER is not open." >&2
+            exit 1
+          fi
+
+          {
+            echo "number=$PR_NUMBER"
+            echo "base_sha=$(jq -r '.base.sha' <<< "$pull_request")"
+            echo "head_sha=$(jq -r '.head.sha' <<< "$pull_request")"
+            echo "author=$(jq -r '.user.login' <<< "$pull_request")"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v6
         with:
           # Never execute PR code in this pull_request_target workflow.
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ steps.pull-request.outputs.base_sha }}
           persist-credentials: false
           fetch-depth: 0
 
@@ -29,8 +59,8 @@ jobs:
 
       - name: Get pull request diff
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ steps.pull-request.outputs.base_sha }}
+          PR_NUMBER: ${{ steps.pull-request.outputs.number }}
         run: |
           git fetch --no-tags --depth=1 origin "pull/$PR_NUMBER/head:pr-head"
           git diff "$BASE_SHA" pr-head -- > pr.diff
@@ -42,15 +72,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          FAIL_IF_REVIEWED: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
-          python scripts/run_agentic_feedback.py \
+          review_args=(
             --input pr.diff \
             --prompt 'Evaluate this pull request diff.' \
             --agent-file "$CUSTOM_AGENT_FILE" \
             --skill-file "$CUSTOM_SKILL_FILE" \
-            --comments-url "${{ github.event.pull_request.comments_url }}" \
+            --comments-url "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/${{ steps.pull-request.outputs.number }}/comments" \
             --repository "${{ github.repository }}" \
-            --pull-number "${{ github.event.pull_request.number }}" \
-            --head-sha "${{ github.event.pull_request.head.sha }}" \
+            --pull-number "${{ steps.pull-request.outputs.number }}" \
+            --head-sha "${{ steps.pull-request.outputs.head_sha }}" \
             --feedback-kind "$FEEDBACK_KIND" \
-            --author "${{ github.event.pull_request.user.login }}"
+            --author "${{ steps.pull-request.outputs.author }}"
+          )
+          if [[ "$FAIL_IF_REVIEWED" == "true" ]]; then
+            review_args+=(--fail-if-reviewed)
+          fi
+          python scripts/run_agentic_feedback.py "${review_args[@]}"
