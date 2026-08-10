@@ -1,0 +1,54 @@
+name: OpenCode feedback for open issues
+
+on:
+  issues:
+    types: [opened, reopened, edited]
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  feedback:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      # Customise these paths to use repository-specific OpenCode guidance.
+      CUSTOM_AGENT_FILE: .opencode/agents/docs-impact-eval.md
+      CUSTOM_SKILL_FILE: .opencode/skills/example-skill/SKILL.md
+      FEEDBACK_KIND: issue-feedback
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install OpenCode
+        run: npm install -g opencode-ai
+
+      - name: Collect open issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "/repos/${{ github.repository }}/issues?state=open&per_page=100" > open-issues.json
+
+      - name: Provide feedback for open issues
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          jq -c '.[] | select(has("pull_request") | not)' open-issues.json | while read -r issue; do
+            issue_number=$(jq -r '.number' <<< "$issue")
+            jq -r '"# Issue #\(.number): \(.title)\n\n\(.body // \"\")"' <<< "$issue" > issue.txt
+            python scripts/run_agentic_feedback.py \
+              --input issue.txt \
+              --prompt 'Review this open issue and identify missing information, risks, or useful next steps.' \
+              --agent-file "$CUSTOM_AGENT_FILE" \
+              --skill-file "$CUSTOM_SKILL_FILE" \
+              --comments-url "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number/comments" \
+              --feedback-kind "$FEEDBACK_KIND"
+          done

@@ -1,11 +1,8 @@
-name: Opencode PR diff for doc check
+name: OpenCode PR documentation review
 
 on:
   pull_request_target:
-    types:
-      - opened
-      - edited
-      - synchronize
+    types: [opened, edited, synchronize]
 
 jobs:
   review:
@@ -13,40 +10,43 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    env:
+      # Customise these paths to select repository-specific OpenCode guidance.
+      CUSTOM_AGENT_FILE: .opencode/agents/docs-impact-eval.md
+      CUSTOM_SKILL_FILE: .opencode/skills/example-skill/SKILL.md
+      FEEDBACK_KIND: pr-documentation-review
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          # Never execute PR code in this pull_request_target workflow.
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Get PR diff
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Get pull request diff
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          git diff "$BASE_SHA" "$HEAD_SHA" -- > pr.diff
-          cat pr.diff
+          git fetch --no-tags --depth=1 origin "pull/$PR_NUMBER/head:pr-head"
+          git diff "$BASE_SHA" pr-head -- > pr.diff
 
-      - name: Install opencode
+      - name: Install OpenCode
         run: npm install -g opencode-ai
 
-      - name: Analyze diff with opencode agent
+      - name: Review documentation impact
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          export OPENROUTER_API_KEY="${OPENROUTER_API_KEY}"
-          opencode run --agent example-skill -f pr.diff "Evaluate this diff for impact on documentation." > review.txt
-          cat review.txt
-
-      - name: Post review as PR comment
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          review=$(cat review.txt)
-          curl -sS -X POST \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-            -d "$(jq -n --arg body "$review" '{body: $body}')"
+          python scripts/run_agentic_feedback.py \
+            --input pr.diff \
+            --prompt 'Evaluate this pull request diff.' \
+            --agent-file "$CUSTOM_AGENT_FILE" \
+            --skill-file "$CUSTOM_SKILL_FILE" \
+            --comments-url "${{ github.event.pull_request.comments_url }}" \
+            --feedback-kind "$FEEDBACK_KIND"
