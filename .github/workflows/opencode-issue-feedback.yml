@@ -43,7 +43,7 @@ jobs:
         run: |
           jq -c '.[] | select(has("pull_request") | not)' open-issues.json | while read -r issue; do
             issue_number=$(jq -r '.number' <<< "$issue")
-            jq -r '"# Issue #\(.number): \(.title)\n\n\(.body // \"\")"' <<< "$issue" > issue.txt
+            jq -r '"# Issue #\(.number): \(.title)\n\n\(.body // "")"' <<< "$issue" > issue.txt
             python scripts/run_agentic_feedback.py \
               --input issue.txt \
               --prompt 'Review this open issue and identify missing information, risks, or useful next steps.' \
