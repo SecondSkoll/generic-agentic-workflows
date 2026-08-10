@@ -21,7 +21,17 @@ from pathlib import Path
 
 
 def front_matter_name(path: Path) -> str:
-    """Return the required `name` from a Markdown file's YAML front matter."""
+    """Read the required `name` from a Markdown file's YAML front matter.
+
+    Args:
+        path: Path to the agent or skill Markdown file.
+
+    Returns:
+        The non-empty front-matter name.
+
+    Raises:
+        ValueError: If the file has no valid YAML front matter or `name` field.
+    """
     content = path.read_text(encoding="utf-8")
     match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
     if not match:
@@ -35,6 +45,21 @@ def front_matter_name(path: Path) -> str:
 def github_request(
     url: str, token: str, method: str = "GET", body: dict | None = None
 ) -> tuple[object, dict[str, str]]:
+    """Send an authenticated request to the GitHub REST API.
+
+    Args:
+        url: Absolute GitHub API endpoint URL.
+        token: GitHub token used for bearer-token authentication.
+        method: HTTP method to use, such as ``GET`` or ``POST``.
+        body: Optional JSON-serialisable request body.
+
+    Returns:
+        A tuple containing the decoded JSON response and response headers.
+
+    Raises:
+        urllib.error.HTTPError: If GitHub returns an HTTP error response.
+        urllib.error.URLError: If the request cannot reach GitHub.
+    """
     data = json.dumps(body).encode() if body is not None else None
     request = urllib.request.Request(
         url,
@@ -52,6 +77,21 @@ def github_request(
 
 
 def already_commented(comments_url: str, token: str, marker: str) -> bool:
+    """Check every comment page for a workflow feedback marker.
+
+    Args:
+        comments_url: GitHub API URL for the issue or pull-request comments.
+        token: GitHub token used to read comments.
+        marker: Invisible marker uniquely identifying the workflow feedback.
+
+    Returns:
+        ``True`` when an existing comment contains the marker; otherwise
+        ``False``.
+
+    Raises:
+        urllib.error.HTTPError: If GitHub rejects a comments request.
+        urllib.error.URLError: If a comments request cannot reach GitHub.
+    """
     parsed_url = urllib.parse.urlparse(comments_url)
     parameters = urllib.parse.parse_qs(parsed_url.query)
     parameters["per_page"] = ["100"]
@@ -67,6 +107,15 @@ def already_commented(comments_url: str, token: str, marker: str) -> bool:
 
 
 def main() -> int:
+    """Run the configured OpenCode review and optionally publish its feedback.
+
+    Inputs are supplied through command-line arguments and the ``GITHUB_TOKEN``
+    environment variable.
+
+    Returns:
+        ``0`` when feedback is posted or already exists, otherwise a non-zero
+        process exit code.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, required=True, help="Diff or issue prompt file passed to OpenCode")
     parser.add_argument("--prompt", required=True, help="Review instruction passed to OpenCode")
