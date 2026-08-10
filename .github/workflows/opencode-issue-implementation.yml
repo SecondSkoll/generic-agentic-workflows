@@ -1,0 +1,195 @@
+name: OpenCode issue implementation
+
+on:
+  schedule:
+    - cron: '17 5 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Open issue number to implement (optional; otherwise process one requested issue)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: opencode-issue-implementation-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  select-issue:
+    runs-on: ubuntu-latest
+    outputs:
+      issue: ${{ steps.select.outputs.issue }}
+    steps:
+      - name: Select an eligible open issue
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REQUEST_MARKER: '[[AI REVIEW REQUESTED]]'
+          REQUEST_LABEL: ai-review-requested
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        run: |
+          set -euo pipefail
+
+          comment_has_request() {
+            jq -e --arg marker "$REQUEST_MARKER" \
+              'any(.[]; (.body // "" | contains($marker)) or (.body // "" | test("(?i)\\[\\[ai implementation requested\\]\\]")))' \
+              > /dev/null
+          }
+
+          action_has_replied_to_request() {
+            jq -e --arg marker "$REQUEST_MARKER" \
+              '([.[] | select((.body // "" | contains($marker)) or (.body // "" | test("(?i)\\[\\[ai implementation requested\\]\\]"))) | .created_at] | max) as $requested_at | if $requested_at == null then any(.[]; (.user.login // "") == "github-actions[bot]" and ((.body // "" | contains("<!-- agentic-workflow:issue-implementation:")) or (.body // "" | contains("<!-- agentic-workflow:issue-implementation-status:")))) else any(.[]; (.user.login // "") == "github-actions[bot]" and (.created_at > $requested_at) and ((.body // "" | contains("<!-- agentic-workflow:issue-implementation:")) or (.body // "" | contains("<!-- agentic-workflow:issue-implementation-status:")))) end' \
+              > /dev/null
+          }
+
+          issue_json=''
+          if [[ -n "$ISSUE_NUMBER" ]]; then
+            if ! [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+              echo "The issue_number input must be a positive integer." >&2
+              exit 1
+            fi
+            issue_json=$(gh api "/repos/$REPOSITORY/issues/$ISSUE_NUMBER")
+            if [[ $(jq -r '.state' <<< "$issue_json") != 'open' ]] || jq -e 'has("pull_request")' <<< "$issue_json" > /dev/null; then
+              echo "Issue #$ISSUE_NUMBER must be an open issue, not a pull request." >&2
+              exit 1
+            fi
+            candidates=$(jq -cn --argjson issue "$issue_json" '[$issue]')
+          else
+            candidates=$(gh api --paginate "/repos/$REPOSITORY/issues?state=open&per_page=100" | jq -sc 'add | map(select(has("pull_request") | not)) | sort_by(.updated_at)')
+          fi
+
+          selected=''
+          while IFS= read -r issue; do
+            number=$(jq -r '.number' <<< "$issue")
+            comments=$(gh api --paginate "/repos/$REPOSITORY/issues/$number/comments?per_page=100" | jq -sc 'add')
+            has_label=$(jq -e --arg label "$REQUEST_LABEL" 'any(.labels[]?; .name == $label)' <<< "$issue" > /dev/null && echo true || echo false)
+            is_manual_target=$([[ -n "$ISSUE_NUMBER" ]] && echo true || echo false)
+            if [[ "$is_manual_target" == true || $(comment_has_request <<< "$comments" && echo true || echo false) == true || "$has_label" == true ]] && { [[ "$is_manual_target" == true ]] || ! action_has_replied_to_request <<< "$comments"; }; then
+              selected=$issue
+              break
+            fi
+          done < <(jq -c '.[]' <<< "$candidates")
+
+          if [[ -z "$selected" ]]; then
+            echo 'issue=' >> "$GITHUB_OUTPUT"
+            if [[ -n "$ISSUE_NUMBER" ]]; then
+              echo "Issue #$ISSUE_NUMBER could not be selected." >&2
+              exit 1
+            fi
+            echo 'No open issue has a pending AI implementation request.'
+            exit 0
+          fi
+
+          echo "issue=$(jq -c . <<< "$selected")" >> "$GITHUB_OUTPUT"
+
+  implement:
+    needs: select-issue
+    if: needs.select-issue.outputs.issue != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    env:
+      CUSTOM_AGENT_FILE: .opencode/agents/issue-implementation.md
+      CUSTOM_SKILL_FILE: .opencode/skills/example-skill/SKILL.md
+      ISSUE: ${{ needs.select-issue.outputs.issue }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install OpenCode
+        run: npm install -g opencode-ai
+
+      - name: Create implementation prompt
+        id: context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          issue_number=$(jq -r '.number' <<< "$ISSUE")
+          issue_author=$(jq -r '.user.login // empty' <<< "$ISSUE")
+          if [[ -z "$issue_author" ]]; then
+            echo "Issue #$issue_number has no GitHub author login; cannot continue." >&2
+            exit 1
+          fi
+          branch="ai/issue-$issue_number-initial-implementation"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -B "$branch"
+          gh api --paginate "/repos/$REPOSITORY/issues/$issue_number/comments?per_page=100" > issue-comments.json
+          jq -n --argjson issue "$ISSUE" --slurpfile comments issue-comments.json \
+            '# Issue #\($issue.number): \($issue.title)\n\nAuthor: @\($issue.user.login)\n\n## Description\n\($issue.body // "")\n\n## Comments\n\n\($comments[0] | map("### @\(.user.login)\n\(.body // \"\")") | join("\n\n"))' > issue-context.md
+          echo "issue_number=$issue_number" >> "$GITHUB_OUTPUT"
+          echo "issue_author=$issue_author" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Ask OpenCode for an initial implementation
+        id: implement
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          agent_name=$(sed -n 's/^name:[[:space:]]*//p' "$CUSTOM_AGENT_FILE" | head -n 1 | tr -d '"' | tr -d "'")
+          test -n "$agent_name"
+          opencode run --agent "$agent_name" \
+            "Implement an initial, reviewable solution for GitHub issue #${{ steps.context.outputs.issue_number }}. The verified issue author is @${{ steps.context.outputs.issue_author }}. Work only on branch ${{ steps.context.outputs.branch }}. The complete issue context is in issue-context.md. Follow the repository's issue-implementation agent instructions exactly." \
+            --file issue-context.md
+
+      - name: Find the created pull request
+        id: pr
+        if: steps.implement.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ steps.context.outputs.branch }}
+        run: |
+          set -euo pipefail
+          pr_url=$(gh pr list --repo "$REPOSITORY" --head "$BRANCH" --state open --json url --jq '.[0].url // empty')
+          if [[ -z "$pr_url" ]]; then
+            echo 'OpenCode completed without creating a pull request.' >&2
+            exit 1
+          fi
+          echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+
+      - name: Comment with implementation result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          IMPLEMENTATION_OUTCOME: ${{ steps.implement.outcome }}
+        run: |
+          set -euo pipefail
+          marker='<!-- agentic-workflow:issue-implementation-status:v1 -->'
+          if [[ "$IMPLEMENTATION_OUTCOME" == 'success' && -n "$PR_URL" ]]; then
+            body="$marker
+          ## AI initial implementation proposed
+
+          An agent prepared an initial implementation for this issue: $PR_URL
+
+          Please review the pull request carefully; it is a proposal, not an approved change."
+          else
+            body="$marker
+          ## AI initial implementation could not be proposed
+
+          The agent did not produce a pull request for this request. A maintainer should review the issue context and workflow logs before retrying."
+          fi
+          gh api --method POST "/repos/$REPOSITORY/issues/$ISSUE_NUMBER/comments" -f body="$body"

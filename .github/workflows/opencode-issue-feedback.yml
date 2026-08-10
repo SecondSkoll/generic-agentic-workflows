@@ -15,7 +15,7 @@ jobs:
       issues: write
     env:
       # Customise these paths to use repository-specific OpenCode guidance.
-      CUSTOM_AGENT_FILE: .opencode/agents/docs-impact-eval.md
+      CUSTOM_AGENT_FILE: .opencode/agents/example-agent.md
       CUSTOM_SKILL_FILE: .opencode/skills/example-skill/SKILL.md
       FEEDBACK_KIND: issue-feedback
     steps:

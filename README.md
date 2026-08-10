@@ -6,8 +6,11 @@ Reusable GitHub Actions workflows for agentic pull-request and issue feedback us
 
 * `.github/workflows/opencode-review.yml` reviews pull-request diffs for documentation impact.
 * `.github/workflows/opencode-issue-feedback.yml` checks every open issue when an issue changes and on a daily schedule. It does not comment again when it finds its existing feedback marker on that issue.
+* `.github/workflows/opencode-issue-implementation.yml` runs on weekdays and can be dispatched manually. It selects one open issue that has either an `[[AI REVIEW REQUESTED]]` (or `[[AI IMPLEMENTATION REQUESTED]]`) comment or an `ai-review-requested` label, unless the manual dispatch supplies an open issue number. It skips issues that already have an implementation-status comment from `github-actions[bot]`, asks OpenCode to create an initial implementation PR, and posts the PR link—or a failure status—to the issue.
 
 Both workflows invoke `scripts/run_agentic_feedback.py`. The script validates the selected repository customisations, runs OpenCode, and writes one marked GitHub comment per feedback type.
+
+The implementation workflow uses `.opencode/agents/issue-implementation.md` instead. Its agent has narrowly scoped instructions: it must work only on its dedicated branch, create a focused PR, and must not edit workflows, automation, dependencies, or its own instructions. Review the generated PR normally before merging it.
 
 ### Contributor handles
 
@@ -40,6 +43,7 @@ For GitHub comments, these workflows use the ephemeral `${{ github.token }}` aut
 | --- | --- |
 | Pull-request review | `contents: read`, `pull-requests: write` |
 | Issue feedback | `contents: read`, `issues: write` |
+| Issue implementation | `contents: write`, `issues: write`, `pull-requests: write` |
 
 If an external integration cannot use `github.token`, create a **fine-grained personal access token** for only this repository, set the shortest practical expiration, and grant only:
 
