@@ -8,7 +8,7 @@ Reusable GitHub Actions workflows for agentic pull-request and issue feedback us
 * `.github/workflows/opencode-issue-feedback.yml` checks every open issue when an issue changes and on a daily schedule. It does not comment again when it finds its existing feedback marker on that issue.
 * `.github/workflows/opencode-issue-implementation.yml` runs on weekdays and can be dispatched manually. It selects one open issue that has either an `[[AI REVIEW REQUESTED]]` (or `[[AI IMPLEMENTATION REQUESTED]]`) comment or an `ai-review-requested` label, unless the manual dispatch supplies an open issue number. It skips issues that already have an implementation-status comment from `github-actions[bot]`, asks OpenCode to prepare an initial implementation, then the workflow commits, pushes, creates the PR, and posts its link—or a failure status—to the issue.
 
-Both workflows invoke `scripts/run_agentic_feedback.py`. The script validates the selected repository customisations, runs OpenCode, and writes one marked GitHub comment per feedback type.
+Both workflows invoke `scripts/run_agentic_feedback.py`. The script validates the selected repository customisations, runs OpenCode, and writes one marked GitHub comment per feedback type. For pull requests it creates one GitHub review: its summary is an overall review comment and valid feedback locations are attached directly to changed new-file lines.
 
 The implementation workflow uses `.opencode/agents/issue-implementation.md` as a planner. It treats the issue context as untrusted, creates a concise plan, and hands it to `.opencode/agents/executor.md` for the focused implementation and validation. The workflow keeps the generated issue context outside the checkout, then commits, pushes, creates the PR, and posts status only after it verifies an implementation diff. Neither agent may edit workflows, automation, dependencies, or agent instructions. Review the generated PR normally before merging it.
 
@@ -32,6 +32,36 @@ FEEDBACK_KIND: pr-documentation-review # or issue-feedback
 ```
 
 Agent and skill files must start with YAML front matter containing a `name`. The agent name is passed to OpenCode; the skill file is validated so workflow configuration cannot silently drift from the repository customisation.
+
+### Pull-request review feedback format
+
+The PR review runner asks OpenCode for JSON with an overall `summary` and zero
+or more inline `comments`:
+
+```json
+{
+	"summary": "Overall Markdown review.",
+	"comments": [
+		{
+			"path": "docs/configuration.md",
+			"line": 42,
+			"body": "State the default value explicitly.",
+			"suggestion": "The default timeout is 30 seconds."
+		}
+	]
+}
+```
+
+Each inline location must reference an added line in the supplied diff. The
+runner validates these locations before calling GitHub; feedback with an
+invalid location is retained in the overall review body rather than causing
+the review to fail.
+
+When an inline item includes a `suggestion`, the runner produces GitHub's
+`suggestion` block, which gives reviewers an **Apply suggestion** control. The
+`body` explains the recommendation and `suggestion` contains only the exact
+replacement. For a multi-line replacement, include `start_line` and `line`; the
+inclusive range must consist entirely of added lines in the diff.
 
 ## Secrets and least-privilege tokens
 

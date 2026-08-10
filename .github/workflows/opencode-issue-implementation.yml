@@ -1,8 +1,6 @@
 name: OpenCode issue implementation
 
 on:
-  schedule:
-    - cron: '17 5 * * 1-5'
   workflow_dispatch:
     inputs:
       issue_number:
@@ -213,9 +211,28 @@ jobs:
             git add --all
             git commit -m "Implement #$ISSUE_NUMBER: initial proposal"
             git push --set-upstream origin "$BRANCH"
+            changed_files=$(git diff --name-only HEAD~1 HEAD | sed 's/^/- `/' | sed 's/$/`/')
+            pr_body=$(mktemp)
+            cat > "$pr_body" <<EOF
+          ## Summary
+
+          This pull request contains an initial implementation for #$ISSUE_NUMBER.
+
+          ## Changed files
+
+          $changed_files
+
+          ## Validation
+
+          Validation results, if any, are available in the workflow logs and pull-request checks.
+
+          ## Related issue
+
+          Closes #$ISSUE_NUMBER
+          EOF
             pr_url=$(gh pr create --repo "$REPOSITORY" --head "$BRANCH" \
               --title "Implement #$ISSUE_NUMBER: initial proposal" \
-              --body "## Initial implementation\n\nAn agent prepared this initial implementation for #$ISSUE_NUMBER.\n\nCloses #$ISSUE_NUMBER")
+              --body-file "$pr_body")
           fi
           echo "url=$pr_url" >> "$GITHUB_OUTPUT"
 
