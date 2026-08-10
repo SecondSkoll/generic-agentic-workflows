@@ -8,7 +8,7 @@ Run this script directly to print a friendly greeting::
 
 def main() -> None:
 	"""Print the program's greeting to standard output."""
-	print("Hello, World!")
+	print("Hello, world!")
 
 
 if __name__ == "__main__":
