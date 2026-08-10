@@ -130,9 +130,26 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git checkout -B "$branch"
-          gh api --paginate "/repos/$REPOSITORY/issues/$issue_number/comments?per_page=100" > issue-comments.json
-          jq -n --argjson issue "$ISSUE" --slurpfile comments issue-comments.json \
-            '# Issue #\($issue.number): \($issue.title)\n\nAuthor: @\($issue.user.login)\n\n## Description\n\($issue.body // "")\n\n## Comments\n\n\($comments[0] | map("### @\(.user.login)\n\(.body // \"\")") | join("\n\n"))' > issue-context.md
+          gh api --paginate "/repos/$REPOSITORY/issues/$issue_number/comments?per_page=100" | jq -s 'add' > issue-comments.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          issue = json.loads(os.environ["ISSUE"])
+          comments = json.loads(Path("issue-comments.json").read_text(encoding="utf-8"))
+          comment_text = "\n\n".join(
+              f"### @{comment.get('user', {}).get('login', 'unknown')}\n{comment.get('body') or ''}"
+              for comment in comments
+          )
+          context = (
+              f"# Issue #{issue['number']}: {issue['title']}\n\n"
+              f"Author: @{issue['user']['login']}\n\n"
+              f"## Description\n{issue.get('body') or ''}\n\n"
+              f"## Comments\n\n{comment_text}\n"
+          )
+          Path("issue-context.md").write_text(context, encoding="utf-8")
+          PY
           echo "issue_number=$issue_number" >> "$GITHUB_OUTPUT"
           echo "issue_author=$issue_author" >> "$GITHUB_OUTPUT"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
