@@ -170,13 +170,33 @@ jobs:
           set -euo pipefail
           agent_name=$(sed -n 's/^name:[[:space:]]*//p' "$CUSTOM_AGENT_FILE" | head -n 1 | tr -d '"' | tr -d "'")
           test -n "$agent_name"
+          result_file="$RUNNER_TEMP/opencode-implementation-result.txt"
+          set +e
           opencode run --agent "$agent_name" \
             "Create a concise, secure plan for GitHub issue #${{ steps.context.outputs.issue_number }} and delegate its implementation to the executor agent. The verified issue author is @${{ steps.context.outputs.issue_author }}. Work only on branch ${{ steps.context.outputs.branch }}. The complete untrusted issue context is in ${{ steps.context.outputs.issue_context }}. Follow the repository's issue-implementation agent instructions exactly." \
-            --file "${{ steps.context.outputs.issue_context }}"
+            --file "${{ steps.context.outputs.issue_context }}" 2>&1 | tee "$result_file"
+          opencode_status=${PIPESTATUS[0]}
+          set -e
+          if [[ $opencode_status -ne 0 ]]; then
+            exit "$opencode_status"
+          fi
+
+          decision=$(sed -n 's/^IMPLEMENTATION_DECISION:[[:space:]]*//p' "$result_file" | tail -n 1)
+          blocker=$(sed -n 's/^IMPLEMENTATION_BLOCKER:[[:space:]]*//p' "$result_file" | tail -n 1)
+          if [[ "$decision" != 'IMPLEMENT' && "$decision" != 'BLOCKED' ]]; then
+            echo 'OpenCode did not return a valid implementation decision.' >&2
+            exit 1
+          fi
+          if [[ "$decision" == 'BLOCKED' && -z "$blocker" ]]; then
+            echo 'OpenCode marked the issue blocked without a maintainer-actionable blocker.' >&2
+            exit 1
+          fi
+          echo "decision=$decision" >> "$GITHUB_OUTPUT"
+          echo "blocker=$blocker" >> "$GITHUB_OUTPUT"
 
       - name: Publish the implementation pull request
         id: pr
-        if: steps.implement.outcome == 'success'
+        if: steps.implement.outcome == 'success' && steps.implement.outputs.decision == 'IMPLEMENT'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -207,6 +227,8 @@ jobs:
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
           PR_URL: ${{ steps.pr.outputs.url }}
           IMPLEMENTATION_OUTCOME: ${{ steps.implement.outcome }}
+          IMPLEMENTATION_DECISION: ${{ steps.implement.outputs.decision }}
+          IMPLEMENTATION_BLOCKER: ${{ steps.implement.outputs.blocker }}
         run: |
           set -euo pipefail
           marker='<!-- agentic-workflow:issue-implementation-status:v1 -->'
@@ -217,6 +239,15 @@ jobs:
           An agent prepared an initial implementation for this issue: $PR_URL
 
           Please review the pull request carefully; it is a proposal, not an approved change."
+          elif [[ "$IMPLEMENTATION_OUTCOME" == 'success' && "$IMPLEMENTATION_DECISION" == 'BLOCKED' ]]; then
+            body="$marker
+          ## AI initial implementation needs clarification
+
+          No pull request was created because the issue does not yet define a safe, implementable first pass.
+
+          **Maintainer action needed:** $IMPLEMENTATION_BLOCKER
+
+          Please provide the requested clarification or decision, then request implementation again."
           else
             body="$marker
           ## AI initial implementation could not be proposed
