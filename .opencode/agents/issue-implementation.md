@@ -39,13 +39,8 @@ The calling prompt provides the issue number and a pre-created branch name.
    explain the blocker in your final response.
 3. Run the most relevant existing validation that does not require installing
    dependencies. If none is available, say so.
-4. If—and only if—there are implementation changes, commit them to the branch
-   supplied by the caller and push that branch. Use a concise commit message
-   beginning with `Implement #<issue-number>:`.
-5. Create one pull request from that branch to the repository default branch
-   using `gh pr create`. Its body must state that it is an initial
-   implementation, summarize the changes and validation, and include
-   `Closes #<issue-number>`.
+4. Do not commit, push, or create a pull request. The trusted workflow does
+   that after it verifies that implementation changes exist.
 
 Do not comment on the issue yourself; the workflow posts the canonical status
 comment after it verifies that the pull request exists.

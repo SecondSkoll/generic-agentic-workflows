@@ -169,19 +169,28 @@ jobs:
             "Implement an initial, reviewable solution for GitHub issue #${{ steps.context.outputs.issue_number }}. The verified issue author is @${{ steps.context.outputs.issue_author }}. Work only on branch ${{ steps.context.outputs.branch }}. The complete issue context is in issue-context.md. Follow the repository's issue-implementation agent instructions exactly." \
             --file issue-context.md
 
-      - name: Find the created pull request
+      - name: Publish the implementation pull request
         id: pr
         if: steps.implement.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           BRANCH: ${{ steps.context.outputs.branch }}
+          ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
         run: |
           set -euo pipefail
           pr_url=$(gh pr list --repo "$REPOSITORY" --head "$BRANCH" --state open --json url --jq '.[0].url // empty')
           if [[ -z "$pr_url" ]]; then
-            echo 'OpenCode completed without creating a pull request.' >&2
-            exit 1
+            if git diff --quiet HEAD; then
+              echo 'OpenCode completed without making implementation changes.' >&2
+              exit 1
+            fi
+            git add --all
+            git commit -m "Implement #$ISSUE_NUMBER: initial proposal"
+            git push --set-upstream origin "$BRANCH"
+            pr_url=$(gh pr create --repo "$REPOSITORY" --head "$BRANCH" \
+              --title "Implement #$ISSUE_NUMBER: initial proposal" \
+              --body "## Initial implementation\n\nAn agent prepared this initial implementation for #$ISSUE_NUMBER.\n\nCloses #$ISSUE_NUMBER")
           fi
           echo "url=$pr_url" >> "$GITHUB_OUTPUT"
 
