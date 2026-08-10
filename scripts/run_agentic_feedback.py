@@ -149,7 +149,7 @@ def main() -> int:
         "Return concise, actionable Markdown feedback only."
     )
     result = subprocess.run(
-        ["opencode", "run", "--agent", agent_name, "-f", str(args.input), prompt],
+        ["opencode", "run", "--agent", agent_name, prompt, "--file", str(args.input)],
         check=False,
         capture_output=True,
         text=True,
