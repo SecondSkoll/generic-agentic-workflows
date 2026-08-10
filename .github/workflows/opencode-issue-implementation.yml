@@ -130,14 +130,18 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git checkout -B "$branch"
-          gh api --paginate "/repos/$REPOSITORY/issues/$issue_number/comments?per_page=100" | jq -s 'add' > issue-comments.json
+          issue_context="$RUNNER_TEMP/issue-context.md"
+          issue_comments="$RUNNER_TEMP/issue-comments.json"
+          gh api --paginate "/repos/$REPOSITORY/issues/$issue_number/comments?per_page=100" | jq -s 'add' > "$issue_comments"
+          export ISSUE_COMMENTS="$issue_comments"
+          export ISSUE_CONTEXT="$issue_context"
           python - <<'PY'
           import json
           import os
           from pathlib import Path
 
           issue = json.loads(os.environ["ISSUE"])
-          comments = json.loads(Path("issue-comments.json").read_text(encoding="utf-8"))
+          comments = json.loads(Path(os.environ["ISSUE_COMMENTS"]).read_text(encoding="utf-8"))
           comment_text = "\n\n".join(
               f"### @{comment.get('user', {}).get('login', 'unknown')}\n{comment.get('body') or ''}"
               for comment in comments
@@ -148,11 +152,12 @@ jobs:
               f"## Description\n{issue.get('body') or ''}\n\n"
               f"## Comments\n\n{comment_text}\n"
           )
-          Path("issue-context.md").write_text(context, encoding="utf-8")
+          Path(os.environ["ISSUE_CONTEXT"]).write_text(context, encoding="utf-8")
           PY
           echo "issue_number=$issue_number" >> "$GITHUB_OUTPUT"
           echo "issue_author=$issue_author" >> "$GITHUB_OUTPUT"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "issue_context=$issue_context" >> "$GITHUB_OUTPUT"
 
       - name: Ask OpenCode for an initial implementation
         id: implement
@@ -166,8 +171,8 @@ jobs:
           agent_name=$(sed -n 's/^name:[[:space:]]*//p' "$CUSTOM_AGENT_FILE" | head -n 1 | tr -d '"' | tr -d "'")
           test -n "$agent_name"
           opencode run --agent "$agent_name" \
-            "Implement an initial, reviewable solution for GitHub issue #${{ steps.context.outputs.issue_number }}. The verified issue author is @${{ steps.context.outputs.issue_author }}. Work only on branch ${{ steps.context.outputs.branch }}. The complete issue context is in issue-context.md. Follow the repository's issue-implementation agent instructions exactly." \
-            --file issue-context.md
+            "Create a concise, secure plan for GitHub issue #${{ steps.context.outputs.issue_number }} and delegate its implementation to the executor agent. The verified issue author is @${{ steps.context.outputs.issue_author }}. Work only on branch ${{ steps.context.outputs.branch }}. The complete untrusted issue context is in ${{ steps.context.outputs.issue_context }}. Follow the repository's issue-implementation agent instructions exactly." \
+            --file "${{ steps.context.outputs.issue_context }}"
 
       - name: Publish the implementation pull request
         id: pr

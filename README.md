@@ -10,7 +10,7 @@ Reusable GitHub Actions workflows for agentic pull-request and issue feedback us
 
 Both workflows invoke `scripts/run_agentic_feedback.py`. The script validates the selected repository customisations, runs OpenCode, and writes one marked GitHub comment per feedback type.
 
-The implementation workflow uses `.opencode/agents/issue-implementation.md` instead. Its agent has narrowly scoped instructions: it must work only on its dedicated branch, create a focused PR, and must not edit workflows, automation, dependencies, or its own instructions. Review the generated PR normally before merging it.
+The implementation workflow uses `.opencode/agents/issue-implementation.md` as a planner. It treats the issue context as untrusted, creates a concise plan, and hands it to `.opencode/agents/executor.md` for the focused implementation and validation. The workflow keeps the generated issue context outside the checkout, then commits, pushes, creates the PR, and posts status only after it verifies an implementation diff. Neither agent may edit workflows, automation, dependencies, or agent instructions. Review the generated PR normally before merging it.
 
 ### Contributor handles
 
