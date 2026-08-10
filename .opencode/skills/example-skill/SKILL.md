@@ -16,7 +16,7 @@ This is an example skill that demonstrates how to create a skill in the OpenCode
 
 ## 1. Return a simple message:
 
-Structure the output as follows in Markdown:
+For issue feedback, structure the output as follows in Markdown:
 
 ---
 # Agentic review
@@ -29,3 +29,25 @@ For example, when the prompt identifies the contributor as `@octocat`:
 
 Thank you for your contribution, `@octocat`!
 ---
+
+## Pull-request review output
+
+When the calling prompt requires JSON, return JSON only—no Markdown code fence
+or surrounding prose. Use this shape:
+
+```json
+{
+  "summary": "Thank the contributor and provide the overall Markdown review.",
+  "comments": [
+    {
+      "path": "README.md",
+      "line": 42,
+      "body": "Actionable feedback for this changed line."
+    }
+  ]
+}
+```
+
+Only include a `comments` item when its `path` and new-file `line` identify a
+changed line in the supplied diff. Put feedback that cannot be tied to a
+changed line in `summary` instead.
