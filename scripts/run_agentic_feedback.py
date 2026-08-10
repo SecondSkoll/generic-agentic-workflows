@@ -144,6 +144,16 @@ def changed_lines_by_path(diff: str) -> dict[str, set[int]]:
     return lines_by_path
 
 
+def format_changed_locations(changed_lines: dict[str, set[int]]) -> str:
+    """Return the allowed inline-review locations for the model prompt."""
+    locations = [
+        f"- {path}:{line}"
+        for path in sorted(changed_lines)
+        for line in sorted(changed_lines[path])
+    ]
+    return "\n".join(locations) if locations else "- No changed new-file lines are available."
+
+
 def suggestion_body(feedback: str, suggestion: str) -> str:
     """Format a GitHub suggested-change comment from feedback and replacement.
 
@@ -156,8 +166,10 @@ def suggestion_body(feedback: str, suggestion: str) -> str:
 def parse_review_output(output: str, changed_lines: dict[str, set[int]]) -> tuple[str, list[dict[str, object]]]:
     """Parse and validate the structured response requested from OpenCode.
 
-    Invalid location suggestions are included in the overall review body
-    instead of being sent as inline comments that GitHub would reject.
+    Invalid locations are included in the overall review body instead of being
+    sent as inline comments that GitHub would reject. A normal single-line
+    comment with a valid end line recovers from an invalid ``start_line`` by
+    dropping the range.
     """
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", output, re.DOTALL)
     raw_json = match.group(1) if match else output.strip()
@@ -183,35 +195,55 @@ def parse_review_output(output: str, changed_lines: dict[str, set[int]]) -> tupl
             continue
         path, line, body = item.get("path"), item.get("line"), item.get("body")
         start_line, suggestion = item.get("start_line"), item.get("suggestion")
+        has_valid_location = (
+            isinstance(path, str)
+            and isinstance(line, int)
+            and not isinstance(line, bool)
+            and line in changed_lines.get(path, set())
+        )
         has_valid_range = (
             start_line is None
             or (
                 isinstance(start_line, int)
                 and not isinstance(start_line, bool)
-                and isinstance(line, int)
                 and start_line < line
                 and all(candidate in changed_lines.get(path, set()) for candidate in range(start_line, line + 1))
             )
         )
+        has_suggestion = isinstance(suggestion, str) and suggestion.strip() and "```" not in suggestion
+        recover_single_line = has_valid_location and not has_valid_range and not has_suggestion
         if (
-            isinstance(path, str)
-            and isinstance(line, int)
-            and not isinstance(line, bool)
+            has_valid_location
             and isinstance(body, str)
             and body.strip()
-            and line in changed_lines.get(path, set())
-            and has_valid_range
+            and (has_valid_range or recover_single_line)
         ):
             comment: dict[str, object] = {"path": path, "line": line, "side": "RIGHT", "body": body.strip()}
-            if start_line is not None:
+            if has_valid_range and start_line is not None:
                 comment["start_line"] = start_line
                 comment["start_side"] = "RIGHT"
-            if isinstance(suggestion, str) and suggestion.strip() and "```" not in suggestion:
+            if has_suggestion:
                 comment["body"] = suggestion_body(body.strip(), suggestion.strip())
             comments.append(comment)
+            if recover_single_line:
+                print(
+                    f"Recovered inline comment at {path}:{line} by dropping invalid start_line={start_line!r}.",
+                    file=sys.stderr,
+                )
         elif isinstance(body, str) and body.strip():
             location = f"`{path}:{line}`" if isinstance(path, str) and isinstance(line, int) else "an unavailable location"
             unlocated.append(f"- **Additional feedback ({location}):** {body.strip()}")
+            if not has_valid_location:
+                reason = "the path and line are not an added line in the diff"
+            elif not has_valid_range:
+                reason = "the requested multi-line range is not entirely composed of added lines"
+            else:
+                reason = "the comment fields are invalid"
+            print(
+                f"Not posting inline comment at {path!r}:{line!r}: {reason}. "
+                f"Allowed lines for this path: {sorted(changed_lines.get(path, set()))}.",
+                file=sys.stderr,
+            )
 
     if unlocated:
         summary = f"{summary}\n\n" + "\n".join(unlocated)
@@ -269,6 +301,7 @@ def main() -> int:
         print("Feedback from this workflow already exists; skipping.")
         return 0
 
+    changed_lines = changed_lines_by_path(args.input.read_text(encoding="utf-8")) if reviews_url else {}
     prompt = (
         f"{args.prompt}\n\n"
         f"Use the repository custom agent '{agent_name}' and skill '{skill_name}'. "
@@ -277,6 +310,8 @@ def main() -> int:
         "Return JSON only, with this exact shape: "
         '{"summary":"overall Markdown review", "comments":[{"path":"repository-relative path", "line":123, "body":"concise Markdown feedback", "suggestion":"exact replacement text"}]}. '
         "The summary is always published as the overall review comment. Add a comments item only for a changed new-file line visible in the supplied diff. "
+        "For a one-line finding, omit start_line. Before responding, select only an allowed location from this list:\n"
+        f"{format_changed_locations(changed_lines)}\n"
         "Use an optional 'suggestion' only when you can provide an exact replacement; it becomes an apply-able GitHub suggested change. "
         "For a multi-line suggestion, also provide 'start_line' and ensure every line from start_line through line is a changed new-file line. "
         "Use no Markdown code fence and do not include 'side' or 'start_side' fields."
@@ -297,7 +332,7 @@ def main() -> int:
 
     if reviews_url:
         try:
-            summary, comments = parse_review_output(output, changed_lines_by_path(args.input.read_text(encoding="utf-8")))
+            summary, comments = parse_review_output(output, changed_lines)
         except (OSError, ValueError) as error:
             print(str(error), file=sys.stderr)
             return 1
