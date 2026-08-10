@@ -5,7 +5,6 @@ Run this script directly to print a friendly greeting::
 	python test-script.py
 """
 
-
 def main() -> None:
 	"""Print the program's greeting to standard output."""
 	print("Hello, World!")
