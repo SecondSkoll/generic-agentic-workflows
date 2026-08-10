@@ -8,6 +8,7 @@ permission:
   edit: allow
   bash: allow
 skill:
+  "*": deny
   example-skill: allow
 ---
 
