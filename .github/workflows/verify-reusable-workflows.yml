@@ -1,0 +1,123 @@
+name: Verify reusable workflows
+
+# Verifies that the reusable workflows remain valid YAML, that the resolver
+# module and feedback script pass their unit tests, and that the consumer
+# wrapper examples parse. It also exercises the resolver in validate_only mode
+# for each supported workflow to confirm input normalization and rejection
+# work without requiring a provider secret or GitHub write access.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'docs/examples/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Validate workflow YAML
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          import yaml
+          files = [
+              ".github/workflows/opencode-review.yml",
+              ".github/workflows/opencode-issue-feedback.yml",
+              ".github/workflows/opencode-issue-implementation.yml",
+              ".github/workflows/verify-reusable-workflows.yml",
+              "docs/examples/opencode-review.yml",
+              "docs/examples/opencode-issue-feedback.yml",
+              "docs/examples/opencode-issue-implementation.yml",
+          ]
+          failures = []
+          for path in files:
+              try:
+                  yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+                  print(f"OK: {path}")
+              except Exception as error:
+                  failures.append(f"{path}: {error}")
+                  print(f"FAIL: {path}: {error}")
+          if failures:
+              sys.exit(1)
+          PY
+
+      - name: Run unit tests
+        run: |
+          python3 -m unittest discover -s tests -v
+
+      - name: Exercise resolver in validate_only mode
+        run: |
+          set -euo pipefail
+          python3 scripts/resolve_invocation.py \
+            --workflow pr-documentation-review \
+            --configuration-profile documentation-review \
+            --target-number 1 \
+            --validate-only true \
+            --result "$RUNNER_TEMP/pr-review.json"
+          python3 scripts/resolve_invocation.py \
+            --workflow issue-feedback \
+            --configuration-profile issue-feedback \
+            --validate-only true \
+            --result "$RUNNER_TEMP/issue-feedback.json"
+          python3 scripts/resolve_invocation.py \
+            --workflow issue-implementation \
+            --configuration-profile default-implementation \
+            --target-number 1 \
+            --validate-only true \
+            --result "$RUNNER_TEMP/issue-implementation.json"
+
+      - name: Confirm resolver rejects invalid inputs
+        run: |
+          set +e
+          python3 scripts/resolve_invocation.py \
+            --workflow pr-documentation-review \
+            --configuration-profile 'Bad Profile' \
+            --target-number 1
+          rc=$?
+          if [[ $rc -eq 0 ]]; then
+            echo "Resolver accepted an invalid profile; expected failure." >&2
+            exit 1
+          fi
+          echo "Resolver correctly rejected invalid profile (exit $rc)."
+
+      - name: Confirm resolver rejects mutable ref
+        run: |
+          set +e
+          python3 scripts/resolve_invocation.py \
+            --workflow pr-documentation-review \
+            --configuration-profile documentation-review \
+            --configuration-ref main \
+            --target-number 1
+          rc=$?
+          if [[ $rc -eq 0 ]]; then
+            echo "Resolver accepted a mutable ref; expected failure." >&2
+            exit 1
+          fi
+          echo "Resolver correctly rejected mutable ref (exit $rc)."
+
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reusable-workflow-validation
+          path: |
+            ${{ runner.temp }}/pr-review.json
+            ${{ runner.temp }}/issue-feedback.json
+            ${{ runner.temp }}/issue-implementation.json
+          retention-days: 7

@@ -282,6 +282,22 @@ def main() -> int:
         action="store_true",
         help="Fail instead of skipping when feedback for this pull-request commit already exists",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate feedback without posting comments or pull-request reviews",
+    )
+    parser.add_argument(
+        "--max-comments",
+        type=int,
+        default=None,
+        help="Upper bound on inline review comments; clamps model output",
+    )
+    parser.add_argument(
+        "--focus",
+        default=None,
+        help="Allowlisted review focus such as documentation, security, or tests",
+    )
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN")
@@ -316,8 +332,15 @@ def main() -> int:
         return 0
 
     changed_lines = changed_lines_by_path(args.input.read_text(encoding="utf-8")) if reviews_url else {}
+    focus_clause = f"Focus the review on {args.focus}. " if args.focus else ""
+    max_comments_clause = (
+        f"Return at most {args.max_comments} inline comments. "
+        if args.max_comments is not None
+        else ""
+    )
     prompt = (
         f"{args.prompt}\n\n"
+        f"{focus_clause}{max_comments_clause}"
         f"Use the repository custom agent '{agent_name}' and skill '{skill_name}'. "
         f"The verified GitHub login of this contribution's author is '@{args.author}'. "
         "When referring to the author, use that exact handle; do not infer an author from issue or pull-request numbers. "
@@ -350,6 +373,18 @@ def main() -> int:
         except (OSError, ValueError) as error:
             print(str(error), file=sys.stderr)
             return 1
+        if args.max_comments is not None and len(comments) > args.max_comments:
+            comments = comments[: args.max_comments]
+            print(
+                f"Clamped inline comments to max_comments={args.max_comments}.",
+                file=sys.stderr,
+            )
+        if args.dry_run:
+            print(
+                f"Dry run: would post agentic review with {len(comments)} inline comment(s).\n"
+                f"{marker}\n{summary}",
+            )
+            return 0
         github_request(
             reviews_url,
             token,
@@ -363,6 +398,11 @@ def main() -> int:
         )
         print(f"Posted agentic review with {len(comments)} inline comment(s).")
     else:
+        if args.dry_run:
+            print(
+                f"Dry run: would post agentic feedback.\n{marker}\n{output}",
+            )
+            return 0
         github_request(args.comments_url, token, method="POST", body={"body": f"{marker}\n{output}"})
         print("Posted agentic feedback.")
     return 0

@@ -7,6 +7,45 @@ on:
         description: Open issue number to implement (optional; otherwise process one requested issue)
         required: false
         type: string
+  workflow_call:
+    inputs:
+      configuration_source:
+        description: local or an approved remote source alias
+        type: string
+        required: false
+        default: local
+      configuration_ref:
+        description: Full 40-character commit SHA for a remote bundle
+        type: string
+        required: false
+        default: ''
+      configuration_profile:
+        description: Bundle profile name
+        type: string
+        required: true
+      request_label:
+        description: Validated label or comment marker used to select an eligible issue
+        type: string
+        required: false
+        default: ai-review-requested
+      dry_run:
+        description: Resolve, validate, and generate output without publishing
+        type: boolean
+        required: false
+        default: false
+      validate_only:
+        description: Resolve and validate configuration only
+        type: boolean
+        required: false
+        default: false
+      issue_number:
+        description: Open issue number to implement when event context is unavailable
+        type: number
+        required: false
+        default: 0
+    secrets:
+      OPENROUTER_API_KEY:
+        required: true
 
 permissions:
   contents: read
@@ -22,27 +61,61 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       issue: ${{ steps.select.outputs.issue }}
+      dry_run: ${{ steps.resolve.outputs.dry_run }}
+      validate_only: ${{ steps.resolve.outputs.validate_only }}
     steps:
+      - name: Resolve invocation
+        id: resolve
+        env:
+          AGENTIC_WORKFLOW: issue-implementation
+          AGENTIC_CONFIGURATION_SOURCE: ${{ github.event_name == 'workflow_call' && inputs.configuration_source || 'local' }}
+          AGENTIC_CONFIGURATION_REF: ${{ github.event_name == 'workflow_call' && inputs.configuration_ref || '' }}
+          AGENTIC_CONFIGURATION_PROFILE: ${{ github.event_name == 'workflow_call' && inputs.configuration_profile || 'default-implementation' }}
+          AGENTIC_DRY_RUN: ${{ github.event_name == 'workflow_call' && inputs.dry_run || false }}
+          AGENTIC_VALIDATE_ONLY: ${{ github.event_name == 'workflow_call' && inputs.validate_only || false }}
+          AGENTIC_TARGET_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || github.event_name == 'workflow_call' && inputs.issue_number || '' }}
+          AGENTIC_REQUEST_LABEL: ${{ github.event_name == 'workflow_call' && inputs.request_label || 'ai-review-requested' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/resolve_invocation.py \
+            --workflow issue-implementation \
+            --configuration-source "$AGENTIC_CONFIGURATION_SOURCE" \
+            --configuration-ref "$AGENTIC_CONFIGURATION_REF" \
+            --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
+            --dry-run "$AGENTIC_DRY_RUN" \
+            --validate-only "$AGENTIC_VALIDATE_ONLY" \
+            --target-number "$AGENTIC_TARGET_NUMBER" \
+            --request-label "$AGENTIC_REQUEST_LABEL" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-step-summary "$GITHUB_STEP_SUMMARY" \
+            --result "$RUNNER_TEMP/resolved-invocation.json"
+
+      - name: Stop after validation-only
+        if: steps.resolve.outputs.validate_only == 'true'
+        run: |
+          echo "validate_only selected; no issue selection, checkout, or model invocation performed."
+          echo "::notice::Resolved configuration written to job summary and artifact."
+
       - name: Select an eligible open issue
+        if: steps.resolve.outputs.validate_only != 'true'
         id: select
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          REQUEST_MARKER: '[[AI REVIEW REQUESTED]]'
-          REQUEST_LABEL: ai-review-requested
-          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          REQUEST_LABEL: ${{ steps.resolve.outputs.request_label }}
+          ISSUE_NUMBER: ${{ steps.resolve.outputs.target_number }}
         run: |
           set -euo pipefail
 
           comment_has_request() {
-            jq -e --arg marker "$REQUEST_MARKER" \
-              'any(.[]; (.body // "" | contains($marker)) or (.body // "" | test("(?i)\\[\\[ai implementation requested\\]\\]")))' \
+            jq -e \
+              'any(.[]; (.body // "" | test("(?i)\\[\\[ai implementation requested\\]\\]")))' \
               > /dev/null
           }
 
           action_has_replied_to_request() {
-            jq -e --arg marker "$REQUEST_MARKER" \
-              '([.[] | select((.body // "" | contains($marker)) or (.body // "" | test("(?i)\\[\\[ai implementation requested\\]\\]"))) | .created_at] | max) as $requested_at | if $requested_at == null then any(.[]; (.user.login // "") == "github-actions[bot]" and ((.body // "" | contains("<!-- agentic-workflow:issue-implementation:")) or (.body // "" | contains("<!-- agentic-workflow:issue-implementation-status:")))) else any(.[]; (.user.login // "") == "github-actions[bot]" and (.created_at > $requested_at) and ((.body // "" | contains("<!-- agentic-workflow:issue-implementation:")) or (.body // "" | contains("<!-- agentic-workflow:issue-implementation-status:")))) end' \
+            jq -e \
+              '([.[] | select((.body // "" | test("(?i)\\[\\[ai implementation requested\\]\\]"))) | .created_at] | max) as $requested_at | if $requested_at == null then any(.[]; (.user.login // "") == "github-actions[bot]" and ((.body // "" | contains("<!-- agentic-workflow:issue-implementation:")) or (.body // "" | contains("<!-- agentic-workflow:issue-implementation-status:")))) else any(.[]; (.user.login // "") == "github-actions[bot]" and (.created_at > $requested_at) and ((.body // "" | contains("<!-- agentic-workflow:issue-implementation:")) or (.body // "" | contains("<!-- agentic-workflow:issue-implementation-status:")))) end' \
               > /dev/null
           }
 
@@ -86,9 +159,17 @@ jobs:
 
           echo "issue=$(jq -c . <<< "$selected")" >> "$GITHUB_OUTPUT"
 
+      - name: Upload resolved invocation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resolved-invocation-issue-implementation
+          path: ${{ runner.temp }}/resolved-invocation.json
+          retention-days: 14
+
   implement:
     needs: select-issue
-    if: needs.select-issue.outputs.issue != ''
+    if: needs.select-issue.outputs.issue != '' && needs.select-issue.outputs.validate_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -98,6 +179,7 @@ jobs:
       CUSTOM_AGENT_FILE: .opencode/agents/issue-implementation.md
       CUSTOM_SKILL_FILE: .opencode/skills/example-skill/SKILL.md
       ISSUE: ${{ needs.select-issue.outputs.issue }}
+      DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -200,8 +282,21 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           BRANCH: ${{ steps.context.outputs.branch }}
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
+          DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
         run: |
           set -euo pipefail
+          if [[ "$DRY_RUN" == "true" ]]; then
+            if git diff --quiet HEAD; then
+              echo 'Dry run: OpenCode completed without making implementation changes.' >&2
+              exit 1
+            fi
+            changed_files=$(git diff --name-only HEAD | sed 's/^/- `/' | sed 's/$/`/')
+            echo "Dry run: would commit and push branch $BRANCH with the following changes:"
+            echo "$changed_files"
+            echo "Dry run: would open a pull request for #$ISSUE_NUMBER on branch $BRANCH."
+            echo "url=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           pr_url=$(gh pr list --repo "$REPOSITORY" --head "$BRANCH" --state open --json url --jq '.[0].url // empty')
           if [[ -z "$pr_url" ]]; then
             if git diff --quiet HEAD; then
@@ -246,9 +341,15 @@ jobs:
           IMPLEMENTATION_OUTCOME: ${{ steps.implement.outcome }}
           IMPLEMENTATION_DECISION: ${{ steps.implement.outputs.decision }}
           IMPLEMENTATION_BLOCKER: ${{ steps.implement.outputs.blocker }}
+          DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
         run: |
           set -euo pipefail
           marker='<!-- agentic-workflow:issue-implementation-status:v1 -->'
+          if [[ "$DRY_RUN" == "true" ]]; then
+            echo "Dry run: would post implementation status comment to issue #$ISSUE_NUMBER."
+            echo "  outcome=$IMPLEMENTATION_OUTCOME decision=$IMPLEMENTATION_DECISION blocker=$IMPLEMENTATION_BLOCKER"
+            exit 0
+          fi
           if [[ "$IMPLEMENTATION_OUTCOME" == 'success' && -n "$PR_URL" ]]; then
             body="$marker
           ## AI initial implementation proposed

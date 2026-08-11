@@ -9,6 +9,50 @@ on:
         description: Pull-request number to review
         required: true
         type: string
+  workflow_call:
+    inputs:
+      configuration_source:
+        description: local or an approved remote source alias
+        type: string
+        required: false
+        default: local
+      configuration_ref:
+        description: Full 40-character commit SHA for a remote bundle
+        type: string
+        required: false
+        default: ''
+      configuration_profile:
+        description: Bundle profile name
+        type: string
+        required: true
+      focus:
+        description: Allowlisted review focus
+        type: string
+        required: false
+        default: ''
+      max_comments:
+        description: Bounded feedback count (0-20)
+        type: number
+        required: false
+        default: 10
+      dry_run:
+        description: Resolve, validate, and generate output without publishing
+        type: boolean
+        required: false
+        default: false
+      validate_only:
+        description: Resolve and validate configuration only
+        type: boolean
+        required: false
+        default: false
+      pull_number:
+        description: Pull-request number to review when event context is unavailable
+        type: number
+        required: false
+        default: 0
+    secrets:
+      OPENROUTER_API_KEY:
+        required: true
 
 jobs:
   review:
@@ -18,15 +62,52 @@ jobs:
       pull-requests: write
     env:
       # Customise these paths to select repository-specific OpenCode guidance.
+      # These remain supported during the migration period; reusable callers
+      # should use configuration_profile instead (see Plan 2).
       CUSTOM_AGENT_FILE: .opencode/agents/example-agent.md
       CUSTOM_SKILL_FILE: .opencode/skills/example-skill/SKILL.md
       FEEDBACK_KIND: pr-documentation-review
     steps:
+      - name: Resolve invocation
+        id: resolve
+        env:
+          AGENTIC_WORKFLOW: pr-documentation-review
+          AGENTIC_CONFIGURATION_SOURCE: ${{ github.event_name == 'workflow_call' && inputs.configuration_source || 'local' }}
+          AGENTIC_CONFIGURATION_REF: ${{ github.event_name == 'workflow_call' && inputs.configuration_ref || '' }}
+          AGENTIC_CONFIGURATION_PROFILE: ${{ github.event_name == 'workflow_call' && inputs.configuration_profile || 'documentation-review' }}
+          AGENTIC_FOCUS: ${{ github.event_name == 'workflow_call' && inputs.focus || '' }}
+          AGENTIC_MAX_COMMENTS: ${{ github.event_name == 'workflow_call' && inputs.max_comments || '' }}
+          AGENTIC_DRY_RUN: ${{ github.event_name == 'workflow_call' && inputs.dry_run || false }}
+          AGENTIC_VALIDATE_ONLY: ${{ github.event_name == 'workflow_call' && inputs.validate_only || false }}
+          AGENTIC_TARGET_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pull_number || github.event_name == 'workflow_call' && inputs.pull_number || github.event.pull_request.number || '' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/resolve_invocation.py \
+            --workflow pr-documentation-review \
+            --configuration-source "$AGENTIC_CONFIGURATION_SOURCE" \
+            --configuration-ref "$AGENTIC_CONFIGURATION_REF" \
+            --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
+            --focus "$AGENTIC_FOCUS" \
+            --max-comments "$AGENTIC_MAX_COMMENTS" \
+            --dry-run "$AGENTIC_DRY_RUN" \
+            --validate-only "$AGENTIC_VALIDATE_ONLY" \
+            --target-number "$AGENTIC_TARGET_NUMBER" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-step-summary "$GITHUB_STEP_SUMMARY" \
+            --result "$RUNNER_TEMP/resolved-invocation.json"
+
+      - name: Stop after validation-only
+        if: steps.resolve.outputs.validate_only == 'true'
+        run: |
+          echo "validate_only selected; no checkout, model invocation, or publication performed."
+          echo "::notice::Resolved configuration written to job summary and artifact."
+
       - name: Resolve pull request
+        if: steps.resolve.outputs.validate_only != 'true'
         id: pull-request
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.pull_number || github.event.pull_request.number }}
+          PR_NUMBER: ${{ steps.resolve.outputs.target_number }}
         run: |
           if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
             echo "A positive pull-request number is required." >&2
@@ -47,6 +128,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v6
+        if: steps.resolve.outputs.validate_only != 'true'
         with:
           # Never execute PR code in this pull_request_target workflow.
           ref: ${{ steps.pull-request.outputs.base_sha }}
@@ -54,10 +136,12 @@ jobs:
           fetch-depth: 0
 
       - uses: actions/setup-python@v6
+        if: steps.resolve.outputs.validate_only != 'true'
         with:
           python-version: '3.12'
 
       - name: Get pull request diff
+        if: steps.resolve.outputs.validate_only != 'true'
         env:
           BASE_SHA: ${{ steps.pull-request.outputs.base_sha }}
           PR_NUMBER: ${{ steps.pull-request.outputs.number }}
@@ -66,13 +150,18 @@ jobs:
           git diff "$BASE_SHA" pr-head -- > pr.diff
 
       - name: Install OpenCode
+        if: steps.resolve.outputs.validate_only != 'true'
         run: npm install -g opencode-ai
 
       - name: Review documentation impact
+        if: steps.resolve.outputs.validate_only != 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           FAIL_IF_REVIEWED: ${{ github.event_name == 'workflow_dispatch' }}
+          DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
+          FOCUS: ${{ steps.resolve.outputs.focus }}
+          MAX_COMMENTS: ${{ steps.resolve.outputs.max_comments }}
         run: |
           review_args=(
             --input pr.diff \
@@ -89,4 +178,21 @@ jobs:
           if [[ "$FAIL_IF_REVIEWED" == "true" ]]; then
             review_args+=(--fail-if-reviewed)
           fi
+          if [[ "$DRY_RUN" == "true" ]]; then
+            review_args+=(--dry-run)
+          fi
+          if [[ -n "$FOCUS" ]]; then
+            review_args+=(--focus "$FOCUS")
+          fi
+          if [[ -n "$MAX_COMMENTS" ]]; then
+            review_args+=(--max-comments "$MAX_COMMENTS")
+          fi
           python scripts/run_agentic_feedback.py "${review_args[@]}"
+
+      - name: Upload resolved invocation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resolved-invocation-pr-review
+          path: ${{ runner.temp }}/resolved-invocation.json
+          retention-days: 14

@@ -83,3 +83,75 @@ If an external integration cannot use `github.token`, create a **fine-grained pe
 Add it as an Actions secret such as `AGENTIC_FEEDBACK_TOKEN`, pass it to `GITHUB_TOKEN` only in the comment-producing step, and remove it when no longer required. Do not grant repository administration, workflow, or broad organization permissions.
 
 > **Security note:** The PR workflow uses `pull_request_target` so it can comment with write permission, but it checks out the trusted base revision and only reads the untrusted PR diff. Do not change it to check out or execute pull-request code.
+
+## Reusable workflows (`workflow_call`)
+
+Each workflow also exposes an `on.workflow_call` interface so consumer repositories can call it through a thin local wrapper. The caller owns event triggers, `permissions:` declarations, concurrency controls, and provider secret forwarding; the reusable workflow owns input validation, model invocation, and publication.
+
+### Caller/callee responsibility split
+
+| Concern | Owned by |
+| --- | --- |
+| Event triggers and filtering | Caller |
+| `permissions:` declarations | Caller |
+| Provider secret forwarding | Caller |
+| Input validation and bounds | Callee |
+| Configuration profile selection | Caller |
+| Model invocation and output parsing | Callee |
+| Publication (comments, reviews, PRs) | Callee, gated by `dry_run`/`validate_only` |
+| Provenance artifact | Callee |
+
+### Typed inputs
+
+| Input | Type | Required | Purpose |
+| --- | --- | --- | --- |
+| `configuration_source` | string | no | `local` or an approved remote source alias; default `local`. |
+| `configuration_ref` | string | no | Full 40-character commit SHA for a remote bundle. |
+| `configuration_profile` | string | yes | Bundle profile name, constrained to `[a-z0-9][a-z0-9-]{0,62}`. |
+| `focus` | string | no | Allowlisted review focus; no arbitrary prompt text. |
+| `max_comments` | number | no | Bounded feedback count, `0`–`20` (PR review only). |
+| `max_issues` | number | no | Bounded issue count, `1`–`100` (issue feedback only). |
+| `request_label` | string | no | Validated label/marker for issue selection (implementation only). |
+| `dry_run` | boolean | no | Resolve, validate, and generate output without publishing. |
+| `validate_only` | boolean | no | Resolve and validate configuration only. |
+| `pull_number` / `issue_number` | number | no | Target number when event context is unavailable. |
+
+The reusable workflows do **not** expose raw prompt, agent path, skill path, model identifier, arbitrary URL, or mutable reference inputs. Any attempt to supply them is rejected before checkout or model invocation by the `Resolve invocation` step (`scripts/resolve_invocation.py`).
+
+### Modes
+
+* `validate_only` stops after configuration resolution and writes a job summary and artifact; it performs no checkout, model invocation, or GitHub write.
+* `dry_run` may call OpenCode but cannot post comments, create branches, push commits, or open PRs.
+* Normal execution retains existing publication behavior.
+
+### Minimal consumer wrapper
+
+See [`docs/examples/`](docs/examples/README.md) for complete wrappers. A review wrapper is conceptually equivalent to:
+
+```yaml
+jobs:
+  review:
+    uses: organization/generic-agentic-workflows/.github/workflows/opencode-review.yml@<pinned-sha>
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      configuration_source: local
+      configuration_profile: documentation-review
+      focus: documentation
+      max_comments: 10
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+```
+
+Use a real reviewed commit SHA or protected release tag in the `uses:` line, not a placeholder. A caller with read-only permissions can use `validate_only: true` but cannot accidentally publish feedback.
+
+### Migration from direct triggers
+
+Existing direct triggers (`pull_request_target`, `issues`, `workflow_dispatch`) continue to work without consumer changes. To migrate a consumer repository to the reusable form:
+
+1. Pin this repository to a reviewed commit SHA in your wrapper's `uses:` line.
+2. Copy the relevant wrapper from `docs/examples/` into `.github/workflows/` in your repository.
+3. Adjust the `on:` trigger and `permissions:` to match your policy.
+4. Forward only the provider secret the callee needs (`OPENROUTER_API_KEY`).
+5. Start with `validate_only: true`, then `dry_run: true`, then normal publication before enabling write-capable issue implementation.
