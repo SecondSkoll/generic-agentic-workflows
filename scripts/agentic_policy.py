@@ -192,7 +192,7 @@ BUILTIN_SAFETY_POLICY: dict[str, dict[str, Any]] = {
 #: repository agents (no secrets, no placeholders).
 MODEL_PROFILES: dict[str, dict[str, Any]] = {
     "review-readonly": {
-        "provider_model": "openrouter/deepseek/deepseek-v4-flash",
+        "provider_model": "openrouter/openai/gpt-5.6-luna",
         "max_tokens": 8000,
         "temperature_max": 0.2,
         "timeout_seconds": 180,
@@ -201,7 +201,7 @@ MODEL_PROFILES: dict[str, dict[str, Any]] = {
         "data_classification": "repository-content",
     },
     "issue-feedback-readonly": {
-        "provider_model": "openrouter/deepseek/deepseek-v4-flash",
+        "provider_model": "openrouter/openai/gpt-5.6-luna",
         "max_tokens": 8000,
         "temperature_max": 0.2,
         "timeout_seconds": 180,

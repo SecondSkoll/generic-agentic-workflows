@@ -2,7 +2,7 @@
 name: documentation-review
 description: Provide documentation-focused review feedback for pull requests
 mode: primary
-model: deepseek/deepseek-v4-flash
+model: openrouter/openai/gpt-5.6-luna
 temperature: 0.1
 permission:
   edit: deny
