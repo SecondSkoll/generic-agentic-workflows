@@ -1,4 +1,4 @@
-name: OpenCode PR documentation review
+name: OpenCode PR review
 
 on:
   pull_request_target:
