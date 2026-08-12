@@ -87,6 +87,8 @@ SUPPORTED_OUTPUT_CONTRACTS: frozenset[str] = frozenset(
     }
 )
 
+SUPPORTED_CONTEXT_POLICIES: frozenset[str] = frozenset({"pr-review-on-demand-v1"})
+
 #: Workflows this resolver accepts in ``allowed_workflows``.
 SUPPORTED_WORKFLOWS: frozenset[str] = frozenset(
     {
@@ -315,6 +317,7 @@ class BundleManifest:
     manifest_sha256: str
     additional_agent_files: tuple[str, ...] = ()
     bundle_policy: dict[str, Any] = field(default_factory=dict)
+    context_policy: str | None = None
 
 
 def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
@@ -379,6 +382,12 @@ def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
     bundle_policy = payload.get("policy", {})
     if not isinstance(bundle_policy, dict):
         raise ConfigurationError("policy must be a JSON object")
+    context_policy = payload.get("context_policy")
+    if context_policy is not None:
+        if workflow != "pr-documentation-review":
+            raise ConfigurationError("context_policy is only supported for pull-request reviews")
+        if context_policy not in SUPPORTED_CONTEXT_POLICIES:
+            raise ConfigurationError(f"unknown context_policy: {context_policy!r}")
     manifest_sha256 = sha256_json(payload)
     return BundleManifest(
         schema_version=schema_version,
@@ -393,6 +402,7 @@ def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
         manifest_sha256=manifest_sha256,
         additional_agent_files=additional_agent_files,
         bundle_policy=dict(bundle_policy),
+        context_policy=context_policy,
     )
 
 
@@ -444,6 +454,7 @@ class ResolvedBundle:
             "content_hashes": dict(self.content_hashes),
             "limits": dict(self.manifest.limits),
             "bundle_policy": dict(self.manifest.bundle_policy),
+            "context_policy": self.manifest.context_policy,
         }
 
     def to_json(self) -> str:

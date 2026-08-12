@@ -201,6 +201,19 @@ class UntrustedContentTests(unittest.TestCase):
 
 
 class OutputContractTests(unittest.TestCase):
+    def test_context_request_valid(self):
+        request = PROMPTS.parse_pr_review_context_request(json.dumps({
+            "needs_context": True, "reason": "Need surrounding section.",
+            "request": {"changed_files": [{"path": "docs/a.md", "why": "Check terminology."}], "manifest": False, "repository_files": []},
+        }))
+        self.assertTrue(request["needs_context"])
+
+    def test_context_request_requires_reason(self):
+        with self.assertRaises(PROMPTS.ContractError):
+            PROMPTS.parse_pr_review_context_request(json.dumps({
+                "needs_context": True, "reason": "", "request": {"changed_files": [], "manifest": False, "repository_files": []},
+            }))
+
     def test_pr_review_valid(self):
         output = json.dumps(
             {

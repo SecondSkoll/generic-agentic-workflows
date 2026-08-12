@@ -72,6 +72,15 @@ class MergePolicyTests(unittest.TestCase):
         self.assertEqual(policy.capabilities["shell"], "deny")
         self.assertEqual(policy.capabilities["delegation"], "deny")
         self.assertTrue(policy.sha256)
+        self.assertTrue(policy.context["allow_changed_file_context"])
+        self.assertEqual(policy.context["max_context_rounds"], 3)
+
+    def test_context_limit_cannot_be_broadened(self):
+        with self.assertRaises(POLICY.PolicyError):
+            POLICY.merge_policy(
+                workflow="pr-documentation-review", model_profile="review-readonly",
+                invocation_inputs={"max_context_rounds": 4},
+            )
 
     def test_default_merge_implementation(self):
         policy = POLICY.merge_policy(

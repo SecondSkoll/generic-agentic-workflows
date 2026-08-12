@@ -7,6 +7,7 @@
   "prompt_template": "prompts/review.md",
   "model_profile": "review-readonly",
   "output_contract": "pr-review-json-v1",
+  "context_policy": "pr-review-on-demand-v1",
   "limits": {"max_comments": 10},
   "policy": {
     "capabilities": {

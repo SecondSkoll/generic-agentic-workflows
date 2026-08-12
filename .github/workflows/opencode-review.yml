@@ -173,6 +173,8 @@ jobs:
             echo "author=$(jq -r '.user.login' <<< "$pull_request")"
             echo "title=$(jq -r '.title' <<< "$pull_request")"
           } >> "$GITHUB_OUTPUT"
+          jq '{number, title, body, user: {login: .user.login}, base: {sha: .base.sha, ref: .base.ref}, head: {sha: .head.sha, ref: .head.ref}}' \
+            <<< "$pull_request" > "$RUNNER_TEMP/pr-metadata.json"
 
       - uses: actions/setup-python@v6
         if: steps.resolve.outputs.validate_only != 'true'
@@ -336,6 +338,9 @@ jobs:
             --feedback-kind "$FEEDBACK_KIND"
             --author "${{ steps.pull-request.outputs.author }}"
             --target-title "${{ steps.pull-request.outputs.title }}"
+            --pr-metadata "$RUNNER_TEMP/pr-metadata.json"
+            --base-ref "${{ steps.pull-request.outputs.base_sha }}"
+            --head-ref pr-head
             --resolved-config "$RUNNER_TEMP/resolved-agentic-configuration.json"
             --effective-policy "$RUNNER_TEMP/effective-policy.json"
             --provenance "$RUNNER_TEMP/resolved-agentic-provenance.json"
