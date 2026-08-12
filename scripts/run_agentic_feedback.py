@@ -931,7 +931,12 @@ def _run_opencode_integrated(
             provider_timeout=provider_timeout,
         )
         if result.returncode:
-            print(result.stderr, file=sys.stderr)
+            detail = (result.stderr or result.stdout or "").strip()
+            print(
+                f"::error::OpenCode exited with status {result.returncode}. "
+                f"{detail or 'No diagnostic output was returned.'}",
+                file=sys.stderr,
+            )
         return result.returncode, result.stdout
     finally:
         import shutil
@@ -991,10 +996,26 @@ def review_with_context_loop(*, args: argparse.Namespace, resolved_bundle: dict,
         prompt = _compose_integrated_prompt(resolved_bundle=resolved_bundle, feedback_kind=args.feedback_kind, output_contract="pr-review-json-v1", repository=args.repository or "", author_login=args.author, pull_number=args.pull_number, target_title=None, focus=args.focus, max_comments=effective_max_comments, allowed_locations=format_changed_locations(changed_lines), untrusted_content=transcript + ("\n\nNo more context is available. Return final review JSON now." if final_only else ""))
         rc, output = _run_opencode_integrated(resolved_bundle=resolved_bundle, agent_name=resolved_bundle.get("agent_name") or "default-agent", prompt=prompt, provider_timeout=provider_timeout)
         if rc: return rc, output, audit
-        try: kind, parsed = PROMPTS.parse_pr_review_response(output, changed_lines=changed_lines, max_comments=effective_max_comments)
-        except PROMPTS.ContractError: return 1, output, audit
+        try:
+            kind, parsed = PROMPTS.parse_pr_review_response(
+                output,
+                changed_lines=changed_lines,
+                max_comments=effective_max_comments,
+            )
+        except PROMPTS.ContractError as error:
+            print(
+                f"::error::OpenCode response violated the PR review contract: {error}",
+                file=sys.stderr,
+            )
+            return 1, output, audit
         if kind == "final": return 0, output, audit
-        if final_only: return 1, output, audit
+        if final_only:
+            print(
+                "::error::OpenCode requested additional context after the "
+                f"configured limit of {limits.max_rounds} round(s).",
+                file=sys.stderr,
+            )
+            return 1, output, audit
         audit.rounds += 1; supplied, manifest = _requested_context(parsed, diff_files=files, manifest=manifest, base_ref=args.base_ref, head_ref=args.head_ref, policy=effective_policy, limits=limits, audit=audit)
         transcript += f"\n\nContext request {audit.rounds}: {parsed['reason']}\nContext response:\n{supplied}"
     return 1, "", audit

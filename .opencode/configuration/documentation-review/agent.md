@@ -2,7 +2,7 @@
 name: documentation-review
 description: Provide documentation-focused review feedback for pull requests
 mode: primary
-model: openrouter/deepseek/deepseek-v4-flash
+model: deepseek/deepseek-v4-flash
 temperature: 0.1
 permission:
   edit: deny

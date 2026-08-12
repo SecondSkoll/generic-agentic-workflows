@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import importlib.util
+import argparse
+import contextlib
+import io
 import json
 from pathlib import Path
 import unittest
+from unittest import mock
 
 
 SCRIPT_PATH = Path(__file__).parents[1] / "scripts" / "run_agentic_feedback.py"
@@ -136,6 +140,48 @@ new file mode 100644
     def test_rejects_unsafe_context_path(self) -> None:
         self.assertFalse(RUNNER._safe_context_path("../secret", ()))
         self.assertFalse(RUNNER._safe_context_path("/secret", ()))
+
+    def test_context_loop_reports_invalid_model_output(self) -> None:
+        """Malformed context-loop output must not fail without diagnostics."""
+        args = argparse.Namespace(
+            max_context_rounds=None,
+            max_context_files=None,
+            max_context_bytes=None,
+            feedback_kind="pr-documentation-review",
+            repository="owner/repository",
+            author="octocat",
+            pull_number=1,
+            focus=None,
+            base_ref="base",
+            head_ref="head",
+        )
+        bundle = {
+            "agent_name": "documentation-review",
+            "limits": {"max_comments": 10},
+            "prompt_template_text": "Review documentation.",
+        }
+        policy = {"context": {"max_context_rounds": 0}}
+        with mock.patch.object(
+            RUNNER,
+            "_run_opencode_integrated",
+            return_value=(0, "not valid JSON"),
+        ):
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                rc, _, _ = RUNNER.review_with_context_loop(
+                    args=args,
+                    resolved_bundle=bundle,
+                    effective_policy=policy,
+                    changed_lines={},
+                    input_text="",
+                    pr_metadata={},
+                    effective_max_comments=10,
+                    provider_timeout=1,
+                )
+        self.assertEqual(rc, 1)
+        self.assertIn(
+            "OpenCode response violated the PR review contract", stderr.getvalue()
+        )
 
 
 if __name__ == "__main__":
