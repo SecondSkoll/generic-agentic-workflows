@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "profile_name": "default-implementation",
+  "allowed_workflows": ["issue-implementation"],
+  "agent_file": "agent.md",
+  "additional_agent_files": ["executor.md"],
+  "skill_files": ["skills/implementation-guardrails/SKILL.md"],
+  "prompt_template": "prompts/plan.md",
+  "model_profile": "implementation-planner",
+  "output_contract": "issue-implementation-decision-v1",
+  "limits": {},
+  "policy": {
+    "capabilities": {
+      "filesystem": "repository-workspace-allowlist",
+      "shell": "validation-commands-only",
+      "network": "provider-and-github-api-only",
+      "github_write": "scoped-branch-pr-issue",
+      "delegation": "planner-to-executor"
+    }
+  }
+}

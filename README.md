@@ -122,7 +122,7 @@ The reusable workflows do **not** expose raw prompt, agent path, skill path, mod
 
 `configuration_source: local` uses configuration from the trusted checkout selected by the reusable workflow. To use shared configuration from somewhere else, the source must be an approved alias built into the reusable workflow release, such as `central`; callers cannot pass a URL, repository name, branch, tag, raw file URL, or PR ref.
 
-> **Current implementation note:** this repository currently allowlists only `local` in `scripts/resolve_invocation.py`. The remote examples below show the intended caller syntax for a workflow release that has enabled an approved remote alias. Until such an alias is added, non-local values fail closed during `Resolve invocation`.
+> **Current implementation note:** this repository allowlists `local` in `scripts/resolve_invocation.py` and the `central` remote alias in `scripts/agentic_configuration.py`. The remote examples below show the caller syntax for an approved remote alias. Unknown aliases fail closed during `Resolve invocation`.
 
 When an approved remote alias is available:
 
@@ -229,3 +229,74 @@ Existing direct triggers (`pull_request_target`, `issues`, `workflow_dispatch`) 
 3. Adjust the `on:` trigger and `permissions:` to match your policy.
 4. Forward only the provider secret the callee needs (`OPENROUTER_API_KEY`).
 5. Start with `validate_only: true`, then `dry_run: true`, then normal publication before enabling write-capable issue implementation.
+
+## Configuration bundles (Plan 2)
+
+A configuration bundle is a versioned directory under
+`.opencode/configuration/<profile>/` containing:
+
+- `bundle.json` — schema-v1 manifest (`profile_name`, `allowed_workflows`,
+  `agent_file`, `skill_files`, `prompt_template`, `model_profile`,
+  `output_contract`, `limits`).
+- `agent.md` and one or more `skills/<name>/SKILL.md` files with required
+  front-matter `name`.
+- `prompts/<name>.md` — a brace-token template using only documented variables
+  (`{{repository}}`, `{{feedback_kind}}`, `{{author_login}}`,
+  `{{target_number}}`, `{{target_title}}`, `{{focus}}`, `{{max_comments}}`,
+  `{{allowed_locations}}`, `{{untrusted_content}}`).
+- `hashes.json` — a SHA-256 digest for every declared content path.
+
+The resolver (`scripts/agentic_configuration.py`) normalizes and contains
+every path (rejecting absolute paths, `..`, backslashes, control characters,
+and symlinks), enforces UTF-8, per-file, and total-byte bounds, verifies every
+hash, validates front matter, and rejects workflow mismatches. Remote bundles
+are pinned to a full 40-character commit SHA through an allowlisted alias;
+mutable refs, URLs, and unknown aliases fail closed with no fallback. See
+[`docs/examples/central-configuration/README.md`](docs/examples/central-configuration/README.md)
+for a complete remote-bundle example.
+
+### Legacy `CUSTOM_AGENT_FILE` / `CUSTOM_SKILL_FILE` (deprecated)
+
+The legacy variables remain functional for local sources during the migration
+window and emit a deprecation warning. They will be removed in the next major
+workflow release after the published migration window. See
+[`docs/operations/migration-and-deprecation.md`](docs/operations/migration-and-deprecation.md).
+
+## Prompt templates and output contracts (Plan 3)
+
+The runner composes the model prompt from five fixed, ordered sections:
+(1) workflow-owned safety constraints, (2) the validated profile template,
+(3) typed runtime context, (4) delimited untrusted content, and
+(5) a workflow-owned output suffix. A profile may customize section 2 only;
+sections 1 and 5 are immutable. Untrusted issue/PR content is wrapped in
+`<untrusted-issue-content>...</untrusted-issue-content>` markers and treated
+as data only. Output is published only after passing a versioned contract
+(`pr-review-json-v1`, `issue-feedback-markdown-v1`, or
+`issue-implementation-decision-v1`).
+
+## Model/tool policy (Plan 4)
+
+`scripts/agentic_policy.py` merges five policy layers (built-in safety,
+organization, bundle profile, consumer overlay, typed invocation inputs) using
+restrictive operations only: set intersection for allowlists, minimum for
+quotas, logical AND for permissions, and explicit rejection for conflicting
+required values. No layer can broaden a capability granted by a higher layer.
+Review workflows stay read-only regardless of agent or template content. The
+issue-implementation workflow machine-enforces changed-path constraints before
+any push or PR creation, rejecting changes to workflows, automation,
+dependencies, and agent/skill/configuration instructions. The effective policy
+is inspectable in the `effective-policy.json` artifact and job summary.
+
+## Provenance and operations (Plan 5)
+
+Every run writes a redacted `resolved-agentic-provenance.json` record (source,
+resolved SHA, profile, manifest/prompt/policy hashes, output contract, model
+profile, mode, result, and a deterministic configuration digest) and uploads
+it as a short-retention artifact. Provenance is emitted on every path,
+including `validate_only` and resolution/policy/contract/provider failures (a
+minimal redacted attempted-resolution record). A v2 idempotency marker
+carries the configuration digest so a profile update triggers re-review;
+legacy v1 markers are still parsed during migration. For incident response,
+manual rollback, release/versioning, the operational test matrix, and runtime
+reliability controls, see
+[`docs/operations/operations-guide.md`](docs/operations/operations-guide.md).

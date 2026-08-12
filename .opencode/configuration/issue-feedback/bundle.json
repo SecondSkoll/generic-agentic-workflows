@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "profile_name": "issue-feedback",
+  "allowed_workflows": ["issue-feedback"],
+  "agent_file": "agent.md",
+  "skill_files": ["skills/triage/SKILL.md"],
+  "prompt_template": "prompts/feedback.md",
+  "model_profile": "issue-feedback-readonly",
+  "output_contract": "issue-feedback-markdown-v1",
+  "limits": {"max_comments": 5},
+  "policy": {
+    "capabilities": {
+      "filesystem": "read-issue-context-only",
+      "github_write": "issue-comment-only",
+      "delegation": "deny"
+    }
+  }
+}

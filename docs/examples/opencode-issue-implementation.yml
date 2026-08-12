@@ -34,3 +34,4 @@ jobs:
       issue_number: ${{ inputs.issue_number != '' && inputs.issue_number || 0 }}
     secrets:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      central_config_token: ${{ secrets.CENTRAL_CONFIG_TOKEN }}

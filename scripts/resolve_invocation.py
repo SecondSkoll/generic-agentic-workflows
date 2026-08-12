@@ -38,10 +38,26 @@ SUPPORTED_WORKFLOWS: frozenset[str] = frozenset(
     }
 )
 
-#: Configuration sources accepted by the resolver. ``local`` is the only
-#: source that this plan resolves directly; remote aliases are validated for
-#: shape only and are wired up in Plan 2.
-SUPPORTED_SOURCES: frozenset[str] = frozenset({"local"})
+#: Configuration sources accepted by the resolver. ``local`` is resolved
+#: directly; remote aliases are validated for shape here and fetched by
+#: ``scripts/agentic_configuration.py`` (Plan 2). The remote alias set is the
+#: single source of truth in ``agentic_configuration.REMOTE_SOURCE_ALIASES``;
+#: this frozenset mirrors it so the invocation resolver can run before the
+#: configuration module is imported. The two are kept in sync by tests.
+try:
+    import importlib.util as _importlib_util
+
+    _cfg_path = Path(__file__).resolve().parent / "agentic_configuration.py"
+    _spec = _importlib_util.spec_from_file_location("_agentic_cfg_mirror", _cfg_path)
+    if _spec and _spec.loader:
+        _mirror = _importlib_util.module_from_spec(_spec)
+        _spec.loader.exec_module(_mirror)
+        _remote_aliases = frozenset(_mirror.REMOTE_SOURCE_ALIASES.keys())
+    else:  # pragma: no cover - defensive
+        _remote_aliases = frozenset()
+except Exception:  # pragma: no cover - mirror must never break invocation
+    _remote_aliases = frozenset({"central"})
+SUPPORTED_SOURCES: frozenset[str] = frozenset({"local"}) | _remote_aliases
 
 #: Review focus values a caller may select. Profiles may narrow this set, but
 #: callers cannot introduce new focus values.

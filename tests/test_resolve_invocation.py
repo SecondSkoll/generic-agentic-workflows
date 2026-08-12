@@ -178,6 +178,37 @@ class ResolveInvocationTests(unittest.TestCase):
         )
         self.assertEqual(resolved.configuration_ref, sha)
 
+    def test_central_remote_alias_accepts_full_sha(self) -> None:
+        sha = "b" * 40
+        resolved = RESOLVER.resolve_invocation(
+            workflow="pr-documentation-review",
+            configuration_source="central",
+            configuration_ref=sha,
+            configuration_profile="documentation-review",
+            target_number=1,
+        )
+        self.assertEqual(resolved.configuration_source, "central")
+        self.assertEqual(resolved.configuration_ref, sha)
+
+    def test_central_remote_alias_requires_sha(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            RESOLVER.resolve_invocation(
+                workflow="pr-documentation-review",
+                configuration_source="central",
+                configuration_profile="documentation-review",
+                target_number=1,
+            )
+
+    def test_central_remote_alias_rejects_mutable_ref(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            RESOLVER.resolve_invocation(
+                workflow="pr-documentation-review",
+                configuration_source="central",
+                configuration_ref="main",
+                configuration_profile="documentation-review",
+                target_number=1,
+            )
+
     def test_dry_run_and_validate_only_are_mutually_exclusive(self) -> None:
         with self.assertRaises(RESOLVER.InvocationError):
             RESOLVER.resolve_invocation(

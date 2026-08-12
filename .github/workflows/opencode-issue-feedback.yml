@@ -48,6 +48,9 @@ on:
     secrets:
       OPENROUTER_API_KEY:
         required: true
+      central_config_token:
+        description: Optional read token for a private central configuration repository; falls back to github.token.
+        required: false
 
 jobs:
   feedback:
@@ -93,8 +96,38 @@ jobs:
 
       - name: Stop after validation-only
         if: steps.resolve.outputs.validate_only == 'true'
+        env:
+          AGENTIC_WORKFLOW_VERSION: ${{ github.sha }}
         run: |
           echo "validate_only selected; no checkout, model invocation, or publication performed."
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          import importlib.util
+          spec = importlib.util.spec_from_file_location("agentic_provenance", "scripts/agentic_provenance.py")
+          prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
+          record = prov.build_provenance(
+              workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
+              workflow_name="issue-feedback",
+              caller_repository=os.environ.get("GITHUB_REPOSITORY", ""),
+              target_kind="issue",
+              target_number=None,
+              target_head_sha=None,
+              bundle=None,
+              prompt_template_sha256=None,
+              output_contract=None,
+              model_profile=None,
+              effective_policy_sha256=None,
+              mode="validate-only",
+              result="validated",
+          )
+          Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-provenance.json").write_text(record.to_json() + "\n")
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          existing = summary.read_text() if summary.exists() else ""
+          if existing and not existing.endswith("\n"):
+              existing += "\n"
+          summary.write_text(existing + prov.job_summary(record), encoding="utf-8")
+          PY
           echo "::notice::Resolved configuration written to job summary and artifact."
 
       - uses: actions/checkout@v6
@@ -106,6 +139,119 @@ jobs:
         if: steps.resolve.outputs.validate_only != 'true'
         with:
           python-version: '3.12'
+
+      - name: Resolve agentic configuration
+        if: steps.resolve.outputs.validate_only != 'true'
+        id: config
+        env:
+          AGENTIC_WORKFLOW: issue-feedback
+          AGENTIC_CONFIGURATION_SOURCE: ${{ steps.resolve.outputs.configuration_source }}
+          AGENTIC_CONFIGURATION_REF: ${{ steps.resolve.outputs.configuration_ref }}
+          AGENTIC_CONFIGURATION_PROFILE: ${{ steps.resolve.outputs.configuration_profile }}
+          GITHUB_TOKEN: ${{ secrets.central_config_token || github.token }}
+          AGENTIC_WORKFLOW_VERSION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          resolve_config() {
+            if [[ "$AGENTIC_CONFIGURATION_SOURCE" == "local" && -z "$AGENTIC_CONFIGURATION_REF" ]]; then
+              if [[ -f "$CUSTOM_AGENT_FILE" && -f "$CUSTOM_SKILL_FILE" ]]; then
+                python3 scripts/agentic_configuration.py \
+                  --workflow issue-feedback \
+                  --legacy-agent-file "$CUSTOM_AGENT_FILE" \
+                  --legacy-skill-file "$CUSTOM_SKILL_FILE" \
+                  --output-contract issue-feedback-markdown-v1 \
+                  --result "$RUNNER_TEMP/resolved-agentic-configuration.json"
+              else
+                python3 scripts/agentic_configuration.py \
+                  --workflow issue-feedback \
+                  --bundle-root .opencode/configuration \
+                  --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
+                  --result "$RUNNER_TEMP/resolved-agentic-configuration.json"
+              fi
+            else
+              python3 scripts/agentic_configuration.py \
+                --workflow issue-feedback \
+                --configuration-source "$AGENTIC_CONFIGURATION_SOURCE" \
+                --configuration-ref "$AGENTIC_CONFIGURATION_REF" \
+                --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
+                --result "$RUNNER_TEMP/resolved-agentic-configuration.json"
+            fi
+          }
+          if ! resolve_config; then
+            python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          import importlib.util
+          spec = importlib.util.spec_from_file_location("agentic_provenance", "scripts/agentic_provenance.py")
+          prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
+          record = prov.failure_record(
+              workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
+              workflow_name="issue-feedback",
+              caller_repository=os.environ.get("GITHUB_REPOSITORY", ""),
+              mode="publish",
+              error=RuntimeError("configuration resolution failed"),
+          )
+          Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-provenance.json").write_text(record.to_json() + "\n")
+          PY
+            exit 1
+          fi
+
+      - name: Resolve effective policy
+        if: steps.resolve.outputs.validate_only != 'true'
+        id: policy
+        env:
+          DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
+          AGENTIC_WORKFLOW_VERSION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          model_profile=$(jq -r '.model_profile' "$RUNNER_TEMP/resolved-agentic-configuration.json")
+          mode="publish"
+          if [[ "$DRY_RUN" == "true" ]]; then mode="dry-run"; fi
+          # Derive actual agent capabilities from verified resolved front
+          # matter (required change #3), not a hardcoded empty object.
+          agent_caps=$(python3 - <<'PY'
+          import json, sys, os, importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("agentic_policy", "scripts/agentic_policy.py")
+          pol = importlib.util.module_from_spec(spec); sys.modules[spec.name] = pol; spec.loader.exec_module(pol)
+          data = json.loads(Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-configuration.json").read_text())
+          agent_text = (Path(data["bundle_root"]) / data["agent_file"]).read_text(encoding="utf-8")
+          print(json.dumps(pol.parse_agent_capabilities(agent_text)))
+          PY
+          )
+          overlay_arg=""
+          if [[ -f .github/agentic-policy-overlay.json ]]; then
+            overlay_arg="--overlay .github/agentic-policy-overlay.json"
+          fi
+          python3 scripts/agentic_policy.py \
+            --workflow issue-feedback \
+            --model-profile "$model_profile" \
+            --resolved-config "$RUNNER_TEMP/resolved-agentic-configuration.json" \
+            --agent-capabilities-json "$agent_caps" \
+            --mode "$mode" \
+            $overlay_arg \
+            --result "$RUNNER_TEMP/effective-policy.json" \
+            --github-step-summary "$GITHUB_STEP_SUMMARY" \
+          || {
+            python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          import importlib.util
+          spec = importlib.util.spec_from_file_location("agentic_provenance", "scripts/agentic_provenance.py")
+          prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
+          bundle = json.loads(Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-configuration.json").read_text())
+          record = prov.failure_record(
+              workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
+              workflow_name="issue-feedback",
+              caller_repository=os.environ.get("GITHUB_REPOSITORY", ""),
+              mode="publish",
+              error=RuntimeError("policy resolution failed"),
+              bundle=bundle,
+          )
+          Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-provenance.json").write_text(record.to_json() + "\n")
+          PY
+            exit 1
+          }
 
       - name: Install OpenCode
         if: steps.resolve.outputs.validate_only != 'true'
@@ -141,7 +287,10 @@ jobs:
           DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
           FOCUS: ${{ steps.resolve.outputs.focus }}
         run: |
-          jq -c '.[] | select(has("pull_request") | not)' open-issues.json | while read -r issue; do
+          set -euo pipefail
+          # Fail fast: if feedback for any issue fails, exit non-zero so the
+          # workflow is not silently marked successful.
+          while read -r issue; do
             issue_number=$(jq -r '.number' <<< "$issue")
             issue_author=$(jq -r '.user.login // empty' <<< "$issue")
             if [[ -z "$issue_author" ]]; then
@@ -149,14 +298,16 @@ jobs:
               continue
             fi
             jq -r '"# Issue #\(.number): \(.title)\n\n\(.body // "")"' <<< "$issue" > issue.txt
+            issue_title=$(jq -r '.title' <<< "$issue")
             feedback_args=(
-              --input issue.txt \
-              --prompt 'Review this open issue and identify missing information, risks, or useful next steps. Be concise and only offer constructive feedback.' \
-              --agent-file "$CUSTOM_AGENT_FILE" \
-              --skill-file "$CUSTOM_SKILL_FILE" \
-              --comments-url "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number/comments" \
-              --feedback-kind "$FEEDBACK_KIND" \
+              --input issue.txt
+              --comments-url "https://api.github.com/repos/${{ github.repository }}/issues/$issue_number/comments"
+              --feedback-kind "$FEEDBACK_KIND"
               --author "$issue_author"
+              --target-title "$issue_title"
+              --resolved-config "$RUNNER_TEMP/resolved-agentic-configuration.json"
+              --effective-policy "$RUNNER_TEMP/effective-policy.json"
+              --provenance "$RUNNER_TEMP/resolved-agentic-provenance-$issue_number.json"
             )
             if [[ "$DRY_RUN" == "true" ]]; then
               feedback_args+=(--dry-run)
@@ -164,13 +315,19 @@ jobs:
             if [[ -n "$FOCUS" ]]; then
               feedback_args+=(--focus "$FOCUS")
             fi
-            python scripts/run_agentic_feedback.py "${feedback_args[@]}"
-          done
+            python3 scripts/run_agentic_feedback.py "${feedback_args[@]}"
+          done < <(jq -c '.[] | select(has("pull_request") | not)' open-issues.json)
 
       - name: Upload resolved invocation artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: resolved-invocation-issue-feedback
-          path: ${{ runner.temp }}/resolved-invocation.json
+          path: |
+            ${{ runner.temp }}/resolved-invocation.json
+            ${{ runner.temp }}/resolved-agentic-configuration.json
+            ${{ runner.temp }}/effective-policy.json
+            ${{ runner.temp }}/resolved-agentic-provenance.json
+            ${{ runner.temp }}/resolved-agentic-provenance-*.json
           retention-days: 14
+          if-no-files-found: ignore

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "profile_name": "documentation-review",
+  "allowed_workflows": ["pr-documentation-review"],
+  "agent_file": "agent.md",
+  "skill_files": ["skills/documentation/SKILL.md"],
+  "prompt_template": "prompts/review.md",
+  "model_profile": "review-readonly",
+  "output_contract": "pr-review-json-v1",
+  "limits": {"max_comments": 10},
+  "policy": {
+    "capabilities": {
+      "filesystem": "read-trusted-checkout-diff",
+      "github_write": "review-comment-only",
+      "delegation": "deny"
+    }
+  }
+}

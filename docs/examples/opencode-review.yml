@@ -23,3 +23,8 @@ jobs:
       max_comments: 10
     secrets:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # Optional: forward a read token for a private central configuration repo.
+      central_config_token: ${{ secrets.CENTRAL_CONFIG_TOKEN }}
+# When configuration_source is `central` (a private remote config repo), set
+# configuration_source: central, configuration_ref: <40-char SHA>, and forward
+# central_config_token with a read-capable token for that repository.

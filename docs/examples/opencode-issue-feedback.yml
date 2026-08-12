@@ -24,3 +24,4 @@ jobs:
       max_issues: 20
     secrets:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      central_config_token: ${{ secrets.CENTRAL_CONFIG_TOKEN }}

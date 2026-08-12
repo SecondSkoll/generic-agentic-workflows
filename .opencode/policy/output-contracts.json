@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "description": "Workflow-owned output-contract registry. A profile may select one of these contracts but cannot introduce a new one. Mirrors scripts/agentic_prompts.py.",
+  "contracts": {
+    "pr-review-json-v1": {
+      "kind": "json",
+      "required_top_level_fields": ["summary"],
+      "optional_top_level_fields": ["comments"],
+      "max_summary_bytes": 16384,
+      "max_comment_body_bytes": 8192,
+      "max_suggestion_bytes": 16384,
+      "max_path_bytes": 512,
+      "max_comments": 50,
+      "publication": "pull-request review with inline comments on allowed changed lines"
+    },
+    "issue-feedback-markdown-v1": {
+      "kind": "markdown",
+      "max_bytes": 16384,
+      "forbidden": ["machine-readable fenced blocks", "hidden HTML comment markers"],
+      "publication": "single issue comment"
+    },
+    "issue-implementation-decision-v1": {
+      "kind": "text",
+      "required_fields": ["IMPLEMENTATION_DECISION"],
+      "conditional_fields": {
+        "IMPLEMENTATION_BLOCKER": "required when IMPLEMENTATION_DECISION is BLOCKED"
+      },
+      "max_blocker_bytes": 4096,
+      "publication": "issue status comment; PR creation only when decision is IMPLEMENT"
+    }
+  }
+}

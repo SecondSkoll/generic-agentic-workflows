@@ -5,20 +5,53 @@ The script is intentionally dependency-free so it can run in a GitHub Actions
 runner. It validates the selected agent and skill files, asks OpenCode for
 feedback, and posts at most one marked comment or pull-request review for each
 feedback type.
+
+Plans 2-5 integration: when a resolved configuration bundle and effective
+policy are supplied (``--resolved-config`` / ``--effective-policy``), the
+runner composes the model prompt through :mod:`agentic_prompts`, validates the
+model output against the versioned output contract before publication, uses a
+v2 idempotency marker carrying the configuration digest, and emits a redacted
+provenance record. A narrow legacy path preserves Plan 1 behaviour for
+``CUSTOM_AGENT_FILE``/``CUSTOM_SKILL_FILE`` during the documented migration
+window and emits a deprecation warning.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Load sibling Plan 2-5 modules (dependency-free, file-path importable).
+# ---------------------------------------------------------------------------
+
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+
+
+def _load_sibling(name: str):
+    spec = importlib.util.spec_from_file_location(name, _SCRIPTS_DIR / f"{name}.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+PROMPTS = _load_sibling("agentic_prompts")
+PROV = _load_sibling("agentic_provenance")
+POLICY = _load_sibling("agentic_policy")
+CFG = _load_sibling("agentic_configuration")
 
 
 def front_matter_name(path: Path) -> str:
@@ -44,7 +77,8 @@ def front_matter_name(path: Path) -> str:
 
 
 def github_request(
-    url: str, token: str, method: str = "GET", body: dict | None = None
+    url: str, token: str, method: str = "GET", body: dict | None = None,
+    *, retries: int = 1, timeout: int = 30,
 ) -> tuple[object, dict[str, str]]:
     """Send an authenticated request to the GitHub REST API.
 
@@ -53,6 +87,9 @@ def github_request(
         token: GitHub token used for bearer-token authentication.
         method: HTTP method to use, such as ``GET`` or ``POST``.
         body: Optional JSON-serialisable request body.
+        retries: Bounded retry count for transient (5xx/network) failures.
+            Non-retryable 4xx errors fail immediately.
+        timeout: Per-request wall-clock timeout in seconds.
 
     Returns:
         A tuple containing the decoded JSON response and response headers.
@@ -62,19 +99,32 @@ def github_request(
         urllib.error.URLError: If the request cannot reach GitHub.
     """
     data = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(
-        url,
-        data=data,
-        method=method,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-    )
-    with urllib.request.urlopen(request) as response:
-        return json.load(response), dict(response.headers.items())
+    last_error: Exception | None = None
+    for attempt in range(max(1, retries)):
+        try:
+            request = urllib.request.Request(
+                url,
+                data=data,
+                method=method,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.load(response), dict(response.headers.items())
+        except urllib.error.HTTPError as error:
+            last_error = error
+            if 400 <= error.code < 500:
+                # Non-retryable: do not loop on permission/validation errors.
+                raise
+        except urllib.error.URLError as error:
+            last_error = error
+        if attempt < retries - 1:
+            time.sleep(min(2 ** attempt, 4))
+    raise last_error  # type: ignore[misc]
 
 
 def has_marker(url: str, token: str, marker: str) -> bool:
@@ -256,7 +306,7 @@ def parse_review_output(output: str, changed_lines: dict[str, set[int]]) -> tupl
     return summary, comments
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """Run the configured OpenCode review and optionally publish its feedback.
 
     Inputs are supplied through command-line arguments and the ``GITHUB_TOKEN``
@@ -268,9 +318,9 @@ def main() -> int:
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, required=True, help="Diff or issue prompt file passed to OpenCode")
-    parser.add_argument("--prompt", required=True, help="Review instruction passed to OpenCode")
-    parser.add_argument("--agent-file", type=Path, required=True)
-    parser.add_argument("--skill-file", type=Path, required=True)
+    parser.add_argument("--prompt", required=False, help="Review instruction passed to OpenCode (legacy path)")
+    parser.add_argument("--agent-file", type=Path, required=False)
+    parser.add_argument("--skill-file", type=Path, required=False)
     parser.add_argument("--comments-url", required=True, help="GitHub issue/PR comments API URL")
     parser.add_argument("--repository", help="owner/repository; enables an inline pull-request review")
     parser.add_argument("--pull-number", type=int, help="Pull request number for an inline review")
@@ -298,7 +348,43 @@ def main() -> int:
         default=None,
         help="Allowlisted review focus such as documentation, security, or tests",
     )
-    args = parser.parse_args()
+    # Plan 2-5 integration inputs (optional). When --resolved-config is
+    # supplied, the runner uses the resolved bundle's prompt template and
+    # output contract; otherwise it falls back to the legacy path.
+    parser.add_argument(
+        "--resolved-config",
+        type=Path,
+        default=None,
+        help="Path to a resolved configuration bundle JSON from agentic_configuration.py",
+    )
+    parser.add_argument(
+        "--effective-policy",
+        type=Path,
+        default=None,
+        help="Path to an effective policy JSON from agentic_policy.py",
+    )
+    parser.add_argument(
+        "--config-digest",
+        default=None,
+        help="Configuration digest for the v2 idempotency marker",
+    )
+    parser.add_argument(
+        "--output-contract",
+        default=None,
+        help="Override output contract (defaults to the bundle contract)",
+    )
+    parser.add_argument(
+        "--target-title",
+        default=None,
+        help="Untrusted target title, passed as data only",
+    )
+    parser.add_argument(
+        "--provenance",
+        type=Path,
+        default=None,
+        help="Path to write a redacted provenance record to",
+    )
+    args = parser.parse_args(argv)
 
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -308,82 +394,211 @@ def main() -> int:
     pr_arguments = (args.repository, args.pull_number, args.head_sha)
     if any(pr_arguments) and not all(pr_arguments):
         parser.error("--repository, --pull-number, and --head-sha must be supplied together")
-    for path in (args.input, args.agent_file, args.skill_file):
-        if not path.is_file():
-            parser.error(f"Required file not found: {path}")
+    if not args.input.is_file():
+        parser.error(f"Required file not found: {args.input}")
 
-    try:
-        agent_name = front_matter_name(args.agent_file)
-        skill_name = front_matter_name(args.skill_file)
-    except (OSError, ValueError) as error:
-        parser.error(str(error))
+    # Resolve the configuration path: Plan 2-5 integrated path, else legacy.
+    resolved_bundle: dict | None = None
+    effective_policy: dict | None = None
+    output_contract: str | None = args.output_contract
+    config_digest: str | None = args.config_digest
+    if args.resolved_config:
+        try:
+            resolved_bundle = json.loads(args.resolved_config.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            parser.error(f"Could not read resolved config: {error}")
+        if not output_contract:
+            output_contract = resolved_bundle.get("output_contract")
+        if not config_digest:
+            config_digest = PROV.configuration_digest(
+                {
+                    "workflow": args.feedback_kind,
+                    "configuration_source": resolved_bundle.get("source_alias"),
+                    "configuration_ref": resolved_bundle.get("resolved_sha"),
+                    "profile": resolved_bundle.get("profile"),
+                    "manifest_sha256": resolved_bundle.get("manifest_sha256"),
+                    "prompt_template_sha256": resolved_bundle.get("prompt_template_sha256"),
+                    "output_contract": output_contract,
+                    "model_profile": resolved_bundle.get("model_profile"),
+                    "effective_policy_sha256": None,
+                }
+            )
+    if args.effective_policy:
+        try:
+            effective_policy = json.loads(args.effective_policy.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            parser.error(f"Could not read effective policy: {error}")
 
-    marker = feedback_marker(args.feedback_kind, args.head_sha)
+    # Compute the effective max_comments: a caller override wins when supplied
+    # (the composer validates it is at or below the profile ceiling); when the
+    # caller omits it, the bundle profile ceiling is applied so output is still
+    # clamped. Required change #5.
+    effective_max_comments = args.max_comments
+    if resolved_bundle is not None and effective_max_comments is None:
+        profile_limits = resolved_bundle.get("limits") or {}
+        if isinstance(profile_limits, dict):
+            profile_max = profile_limits.get("max_comments")
+            if isinstance(profile_max, int):
+                effective_max_comments = profile_max
+
+    # Legacy path requires the old file arguments and a prompt.
+    if resolved_bundle is None:
+        if not args.prompt or not args.agent_file or not args.skill_file:
+            parser.error("--prompt, --agent-file, and --skill-file are required when --resolved-config is not supplied")
+        for path in (args.agent_file, args.skill_file):
+            if not path.is_file():
+                parser.error(f"Required file not found: {path}")
+
+    # Idempotency marker: v2 when a config digest is available, else legacy v1.
+    use_v2_marker = bool(config_digest)
+    if use_v2_marker:
+        marker = PROV.feedback_marker(
+            args.feedback_kind, config_digest=config_digest, head_sha=args.head_sha
+        )
+    else:
+        marker = feedback_marker(args.feedback_kind, args.head_sha)
     reviews_url = ""
     marker_url = args.comments_url
     if args.repository:
         reviews_url = f"https://api.github.com/repos/{args.repository}/pulls/{args.pull_number}/reviews"
         marker_url = reviews_url
-    if has_marker(marker_url, token, marker):
+
+    # Suppress duplicate feedback. A v2 marker matches only the same config
+    # digest; a v1 marker is still recognised during the migration window but
+    # never matches a v2 config (so a profile update triggers re-review).
+    if _existing_feedback_match(
+        marker_url,
+        token,
+        feedback_kind=args.feedback_kind,
+        head_sha=args.head_sha,
+        config_digest=config_digest if use_v2_marker else None,
+        use_v2_marker=use_v2_marker,
+        legacy_marker=marker if not use_v2_marker else None,
+    ):
         if args.fail_if_reviewed:
             print("This pull-request commit has already received feedback from this workflow.", file=sys.stderr)
             return 1
         print("Feedback from this workflow already exists; skipping.")
+        _maybe_write_provenance(args, resolved_bundle, effective_policy, output_contract, config_digest, "skipped")
         return 0
 
-    changed_lines = changed_lines_by_path(args.input.read_text(encoding="utf-8")) if reviews_url else {}
-    focus_clause = f"Focus the review on {args.focus}. " if args.focus else ""
-    max_comments_clause = (
-        f"Return at most {args.max_comments} inline comments. "
-        if args.max_comments is not None
-        else ""
-    )
-    prompt = (
-        f"{args.prompt}\n\n"
-        f"{focus_clause}{max_comments_clause}"
-        f"Use the repository custom agent '{agent_name}' and skill '{skill_name}'. "
-        f"The verified GitHub login of this contribution's author is '@{args.author}'. "
-        "When referring to the author, use that exact handle; do not infer an author from issue or pull-request numbers. "
-        "Return JSON only, with this exact shape: "
-        '{"summary":"overall Markdown review", "comments":[{"path":"repository-relative path", "line":123, "body":"concise Markdown feedback", "suggestion":"exact replacement text"}]}. '
-        "The summary is always published as the overall review comment. Add a comments item only for a changed new-file line visible in the supplied diff. "
-        "For a one-line finding, omit start_line. Before responding, select only an allowed location from this list:\n"
-        f"{format_changed_locations(changed_lines)}\n"
-        "Use an optional 'suggestion' only when you can provide an exact replacement; it becomes an apply-able GitHub suggested change. "
-        "For a multi-line suggestion, also provide 'start_line' and ensure every line from start_line through line is a changed new-file line. "
-        "Use no Markdown code fence and do not include 'side' or 'start_side' fields."
-    )
-    result = subprocess.run(
-        ["opencode", "run", "--agent", agent_name, prompt, "--file", str(args.input)],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode:
-        print(result.stderr, file=sys.stderr)
-        return result.returncode
-    output = result.stdout.strip()
+    input_text = args.input.read_text(encoding="utf-8")
+    changed_lines = changed_lines_by_path(input_text) if reviews_url else {}
+    allowed_locations = format_changed_locations(changed_lines) if reviews_url else None
+
+    if resolved_bundle is not None:
+        try:
+            prompt = _compose_integrated_prompt(
+                resolved_bundle=resolved_bundle,
+                feedback_kind=args.feedback_kind,
+                output_contract=output_contract or "",
+                repository=args.repository or "",
+                author_login=args.author,
+                pull_number=args.pull_number,
+                target_title=args.target_title,
+                focus=args.focus,
+                max_comments=effective_max_comments,
+                allowed_locations=allowed_locations,
+                untrusted_content=input_text,
+            )
+        except PROMPTS.PromptError as error:
+            print(f"::error::Prompt composition failed: {error}", file=sys.stderr)
+            _maybe_write_provenance(args, resolved_bundle, effective_policy, output_contract, config_digest, "failed")
+            return 1
+        agent_name = resolved_bundle.get("agent_name") or "default-agent"
+    else:
+        agent_name = front_matter_name(args.agent_file)
+        skill_name = front_matter_name(args.skill_file)
+        focus_clause = f"Focus the review on {args.focus}. " if args.focus else ""
+        max_comments_clause = (
+            f"Return at most {args.max_comments} inline comments. "
+            if args.max_comments is not None
+            else ""
+        )
+        prompt = (
+            f"{args.prompt}\n\n"
+            f"{focus_clause}{max_comments_clause}"
+            f"Use the repository custom agent '{agent_name}' and skill '{skill_name}'. "
+            f"The verified GitHub login of this contribution's author is '@{args.author}'. "
+            "When referring to the author, use that exact handle; do not infer an author from issue or pull-request numbers. "
+            "Return JSON only, with this exact shape: "
+            '{"summary":"overall Markdown review", "comments":[{"path":"repository-relative path", "line":123, "body":"concise Markdown feedback", "suggestion":"exact replacement text"}]}. '
+            "The summary is always published as the overall review comment. Add a comments item only for a changed new-file line visible in the supplied diff. "
+            "For a one-line finding, omit start_line. Before responding, select only an allowed location from this list:\n"
+            f"{format_changed_locations(changed_lines)}\n"
+            "Use an optional 'suggestion' only when you can provide an exact replacement; it becomes an apply-able GitHub suggested change. "
+            "For a multi-line suggestion, also provide 'start_line' and ensure every line from start_line through line is a changed new-file line. "
+            "Use no Markdown code fence and do not include 'side' or 'start_side' fields."
+        )
+
+    # Bounded provider invocation. Timeouts/retries come from the effective
+    # policy when available; defaults are conservative.
+    provider_timeout = 180
+    if effective_policy:
+        provider_timeout = int(effective_policy.get("timeout_seconds", provider_timeout))
+
+    if resolved_bundle is not None:
+        # Plan 2-5 integrated path: stage hash-verified agent/skill content
+        # into an isolated OpenCode workspace under RUNNER_TEMP and run with
+        # --dir so OpenCode scans only the verified configuration (no fallback
+        # to unverified checked-out agents). Untrusted content is delivered
+        # single-channel inside the delimited prompt section; no --file.
+        rc, output = _run_opencode_integrated(
+            resolved_bundle=resolved_bundle,
+            agent_name=agent_name,
+            prompt=prompt,
+            provider_timeout=provider_timeout,
+        )
+    else:
+        result = subprocess.run(
+            ["opencode", "run", "--agent", agent_name, prompt, "--file", str(args.input)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=provider_timeout,
+        )
+        if result.returncode:
+            print(result.stderr, file=sys.stderr)
+            _maybe_write_provenance(args, resolved_bundle, effective_policy, output_contract, config_digest, "failed")
+            return result.returncode
+        rc, output = result.returncode, result.stdout
+    if rc:
+        _maybe_write_provenance(args, resolved_bundle, effective_policy, output_contract, config_digest, "failed")
+        return rc
+    output = (output or "").strip()
     if not output:
         print("OpenCode returned no feedback.", file=sys.stderr)
+        _maybe_write_provenance(args, resolved_bundle, effective_policy, output_contract, config_digest, "failed")
         return 1
 
     if reviews_url:
         try:
-            summary, comments = parse_review_output(output, changed_lines)
-        except (OSError, ValueError) as error:
+            if resolved_bundle is not None and output_contract:
+                summary, comments = PROMPTS.parse_output(
+                    output_contract,
+                    output,
+                    changed_lines=changed_lines,
+                    max_comments=effective_max_comments,
+                )
+            else:
+                summary, comments = parse_review_output(output, changed_lines)
+                clamp = effective_max_comments if effective_max_comments is not None else args.max_comments
+                if clamp is not None and len(comments) > clamp:
+                    comments = comments[: clamp]
+                    print(
+                        f"Clamped inline comments to max_comments={clamp}.",
+                        file=sys.stderr,
+                    )
+        except (OSError, ValueError, PROMPTS.ContractError) as error:
             print(str(error), file=sys.stderr)
+            _maybe_write_provenance(args, resolved_bundle, effective_policy, output_contract, config_digest, "failed")
             return 1
-        if args.max_comments is not None and len(comments) > args.max_comments:
-            comments = comments[: args.max_comments]
-            print(
-                f"Clamped inline comments to max_comments={args.max_comments}.",
-                file=sys.stderr,
-            )
         if args.dry_run:
             print(
                 f"Dry run: would post agentic review with {len(comments)} inline comment(s).\n"
                 f"{marker}\n{summary}",
             )
+            _maybe_write_provenance(args, resolved_bundle, effective_policy, output_contract, config_digest, "generated")
             return 0
         github_request(
             reviews_url,
@@ -395,17 +610,222 @@ def main() -> int:
                 "body": f"{marker}\n{summary}",
                 "comments": comments,
             },
+            retries=int(effective_policy.get("max_retries", 1)) if effective_policy else 1,
+            timeout=provider_timeout,
         )
         print(f"Posted agentic review with {len(comments)} inline comment(s).")
+        _maybe_write_provenance(args, resolved_bundle, effective_policy, output_contract, config_digest, "published")
     else:
+        try:
+            if resolved_bundle is not None and output_contract:
+                published_body = PROMPTS.parse_output(output_contract, output)
+            else:
+                published_body = output
+        except (ValueError, PROMPTS.ContractError) as error:
+            print(str(error), file=sys.stderr)
+            _maybe_write_provenance(args, resolved_bundle, effective_policy, output_contract, config_digest, "failed")
+            return 1
         if args.dry_run:
             print(
-                f"Dry run: would post agentic feedback.\n{marker}\n{output}",
+                f"Dry run: would post agentic feedback.\n{marker}\n{published_body}",
             )
+            _maybe_write_provenance(args, resolved_bundle, effective_policy, output_contract, config_digest, "generated")
             return 0
-        github_request(args.comments_url, token, method="POST", body={"body": f"{marker}\n{output}"})
+        github_request(
+            args.comments_url,
+            token,
+            method="POST",
+            body={"body": f"{marker}\n{published_body}"},
+            retries=int(effective_policy.get("max_retries", 1)) if effective_policy else 1,
+            timeout=provider_timeout,
+        )
         print("Posted agentic feedback.")
+        _maybe_write_provenance(args, resolved_bundle, effective_policy, output_contract, config_digest, "published")
     return 0
+
+
+def _run_opencode_integrated(
+    *,
+    resolved_bundle: dict,
+    agent_name: str,
+    prompt: str,
+    provider_timeout: int,
+) -> tuple[int, str]:
+    """Stage verified agents/skills into an isolated workspace and run OpenCode.
+
+    Uses :func:`materialize_to_opencode_root` to write hash-verified agent and
+    skill content into a fresh temporary ``--dir`` workspace so OpenCode scans
+    only the verified configuration and cannot fall back to unverified
+    checked-out agents. The workspace is removed after the run. Untrusted
+    content is delivered single-channel inside the delimited prompt section;
+    no ``--file`` attachment is passed.
+    """
+    import tempfile
+
+    workspace = tempfile.mkdtemp(prefix="agentic-opencode-")
+    try:
+        CFG.materialize_to_opencode_root(resolved_bundle, Path(workspace))
+        cmd = [
+            "opencode", "run",
+            "--dir", workspace,
+            "--agent", agent_name,
+            prompt,
+        ]
+        result = subprocess.run(
+            cmd,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=provider_timeout,
+        )
+        if result.returncode:
+            print(result.stderr, file=sys.stderr)
+        return result.returncode, result.stdout
+    finally:
+        import shutil
+
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
+def _compose_integrated_prompt(
+    *,
+    resolved_bundle: dict,
+    feedback_kind: str,
+    output_contract: str,
+    repository: str,
+    author_login: str,
+    pull_number: int | None,
+    target_title: str | None,
+    focus: str | None,
+    max_comments: int | None,
+    allowed_locations: str | None,
+    untrusted_content: str,
+) -> str:
+    """Compose the model prompt through the Plan 3 five-section model.
+
+    Enforces the bundle's ``limits.max_comments`` ceiling: a caller-supplied
+    ``max_comments`` above the profile ceiling is rejected by the typed-
+    override validator. The profile template text comes from the resolved
+    bundle JSON. The untrusted target title is folded into the delimited
+    untrusted content section (single-channel) rather than treated as trusted.
+    """
+    profile_template = resolved_bundle.get("prompt_template_text") or ""
+    limits = resolved_bundle.get("limits") or {}
+    profile_max = limits.get("max_comments") if isinstance(limits, dict) else None
+    # Build typed overrides from CLI inputs; the composer validates them
+    # against the profile ceiling.
+    overrides = {}
+    if focus is not None:
+        overrides["focus"] = focus
+    if max_comments is not None:
+        overrides["max_comments"] = max_comments
+    # Fold the untrusted target title into the untrusted content section so it
+    # is never treated as trusted runtime context.
+    combined_untrusted = untrusted_content
+    if target_title:
+        combined_untrusted = f"Target title (untrusted): {target_title}\n\n{untrusted_content}"
+    composed = PROMPTS.compose_prompt(
+        feedback_kind=feedback_kind,
+        output_contract=output_contract,
+        profile_template=profile_template,
+        repository=repository or "owner/repo",
+        author_login=author_login,
+        target_number=pull_number,
+        target_title=None,
+        focus=focus,
+        max_comments=max_comments,
+        allowed_locations=allowed_locations,
+        overrides=overrides or None,
+        profile_allows_overrides={"focus": True, "max_comments": True},
+        profile_max_comments=profile_max,
+        untrusted_content=combined_untrusted,
+    )
+    return composed.text
+
+
+def _existing_feedback_match(
+    marker_url: str,
+    token: str,
+    *,
+    feedback_kind: str,
+    head_sha: str | None,
+    config_digest: str | None,
+    use_v2_marker: bool,
+    legacy_marker: str | None,
+) -> bool:
+    """Return True when existing feedback should suppress a new run.
+
+    For the v2 path, a match requires the same config digest (and head SHA when
+    present). For the legacy path, the v1 marker string must already be
+    present. v1 markers are still recognised during migration but never match
+    a v2 config, so a profile update triggers re-review.
+    """
+    if use_v2_marker and config_digest:
+        # Look for an existing v2 marker matching this config (and head SHA).
+        return _has_v2_marker_match(
+            marker_url, token, feedback_kind=feedback_kind, head_sha=head_sha, config_digest=config_digest
+        )
+    if legacy_marker:
+        return has_marker(marker_url, token, legacy_marker)
+    return False
+
+
+def _has_v2_marker_match(
+    marker_url: str, token: str, *, feedback_kind: str, head_sha: str | None, config_digest: str
+) -> bool:
+    """Page through comments/reviews looking for a matching v2 marker."""
+    parsed_url = urllib.parse.urlparse(marker_url)
+    parameters = urllib.parse.parse_qs(parsed_url.query)
+    parameters["per_page"] = ["100"]
+    url = urllib.parse.urlunparse(
+        parsed_url._replace(query=urllib.parse.urlencode(parameters, doseq=True))
+    )
+    while url:
+        comments, headers = github_request(url, token)
+        for comment in comments:
+            body = comment.get("body", "") if isinstance(comment, dict) else ""
+            if PROV.matches_current_config(
+                body,
+                feedback_kind=feedback_kind,
+                head_sha=head_sha,
+                config_digest=config_digest,
+            ):
+                return True
+        links = headers.get("Link", "")
+        next_link = re.search(r'<([^>]+)>;\s*rel="next"', links)
+        url = next_link.group(1) if next_link else ""
+    return False
+
+
+def _maybe_write_provenance(
+    args: argparse.Namespace,
+    resolved_bundle: dict | None,
+    effective_policy: dict | None,
+    output_contract: str | None,
+    config_digest: str | None,
+    result: str,
+) -> None:
+    """Write a redacted provenance record when requested."""
+    if not args.provenance:
+        return
+    mode = "dry-run" if args.dry_run else "publish"
+    bundle = resolved_bundle or {}
+    record = PROV.build_provenance(
+        workflow_version="dev",
+        workflow_name=args.feedback_kind,
+        caller_repository=args.repository or "",
+        target_kind="pull_request" if args.repository else "issue",
+        target_number=args.pull_number,
+        target_head_sha=args.head_sha,
+        bundle=bundle,
+        prompt_template_sha256=bundle.get("prompt_template_sha256"),
+        output_contract=output_contract,
+        model_profile=bundle.get("model_profile"),
+        effective_policy_sha256=effective_policy.get("sha256") if effective_policy else None,
+        mode=mode,
+        result=result,
+    )
+    args.provenance.write_text(record.to_json() + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

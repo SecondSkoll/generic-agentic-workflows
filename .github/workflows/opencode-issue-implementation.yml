@@ -46,6 +46,9 @@ on:
     secrets:
       OPENROUTER_API_KEY:
         required: true
+      central_config_token:
+        description: Optional read token for a private central configuration repository; falls back to github.token.
+        required: false
 
 permissions:
   contents: read
@@ -166,6 +169,7 @@ jobs:
           name: resolved-invocation-issue-implementation
           path: ${{ runner.temp }}/resolved-invocation.json
           retention-days: 14
+          if-no-files-found: ignore
 
   implement:
     needs: select-issue
@@ -189,6 +193,128 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+
+      - name: Resolve agentic configuration
+        id: config
+        env:
+          AGENTIC_WORKFLOW: issue-implementation
+          AGENTIC_CONFIGURATION_SOURCE: ${{ github.event_name == 'workflow_call' && inputs.configuration_source || 'local' }}
+          AGENTIC_CONFIGURATION_REF: ${{ github.event_name == 'workflow_call' && inputs.configuration_ref || '' }}
+          AGENTIC_CONFIGURATION_PROFILE: ${{ github.event_name == 'workflow_call' && inputs.configuration_profile || 'default-implementation' }}
+          GITHUB_TOKEN: ${{ secrets.central_config_token || github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$AGENTIC_CONFIGURATION_SOURCE" == "local" && -z "$AGENTIC_CONFIGURATION_REF" ]]; then
+            if [[ -d .opencode/configuration/default-implementation ]]; then
+              python3 scripts/agentic_configuration.py \
+                --workflow issue-implementation \
+                --bundle-root .opencode/configuration \
+                --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
+                --result "$RUNNER_TEMP/resolved-agentic-configuration.json"
+            else
+              python3 scripts/agentic_configuration.py \
+                --workflow issue-implementation \
+                --legacy-agent-file "$CUSTOM_AGENT_FILE" \
+                --legacy-skill-file "$CUSTOM_SKILL_FILE" \
+                --output-contract issue-implementation-decision-v1 \
+                --result "$RUNNER_TEMP/resolved-agentic-configuration.json"
+            fi
+          else
+            python3 scripts/agentic_configuration.py \
+              --workflow issue-implementation \
+              --configuration-source "$AGENTIC_CONFIGURATION_SOURCE" \
+              --configuration-ref "$AGENTIC_CONFIGURATION_REF" \
+              --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
+              --result "$RUNNER_TEMP/resolved-agentic-configuration.json"
+          fi
+
+      - name: Resolve effective policy
+        id: policy
+        env:
+          DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          model_profile=$(jq -r '.model_profile' "$RUNNER_TEMP/resolved-agentic-configuration.json")
+          mode="publish"
+          if [[ "$DRY_RUN" == "true" ]]; then mode="dry-run"; fi
+          # Derive actual agent capabilities from the verified resolved agent
+          # front matter (required change #3), not a hardcoded empty object.
+          agent_caps=$(python3 - <<'PY'
+          import json, sys, importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("agentic_policy", "scripts/agentic_policy.py")
+          pol = importlib.util.module_from_spec(spec); sys.modules[spec.name] = pol; spec.loader.exec_module(pol)
+          data = json.loads(Path(__import__("os").environ["RUNNER_TEMP"] + "/resolved-agentic-configuration.json").read_text())
+          caps = {}
+          bundle_root = Path(data["bundle_root"])
+          # Primary planner agent capabilities.
+          agent_text = (bundle_root / data["agent_file"]).read_text(encoding="utf-8")
+          caps = pol.parse_agent_capabilities(agent_text)
+          # Intersect with additional (executor) agent capabilities.
+          for rel in data.get("additional_agent_files", []):
+              extra = pol.parse_agent_capabilities((bundle_root / rel).read_text(encoding="utf-8"))
+              for axis, val in extra.items():
+                  if axis in caps:
+                      caps[axis] = pol.intersect_capability(caps[axis], val)
+                  else:
+                      caps[axis] = val
+          print(json.dumps(caps))
+          PY
+          )
+          overlay_arg=""
+          if [[ -f .github/agentic-policy-overlay.json ]]; then
+            overlay_arg="--overlay .github/agentic-policy-overlay.json"
+          fi
+          python3 scripts/agentic_policy.py \
+            --workflow issue-implementation \
+            --model-profile "$model_profile" \
+            --resolved-config "$RUNNER_TEMP/resolved-agentic-configuration.json" \
+            --agent-capabilities-json "$agent_caps" \
+            --mode "$mode" \
+            $overlay_arg \
+            --result "$RUNNER_TEMP/effective-policy.json" \
+            --github-step-summary "$GITHUB_STEP_SUMMARY" \
+          || {
+            python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          import importlib.util
+          spec = importlib.util.spec_from_file_location("agentic_provenance", "scripts/agentic_provenance.py")
+          prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
+          bundle = json.loads(Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-configuration.json").read_text())
+          record = prov.failure_record(
+              workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
+              workflow_name="issue-implementation",
+              caller_repository=os.environ.get("GITHUB_REPOSITORY", ""),
+              mode="publish",
+              error=RuntimeError("policy resolution failed"),
+              bundle=bundle,
+          )
+          Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-provenance.json").write_text(record.to_json() + "\n")
+          PY
+            exit 1
+          }
+          echo "sha256=$(jq -r '.sha256' "$RUNNER_TEMP/effective-policy.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve trusted base ref for changed-path enforcement
+        id: base_ref
+        run: |
+          set -euo pipefail
+          # Resolve the default branch remote ref and export it via GITHUB_ENV
+          # so changed-path enforcement uses a trusted, fetched base. Hard-fail
+          # if unresolvable (required change #4); never silently omit the
+          # committed range. Pass via env, not Python source interpolation.
+          python3 - <<'PY'
+          import importlib.util, os, sys
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("agentic_policy", "scripts/agentic_policy.py")
+          mod = importlib.util.module_from_spec(spec); sys.modules[spec.name] = mod; spec.loader.exec_module(mod)
+          ref = mod.resolve_default_branch_ref(Path.cwd(), remote="origin")
+          gh_env = Path(os.environ["GITHUB_ENV"])
+          with gh_env.open("a") as f:
+              f.write(f"AGENTIC_BASE_REF={ref}\n")
+          print(f"OK base ref: {ref}")
+          PY
 
       - name: Install OpenCode
         run: npm install -g opencode-ai
@@ -246,37 +372,75 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          AGENTIC_WORKFLOW_VERSION: ${{ github.sha }}
         run: |
           set -euo pipefail
-          agent_name=$(sed -n 's/^name:[[:space:]]*//p' "$CUSTOM_AGENT_FILE" | head -n 1 | tr -d '"' | tr -d "'")
-          test -n "$agent_name"
-          result_file="$RUNNER_TEMP/opencode-implementation-result.txt"
-          set +e
-          opencode run --agent "$agent_name" \
-            "Create a concise, secure plan for GitHub issue #${{ steps.context.outputs.issue_number }} and delegate its implementation to the executor agent. The verified issue author is @${{ steps.context.outputs.issue_author }}. Work only on branch ${{ steps.context.outputs.branch }}. The complete untrusted issue context is in ${{ steps.context.outputs.issue_context }}. Follow the repository's issue-implementation agent instructions exactly." \
-            --file "${{ steps.context.outputs.issue_context }}" 2>&1 | tee "$result_file"
-          opencode_status=${PIPESTATUS[0]}
-          set -e
-          if [[ $opencode_status -ne 0 ]]; then
-            exit "$opencode_status"
-          fi
+          python3 scripts/run_agentic_implementation.py \
+            --resolved-config "$RUNNER_TEMP/resolved-agentic-configuration.json" \
+            --effective-policy "$RUNNER_TEMP/effective-policy.json" \
+            --issue-context "${{ steps.context.outputs.issue_context }}" \
+            --issue-number "${{ steps.context.outputs.issue_number }}" \
+            --issue-author "${{ steps.context.outputs.issue_author }}" \
+            --repository "${{ github.repository }}" \
+            --branch "${{ steps.context.outputs.branch }}" \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --github-output "$GITHUB_OUTPUT" \
+            --result "$RUNNER_TEMP/opencode-implementation-result.txt" \
+            --provenance "$RUNNER_TEMP/resolved-agentic-provenance.json"
 
-          decision=$(sed -n 's/^IMPLEMENTATION_DECISION:[[:space:]]*//p' "$result_file" | tail -n 1)
-          blocker=$(sed -n 's/^IMPLEMENTATION_BLOCKER:[[:space:]]*//p' "$result_file" | tail -n 1)
-          if [[ "$decision" != 'IMPLEMENT' && "$decision" != 'BLOCKED' ]]; then
-            echo 'OpenCode did not return a valid implementation decision.' >&2
+      - name: Enforce changed paths before publication
+        id: changed_paths
+        if: steps.implement.outcome == 'success' && steps.implement.outputs.decision == 'IMPLEMENT'
+        run: |
+          set -euo pipefail
+          offenders=$(python3 - <<'PY'
+          import importlib.util, sys
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location(
+              "agentic_policy", "scripts/agentic_policy.py"
+          )
+          mod = importlib.util.module_from_spec(spec); sys.modules[spec.name] = mod; spec.loader.exec_module(mod)
+          # Capture tracked + untracked + committed changes so agent-created
+          # files and commits cannot bypass enforcement.
+          changed = mod.collect_implementation_changed_paths(
+              Path.cwd(), base_ref=__import__("os").environ.get("AGENTIC_BASE_REF")
+          )
+          if not changed:
+              print("__NO_CHANGES__")
+          else:
+              offenders = mod.enforce_changed_paths(changed, workflow="issue-implementation")
+              for o in offenders:
+                  print(o)
+          PY
+          )
+          if [[ "$offenders" == "__NO_CHANGES__" ]]; then
+            echo "OpenCode completed without making implementation changes." >&2
             exit 1
           fi
-          if [[ "$decision" == 'BLOCKED' && -z "$blocker" ]]; then
-            echo 'OpenCode marked the issue blocked without a maintainer-actionable blocker.' >&2
+          if [[ -n "$offenders" ]]; then
+            echo "::error::Implementation modified denied paths:" >&2
+            echo "$offenders" >&2
+            echo "Deny categories: workflows, automation, dependencies, agent/skill/configuration instructions." >&2
             exit 1
           fi
-          echo "decision=$decision" >> "$GITHUB_OUTPUT"
-          echo "blocker=$blocker" >> "$GITHUB_OUTPUT"
+          changed=$(python3 - <<'PY'
+          import importlib.util, sys
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location(
+              "agentic_policy", "scripts/agentic_policy.py"
+          )
+          mod = importlib.util.module_from_spec(spec); sys.modules[spec.name] = mod; spec.loader.exec_module(mod)
+          for p in mod.collect_implementation_changed_paths(Path.cwd(), base_ref=__import__("os").environ.get("AGENTIC_BASE_REF")):
+              print(p)
+          PY
+          )
+          echo "changed_files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$changed" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Publish the implementation pull request
         id: pr
-        if: steps.implement.outcome == 'success' && steps.implement.outputs.decision == 'IMPLEMENT'
+        if: steps.implement.outcome == 'success' && steps.implement.outputs.decision == 'IMPLEMENT' && steps.changed_paths.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -285,12 +449,39 @@ jobs:
           DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
         run: |
           set -euo pipefail
+          # Recheck changed paths immediately before push, using the same
+          # collector + enforcer. A denial here must prevent push/PR creation.
+          python3 - <<'PY'
+          import importlib.util, sys
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location(
+              "agentic_policy", "scripts/agentic_policy.py"
+          )
+          mod = importlib.util.module_from_spec(spec); sys.modules[spec.name] = mod; spec.loader.exec_module(mod)
+          changed = mod.collect_implementation_changed_paths(
+              Path.cwd(), base_ref=__import__("os").environ.get("AGENTIC_BASE_REF")
+          )
+          offenders = mod.enforce_changed_paths(changed, workflow="issue-implementation")
+          if offenders:
+              print("::error::Pre-push changed-path recheck denied: " + ", ".join(offenders))
+              sys.exit(1)
+          PY
           if [[ "$DRY_RUN" == "true" ]]; then
-            if git diff --quiet HEAD; then
+            changed_files=$(python3 - <<'PY'
+          import importlib.util, sys
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location(
+              "agentic_policy", "scripts/agentic_policy.py"
+          )
+          mod = importlib.util.module_from_spec(spec); sys.modules[spec.name] = mod; spec.loader.exec_module(mod)
+          for p in mod.collect_implementation_changed_paths(Path.cwd(), base_ref=__import__("os").environ.get("AGENTIC_BASE_REF")):
+              print(f"- `{p}`")
+          PY
+          )
+            if [[ -z "$changed_files" ]]; then
               echo 'Dry run: OpenCode completed without making implementation changes.' >&2
               exit 1
             fi
-            changed_files=$(git diff --name-only HEAD | sed 's/^/- `/' | sed 's/$/`/')
             echo "Dry run: would commit and push branch $BRANCH with the following changes:"
             echo "$changed_files"
             echo "Dry run: would open a pull request for #$ISSUE_NUMBER on branch $BRANCH."
@@ -299,14 +490,25 @@ jobs:
           fi
           pr_url=$(gh pr list --repo "$REPOSITORY" --head "$BRANCH" --state open --json url --jq '.[0].url // empty')
           if [[ -z "$pr_url" ]]; then
-            if git diff --quiet HEAD; then
+            changed=$(python3 - <<'PY'
+          import importlib.util, sys
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location(
+              "agentic_policy", "scripts/agentic_policy.py"
+          )
+          mod = importlib.util.module_from_spec(spec); sys.modules[spec.name] = mod; spec.loader.exec_module(mod)
+          for p in mod.collect_implementation_changed_paths(Path.cwd(), base_ref=__import__("os").environ.get("AGENTIC_BASE_REF")):
+              print(p)
+          PY
+          )
+            if [[ -z "$changed" ]]; then
               echo 'OpenCode completed without making implementation changes.' >&2
               exit 1
             fi
             git add --all
             git commit -m "Implement #$ISSUE_NUMBER: initial proposal"
             git push --set-upstream origin "$BRANCH"
-            changed_files=$(git diff --name-only HEAD~1 HEAD | sed 's/^/- `/' | sed 's/$/`/')
+            changed_files=$(echo "$changed" | sed 's/^/- `/' | sed 's/$/`/')
             pr_body=$(mktemp)
             cat > "$pr_body" <<EOF
           ## Summary
@@ -330,6 +532,87 @@ jobs:
               --body-file "$pr_body")
           fi
           echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+
+      - name: Write provenance record
+        if: always()
+        env:
+          ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
+          REPOSITORY: ${{ github.repository }}
+          AGENTIC_WORKFLOW_VERSION: ${{ github.sha }}
+          IMPLEMENTATION_OUTCOME: ${{ steps.implement.outcome }}
+          IMPLEMENTATION_DECISION: ${{ steps.implement.outputs.decision }}
+          DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          import importlib.util
+          spec = importlib.util.spec_from_file_location(
+              "agentic_provenance", "scripts/agentic_provenance.py"
+          )
+          prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
+          bundle = {}
+          cfg_path = Path(os.environ["RUNNER_TEMP"]) / "resolved-agentic-configuration.json"
+          if cfg_path.exists():
+              bundle = json.loads(cfg_path.read_text())
+          pol_path = Path(os.environ["RUNNER_TEMP"]) / "effective-policy.json"
+          policy_sha = None
+          if pol_path.exists():
+              policy_sha = json.loads(pol_path.read_text()).get("sha256")
+          mode = "dry-run" if os.environ.get("DRY_RUN") == "true" else "publish"
+          decision = os.environ.get("IMPLEMENTATION_DECISION", "")
+          outcome = os.environ.get("IMPLEMENTATION_OUTCOME", "")
+          # If the implementation runner already wrote a provenance record,
+          # extend/keep it; otherwise emit a minimal redacted record covering
+          # failure and skipped paths.
+          out = Path(os.environ["RUNNER_TEMP"]) / "resolved-agentic-provenance.json"
+          if out.exists():
+              record = json.loads(out.read_text())
+          else:
+              if outcome == "success" and decision == "IMPLEMENT":
+                  result = "published" if os.environ.get("DRY_RUN") != "true" else "generated"
+              elif outcome == "success" and decision == "BLOCKED":
+                  result = "skipped"
+              else:
+                  result = "failed"
+              record = prov.build_provenance(
+                  workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
+                  workflow_name="issue-implementation",
+                  caller_repository=os.environ["REPOSITORY"],
+                  target_kind="issue",
+                  target_number=int(os.environ["ISSUE_NUMBER"]) if os.environ.get("ISSUE_NUMBER") else None,
+                  target_head_sha=None,
+                  bundle=bundle,
+                  prompt_template_sha256=bundle.get("prompt_template_sha256"),
+                  output_contract=bundle.get("output_contract"),
+                  model_profile=bundle.get("model_profile"),
+                  effective_policy_sha256=policy_sha,
+                  mode=mode,
+                  result=result,
+              ).to_dict()
+          out.write_text(json.dumps(record, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+          # Append a concise summary.
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          existing = summary.read_text() if summary.exists() else ""
+          if existing and not existing.endswith("\n"):
+              existing += "\n"
+          rec = prov.build_provenance(
+              workflow_version=record.get("workflow_version", "dev"),
+              workflow_name=record.get("workflow_name", "issue-implementation"),
+              caller_repository=record.get("caller_repository", os.environ["REPOSITORY"]),
+              target_kind=record.get("target", {}).get("kind", "issue"),
+              target_number=record.get("target", {}).get("number"),
+              target_head_sha=record.get("target", {}).get("head_sha"),
+              bundle=record.get("bundle", bundle),
+              prompt_template_sha256=record.get("prompt_template_sha256"),
+              output_contract=record.get("output_contract"),
+              model_profile=record.get("model_profile"),
+              effective_policy_sha256=record.get("effective_policy_sha256"),
+              mode=record.get("mode", mode),
+              result=record.get("result", "failed"),
+          )
+          summary.write_text(existing + prov.job_summary(rec), encoding="utf-8")
+          PY
 
       - name: Comment with implementation result
         if: always()
@@ -373,3 +656,15 @@ jobs:
           The agent did not produce a pull request for this request. A maintainer should review the issue context and workflow logs before retrying."
           fi
           gh api --method POST "/repos/$REPOSITORY/issues/$ISSUE_NUMBER/comments" -f body="$body"
+
+      - name: Upload provenance artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resolved-configuration-issue-implementation
+          path: |
+            ${{ runner.temp }}/resolved-agentic-configuration.json
+            ${{ runner.temp }}/effective-policy.json
+            ${{ runner.temp }}/resolved-agentic-provenance.json
+          retention-days: 14
+          if-no-files-found: ignore
