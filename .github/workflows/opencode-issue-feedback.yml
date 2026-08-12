@@ -59,8 +59,8 @@ jobs:
       # Customise these paths to use repository-specific OpenCode guidance.
       # These remain supported during the migration period; reusable callers
       # should use configuration_profile instead (see Plan 2).
-      CUSTOM_AGENT_FILE: .opencode/agents/example-agent.md
-      CUSTOM_SKILL_FILE: .opencode/skills/example-skill/SKILL.md
+      CUSTOM_AGENT_FILE: .opencode/agents/default-agent.md
+      CUSTOM_SKILL_FILE: .opencode/skills/basic-review/SKILL.md
       FEEDBACK_KIND: issue-feedback
     steps:
       - name: Resolve invocation

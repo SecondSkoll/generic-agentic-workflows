@@ -300,11 +300,11 @@ class ResolveFromEnvTests(unittest.TestCase):
 
     def test_env_resolution_passes_legacy_through(self) -> None:
         env = self._base_env()
-        env["AGENTIC_LEGACY_CUSTOM_AGENT_FILE"] = ".opencode/agents/example-agent.md"
+        env["AGENTIC_LEGACY_CUSTOM_AGENT_FILE"] = ".opencode/agents/default-agent.md"
         resolved = RESOLVER.resolve_from_env(env)
         self.assertEqual(
             resolved.legacy["AGENTIC_LEGACY_CUSTOM_AGENT_FILE"],
-            ".opencode/agents/example-agent.md",
+            ".opencode/agents/default-agent.md",
         )
 
 

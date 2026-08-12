@@ -27,7 +27,7 @@ Each workflow sets the following job environment variables. Change their paths t
 
 ```yaml
 CUSTOM_AGENT_FILE: .opencode/agents/docs-impact-eval.md
-CUSTOM_SKILL_FILE: .opencode/skills/example-skill/SKILL.md
+CUSTOM_SKILL_FILE: .opencode/skills/basic-review/SKILL.md
 FEEDBACK_KIND: pr-documentation-review # or issue-feedback
 ```
 
@@ -117,6 +117,80 @@ Each workflow also exposes an `on.workflow_call` interface so consumer repositor
 | `pull_number` / `issue_number` | number | no | Target number when event context is unavailable. |
 
 The reusable workflows do **not** expose raw prompt, agent path, skill path, model identifier, arbitrary URL, or mutable reference inputs. Any attempt to supply them is rejected before checkout or model invocation by the `Resolve invocation` step (`scripts/resolve_invocation.py`).
+
+### Using a non-local `configuration_source`
+
+`configuration_source: local` uses configuration from the trusted checkout selected by the reusable workflow. To use shared configuration from somewhere else, the source must be an approved alias built into the reusable workflow release, such as `central`; callers cannot pass a URL, repository name, branch, tag, raw file URL, or PR ref.
+
+> **Current implementation note:** this repository currently allowlists only `local` in `scripts/resolve_invocation.py`. The remote examples below show the intended caller syntax for a workflow release that has enabled an approved remote alias. Until such an alias is added, non-local values fail closed during `Resolve invocation`.
+
+When an approved remote alias is available:
+
+1. Ask the workflow owner which `configuration_source` aliases are approved and which repository/root each alias maps to.
+2. Review the configuration bundle in that source. A profile is expected to be a named bundle such as `.opencode/configuration/documentation-review/` containing its manifest, agent, skills, prompts, and content hashes.
+3. Pin `configuration_ref` to the exact 40-character commit SHA that contains the reviewed bundle. Do not use `main`, a tag, a release name, a pull-request ref, or a shortened SHA.
+4. Set `configuration_profile` to the desired profile name. It must match `[a-z0-9][a-z0-9-]{0,62}`.
+5. Use `validate_only: true` first, then `dry_run: true`, then normal publication.
+
+Example PR review wrapper using an approved remote source:
+
+```yaml
+jobs:
+  review:
+    uses: organization/generic-agentic-workflows/.github/workflows/opencode-review.yml@<pinned-workflow-sha>
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      configuration_source: central
+      configuration_ref: 0123456789abcdef0123456789abcdef01234567
+      configuration_profile: documentation-review
+      focus: documentation
+      max_comments: 10
+      dry_run: true
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+```
+
+The reusable workflow resolves the alias and SHA before any model invocation. If the alias is unknown, the SHA is not exactly 40 hexadecimal characters, the profile name is invalid, or the bundle does not match the workflow, the run stops instead of falling back to local configuration.
+
+### Typed input examples
+
+Pull-request review supports `focus`, `max_comments`, `dry_run`, `validate_only`, and `pull_number`:
+
+```yaml
+with:
+  configuration_source: local
+  configuration_profile: documentation-review
+  focus: security          # one of documentation, security, tests, general
+  max_comments: 5          # 0-20; PR review only
+  pull_number: 123         # useful for workflow_dispatch or non-PR triggers
+  dry_run: true            # generate output but do not publish a review
+```
+
+Issue feedback supports `focus`, `max_issues`, `dry_run`, `validate_only`, and `issue_number`:
+
+```yaml
+with:
+  configuration_source: local
+  configuration_profile: issue-feedback
+  focus: general
+  max_issues: 25           # 1-100; issue feedback only
+  issue_number: 456        # optional single open issue target
+  validate_only: true      # resolve and validate only; no checkout or model call
+```
+
+Issue implementation supports `request_label`, `issue_number`, `dry_run`, and `validate_only`:
+
+```yaml
+with:
+  configuration_source: local
+  configuration_profile: default-implementation
+  request_label: ai-implementation-requested
+  dry_run: true            # cannot create branches, push commits, open PRs, or comment
+```
+
+Do not set `dry_run` and `validate_only` together; the resolver rejects that combination. Inputs are workflow-specific: for example, `max_comments` is valid only for PR review, and `request_label` is valid only for issue implementation.
 
 ### Modes
 

@@ -27,7 +27,7 @@ on:
         description: Validated label or comment marker used to select an eligible issue
         type: string
         required: false
-        default: ai-review-requested
+        default: ai-implementation-requested
       dry_run:
         description: Resolve, validate, and generate output without publishing
         type: boolean
@@ -74,7 +74,7 @@ jobs:
           AGENTIC_DRY_RUN: ${{ github.event_name == 'workflow_call' && inputs.dry_run || false }}
           AGENTIC_VALIDATE_ONLY: ${{ github.event_name == 'workflow_call' && inputs.validate_only || false }}
           AGENTIC_TARGET_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || github.event_name == 'workflow_call' && inputs.issue_number || '' }}
-          AGENTIC_REQUEST_LABEL: ${{ github.event_name == 'workflow_call' && inputs.request_label || 'ai-review-requested' }}
+          AGENTIC_REQUEST_LABEL: ${{ github.event_name == 'workflow_call' && inputs.request_label || 'ai-implementation-requested' }}
         run: |
           set -euo pipefail
           python3 scripts/resolve_invocation.py \
@@ -177,7 +177,7 @@ jobs:
       pull-requests: write
     env:
       CUSTOM_AGENT_FILE: .opencode/agents/issue-implementation.md
-      CUSTOM_SKILL_FILE: .opencode/skills/example-skill/SKILL.md
+      CUSTOM_SKILL_FILE: .opencode/skills/basic-review/SKILL.md
       ISSUE: ${{ needs.select-issue.outputs.issue }}
       DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
     steps:

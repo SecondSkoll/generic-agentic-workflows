@@ -1,5 +1,5 @@
 ---
-name: example-agent
+name: default-agent
 description: Provide responses for issues and PRs
 mode: primary
 model: openrouter/deepseek/deepseek-v4-flash
@@ -8,7 +8,7 @@ permission:
   edit: deny
   bash: deny
 skill:
-  example-skill: allow
+  basic-review: allow
 ---
 
 # Example agent
@@ -23,4 +23,4 @@ reviewers can apply it; otherwise provide normal feedback only.
 
 ## Workflow
 
-1. Use the `example-skill` skill to thank the user for their contribution.
+1. Use the `basic-review` skill.
