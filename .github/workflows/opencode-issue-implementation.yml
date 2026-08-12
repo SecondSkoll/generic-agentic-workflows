@@ -67,6 +67,11 @@ jobs:
       dry_run: ${{ steps.resolve.outputs.dry_run }}
       validate_only: ${{ steps.resolve.outputs.validate_only }}
     steps:
+      # The resolver is stored in the caller repository checkout.
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
       - name: Resolve invocation
         id: resolve
         env:
