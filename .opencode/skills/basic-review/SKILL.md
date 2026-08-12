@@ -1,5 +1,5 @@
 ---
-name: example-skill
+name: basic-review
 description: "An example skill that just returns a simple message."
 license: MIT
 compatibility: opencode
@@ -8,7 +8,7 @@ metadata:
   workflow: github
 ---
 
-# example-skill
+# Basic review
 
 ## Description
 

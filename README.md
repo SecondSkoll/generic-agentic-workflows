@@ -27,7 +27,7 @@ Each workflow sets the following job environment variables. Change their paths t
 
 ```yaml
 CUSTOM_AGENT_FILE: .opencode/agents/docs-impact-eval.md
-CUSTOM_SKILL_FILE: .opencode/skills/example-skill/SKILL.md
+CUSTOM_SKILL_FILE: .opencode/skills/basic-review/SKILL.md
 FEEDBACK_KIND: pr-documentation-review # or issue-feedback
 ```
 
@@ -83,3 +83,220 @@ If an external integration cannot use `github.token`, create a **fine-grained pe
 Add it as an Actions secret such as `AGENTIC_FEEDBACK_TOKEN`, pass it to `GITHUB_TOKEN` only in the comment-producing step, and remove it when no longer required. Do not grant repository administration, workflow, or broad organization permissions.
 
 > **Security note:** The PR workflow uses `pull_request_target` so it can comment with write permission, but it checks out the trusted base revision and only reads the untrusted PR diff. Do not change it to check out or execute pull-request code.
+
+## Reusable workflows (`workflow_call`)
+
+Each workflow also exposes an `on.workflow_call` interface so consumer repositories can call it through a thin local wrapper. The caller owns event triggers, `permissions:` declarations, concurrency controls, and provider secret forwarding; the reusable workflow owns input validation, model invocation, and publication.
+
+### Caller/callee responsibility split
+
+| Concern | Owned by |
+| --- | --- |
+| Event triggers and filtering | Caller |
+| `permissions:` declarations | Caller |
+| Provider secret forwarding | Caller |
+| Input validation and bounds | Callee |
+| Configuration profile selection | Caller |
+| Model invocation and output parsing | Callee |
+| Publication (comments, reviews, PRs) | Callee, gated by `dry_run`/`validate_only` |
+| Provenance artifact | Callee |
+
+### Typed inputs
+
+| Input | Type | Required | Purpose |
+| --- | --- | --- | --- |
+| `configuration_source` | string | no | `local` or an approved remote source alias; default `local`. |
+| `configuration_ref` | string | no | Full 40-character commit SHA for a remote bundle. |
+| `configuration_profile` | string | yes | Bundle profile name, constrained to `[a-z0-9][a-z0-9-]{0,62}`. |
+| `focus` | string | no | Allowlisted review focus; no arbitrary prompt text. |
+| `max_comments` | number | no | Bounded feedback count, `0`–`20` (PR review only). |
+| `max_issues` | number | no | Bounded issue count, `1`–`100` (issue feedback only). |
+| `request_label` | string | no | Validated label/marker for issue selection (implementation only). |
+| `dry_run` | boolean | no | Resolve, validate, and generate output without publishing. |
+| `validate_only` | boolean | no | Resolve and validate configuration only. |
+| `pull_number` / `issue_number` | number | no | Target number when event context is unavailable. |
+
+The reusable workflows do **not** expose raw prompt, agent path, skill path, model identifier, arbitrary URL, or mutable reference inputs. Any attempt to supply them is rejected before checkout or model invocation by the `Resolve invocation` step (`scripts/resolve_invocation.py`).
+
+### Using a non-local `configuration_source`
+
+`configuration_source: local` uses configuration from the trusted checkout selected by the reusable workflow. To use shared configuration from somewhere else, the source must be an approved alias built into the reusable workflow release, such as `central`; callers cannot pass a URL, repository name, branch, tag, raw file URL, or PR ref.
+
+> **Current implementation note:** this repository allowlists `local` in `scripts/resolve_invocation.py` and the `central` remote alias in `scripts/agentic_configuration.py`. The remote examples below show the caller syntax for an approved remote alias. Unknown aliases fail closed during `Resolve invocation`.
+
+When an approved remote alias is available:
+
+1. Ask the workflow owner which `configuration_source` aliases are approved and which repository/root each alias maps to.
+2. Review the configuration bundle in that source. A profile is expected to be a named bundle such as `.opencode/configuration/documentation-review/` containing its manifest, agent, skills, prompts, and content hashes.
+3. Pin `configuration_ref` to the exact 40-character commit SHA that contains the reviewed bundle. Do not use `main`, a tag, a release name, a pull-request ref, or a shortened SHA.
+4. Set `configuration_profile` to the desired profile name. It must match `[a-z0-9][a-z0-9-]{0,62}`.
+5. Use `validate_only: true` first, then `dry_run: true`, then normal publication.
+
+Example PR review wrapper using an approved remote source:
+
+```yaml
+jobs:
+  review:
+    uses: organization/generic-agentic-workflows/.github/workflows/opencode-review.yml@<pinned-workflow-sha>
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      configuration_source: central
+      configuration_ref: 0123456789abcdef0123456789abcdef01234567
+      configuration_profile: documentation-review
+      focus: documentation
+      max_comments: 10
+      dry_run: true
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+```
+
+The reusable workflow resolves the alias and SHA before any model invocation. If the alias is unknown, the SHA is not exactly 40 hexadecimal characters, the profile name is invalid, or the bundle does not match the workflow, the run stops instead of falling back to local configuration.
+
+### Typed input examples
+
+Pull-request review supports `focus`, `max_comments`, `dry_run`, `validate_only`, and `pull_number`:
+
+```yaml
+with:
+  configuration_source: local
+  configuration_profile: documentation-review
+  focus: security          # one of documentation, security, tests, general
+  max_comments: 5          # 0-20; PR review only
+  pull_number: 123         # useful for workflow_dispatch or non-PR triggers
+  dry_run: true            # generate output but do not publish a review
+```
+
+Issue feedback supports `focus`, `max_issues`, `dry_run`, `validate_only`, and `issue_number`:
+
+```yaml
+with:
+  configuration_source: local
+  configuration_profile: issue-feedback
+  focus: general
+  max_issues: 25           # 1-100; issue feedback only
+  issue_number: 456        # optional single open issue target
+  validate_only: true      # resolve and validate only; no checkout or model call
+```
+
+Issue implementation supports `request_label`, `issue_number`, `dry_run`, and `validate_only`:
+
+```yaml
+with:
+  configuration_source: local
+  configuration_profile: default-implementation
+  request_label: ai-implementation-requested
+  dry_run: true            # cannot create branches, push commits, open PRs, or comment
+```
+
+Do not set `dry_run` and `validate_only` together; the resolver rejects that combination. Inputs are workflow-specific: for example, `max_comments` is valid only for PR review, and `request_label` is valid only for issue implementation.
+
+### Modes
+
+* `validate_only` stops after configuration resolution and writes a job summary and artifact; it performs no checkout, model invocation, or GitHub write.
+* `dry_run` may call OpenCode but cannot post comments, create branches, push commits, or open PRs.
+* Normal execution retains existing publication behavior.
+
+### Minimal consumer wrapper
+
+See [`docs/examples/`](docs/examples/README.md) for complete wrappers. A review wrapper is conceptually equivalent to:
+
+```yaml
+jobs:
+  review:
+    uses: organization/generic-agentic-workflows/.github/workflows/opencode-review.yml@<pinned-sha>
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      configuration_source: local
+      configuration_profile: documentation-review
+      focus: documentation
+      max_comments: 10
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+```
+
+Use a real reviewed commit SHA or protected release tag in the `uses:` line, not a placeholder. A caller with read-only permissions can use `validate_only: true` but cannot accidentally publish feedback.
+
+### Migration from direct triggers
+
+Existing direct triggers (`pull_request_target`, `issues`, `workflow_dispatch`) continue to work without consumer changes. To migrate a consumer repository to the reusable form:
+
+1. Pin this repository to a reviewed commit SHA in your wrapper's `uses:` line.
+2. Copy the relevant wrapper from `docs/examples/` into `.github/workflows/` in your repository.
+3. Adjust the `on:` trigger and `permissions:` to match your policy.
+4. Forward only the provider secret the callee needs (`OPENROUTER_API_KEY`).
+5. Start with `validate_only: true`, then `dry_run: true`, then normal publication before enabling write-capable issue implementation.
+
+## Configuration bundles (Plan 2)
+
+A configuration bundle is a versioned directory under
+`.opencode/configuration/<profile>/` containing:
+
+- `bundle.json` — schema-v1 manifest (`profile_name`, `allowed_workflows`,
+  `agent_file`, `skill_files`, `prompt_template`, `model_profile`,
+  `output_contract`, `limits`).
+- `agent.md` and one or more `skills/<name>/SKILL.md` files with required
+  front-matter `name`.
+- `prompts/<name>.md` — a brace-token template using only documented variables
+  (`{{repository}}`, `{{feedback_kind}}`, `{{author_login}}`,
+  `{{target_number}}`, `{{target_title}}`, `{{focus}}`, `{{max_comments}}`,
+  `{{allowed_locations}}`, `{{untrusted_content}}`).
+- `hashes.json` — a SHA-256 digest for every declared content path.
+
+The resolver (`scripts/agentic_configuration.py`) normalizes and contains
+every path (rejecting absolute paths, `..`, backslashes, control characters,
+and symlinks), enforces UTF-8, per-file, and total-byte bounds, verifies every
+hash, validates front matter, and rejects workflow mismatches. Remote bundles
+are pinned to a full 40-character commit SHA through an allowlisted alias;
+mutable refs, URLs, and unknown aliases fail closed with no fallback. See
+[`docs/examples/central-configuration/README.md`](docs/examples/central-configuration/README.md)
+for a complete remote-bundle example.
+
+### Legacy `CUSTOM_AGENT_FILE` / `CUSTOM_SKILL_FILE` (deprecated)
+
+The legacy variables remain functional for local sources during the migration
+window and emit a deprecation warning. They will be removed in the next major
+workflow release after the published migration window. See
+[`docs/operations/migration-and-deprecation.md`](docs/operations/migration-and-deprecation.md).
+
+## Prompt templates and output contracts (Plan 3)
+
+The runner composes the model prompt from five fixed, ordered sections:
+(1) workflow-owned safety constraints, (2) the validated profile template,
+(3) typed runtime context, (4) delimited untrusted content, and
+(5) a workflow-owned output suffix. A profile may customize section 2 only;
+sections 1 and 5 are immutable. Untrusted issue/PR content is wrapped in
+`<untrusted-issue-content>...</untrusted-issue-content>` markers and treated
+as data only. Output is published only after passing a versioned contract
+(`pr-review-json-v1`, `issue-feedback-markdown-v1`, or
+`issue-implementation-decision-v1`).
+
+## Model/tool policy (Plan 4)
+
+`scripts/agentic_policy.py` merges five policy layers (built-in safety,
+organization, bundle profile, consumer overlay, typed invocation inputs) using
+restrictive operations only: set intersection for allowlists, minimum for
+quotas, logical AND for permissions, and explicit rejection for conflicting
+required values. No layer can broaden a capability granted by a higher layer.
+Review workflows stay read-only regardless of agent or template content. The
+issue-implementation workflow machine-enforces changed-path constraints before
+any push or PR creation, rejecting changes to workflows, automation,
+dependencies, and agent/skill/configuration instructions. The effective policy
+is inspectable in the `effective-policy.json` artifact and job summary.
+
+## Provenance and operations (Plan 5)
+
+Every run writes a redacted `resolved-agentic-provenance.json` record (source,
+resolved SHA, profile, manifest/prompt/policy hashes, output contract, model
+profile, mode, result, and a deterministic configuration digest) and uploads
+it as a short-retention artifact. Provenance is emitted on every path,
+including `validate_only` and resolution/policy/contract/provider failures (a
+minimal redacted attempted-resolution record). A v2 idempotency marker
+carries the configuration digest so a profile update triggers re-review;
+legacy v1 markers are still parsed during migration. For incident response,
+manual rollback, release/versioning, the operational test matrix, and runtime
+reliability controls, see
+[`docs/operations/operations-guide.md`](docs/operations/operations-guide.md).

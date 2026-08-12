@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "description": "Organization policy allowlist for agentic workflows. Approved remote sources, model profiles, and ceilings. This file is declarative and mirrors the constants shipped in scripts/agentic_policy.py and scripts/agentic_configuration.py.",
+  "remote_source_allowlist": {
+    "central": {
+      "repository": "agentic-configuration/example-configuration",
+      "root": ".opencode/configuration"
+    }
+  },
+  "model_profile_allowlist": [
+    "review-readonly",
+    "issue-feedback-readonly",
+    "implementation-planner"
+  ],
+  "organization_ceilings": {
+    "max_tokens": 16000,
+    "temperature_max": 0.2,
+    "timeout_seconds": 300,
+    "max_retries": 1
+  },
+  "data_classification": "repository-content",
+  "required_remote_ref_format": "40-character lowercase commit SHA",
+  "deny_mutable_refs": true,
+  "deny_caller_controlled_urls": true
+}
