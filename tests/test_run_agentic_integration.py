@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -535,6 +537,41 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
             # The bundle's prompt template text is used (contains
             # "documentation impact").
             self.assertIn("documentation impact", captured["prompt"])
+
+    def test_integrated_path_reports_opencode_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(
+                    RUNNER.subprocess,
+                    "run",
+                    return_value=FakeSubprocessResult(
+                        "", returncode=1, stderr="Error: Model not found: provider/model"
+                    ),
+                ),
+                mock.patch.object(RUNNER, "github_request"),
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+                contextlib.redirect_stderr(stderr),
+            ):
+                rc = RUNNER.main(
+                    [
+                        "--input", str(diff_path),
+                        "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository", "o/r",
+                        "--pull-number", "1",
+                        "--head-sha", "abc123",
+                        "--feedback-kind", "pr-documentation-review",
+                        "--author", "octocat",
+                        "--resolved-config", str(bundle_path),
+                        "--effective-policy", str(policy_path),
+                    ]
+                )
+            self.assertEqual(rc, 1)
+            self.assertIn("OpenCode exited with status 1", stderr.getvalue())
+            self.assertIn("Model not found", stderr.getvalue())
 
     def test_untrusted_diff_is_delimited_single_channel(self):
         with tempfile.TemporaryDirectory() as tmp:
