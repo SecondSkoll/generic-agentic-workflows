@@ -350,7 +350,18 @@ class LegacyRunTests(unittest.TestCase):
             )
             # The prompt itself is transported as a file to avoid argv limits.
             self.assertNotIn(captured_prompt["prompt"], captured_prompt["cmd"])
-            self.assertEqual(captured_prompt["cmd"][-1], RUNNER.OPENCODE_PROMPT_MESSAGE)
+            self.assertLess(
+                captured_prompt["cmd"].index("--file"),
+                captured_prompt["cmd"].index("--"),
+            )
+            self.assertEqual(
+                captured_prompt["cmd"][captured_prompt["cmd"].index("--") + 1],
+                RUNNER.OPENCODE_PROMPT_MESSAGE,
+            )
+            self.assertEqual(
+                Path(captured_prompt["cmd"][captured_prompt["cmd"].index("--file") + 1]).name,
+                "workflow-prompt.md",
+            )
             # Published review body carries the legacy v1 marker.
             body = mock_gh.call_args.kwargs["body"]
             self.assertIn(
@@ -432,6 +443,11 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
             # the composed prompt as a file so large prompts are not argv.
             self.assertIn("--dir", captured["cmd"])
             self.assertEqual(captured["cmd"].count("--file"), 1)
+            self.assertLess(captured["cmd"].index("--file"), captured["cmd"].index("--"))
+            self.assertEqual(
+                captured["cmd"][captured["cmd"].index("--") + 1],
+                RUNNER.OPENCODE_PROMPT_MESSAGE,
+            )
             self.assertIn("documentation impact", captured["prompt"])
             self.assertNotIn(captured["prompt"], captured["cmd"])
 

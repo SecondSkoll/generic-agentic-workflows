@@ -21,6 +21,7 @@ operating-system argument length limit before OpenCode starts.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import importlib.util
 import json
 import os
@@ -216,6 +217,78 @@ def changed_lines_by_path(diff: str) -> dict[str, set[int]]:
             new_line += 1
 
     return lines_by_path
+
+
+class DiffFile:
+    def __init__(self, path: str, old_path: str | None, status: str, added_lines: frozenset[int]) -> None:
+        self.path, self.old_path, self.status, self.added_lines = path, old_path, status, added_lines
+
+
+class ContextLimits:
+    def __init__(self, max_rounds: int = 3, max_files: int = 20, max_file_bytes: int = 200 * 1024, max_total_bytes: int = 1024 * 1024, max_manifest_entries: int = 5000) -> None:
+        self.max_rounds, self.max_files, self.max_file_bytes = max_rounds, max_files, max_file_bytes
+        self.max_total_bytes, self.max_manifest_entries = max_total_bytes, max_manifest_entries
+
+
+class ContextAudit:
+    def __init__(self) -> None:
+        self.rounds = 0
+        self.supplied_paths: list[str] = []
+        self.denied_paths: list[str] = []
+        self.total_bytes = 0
+        self.manifest_supplied = False
+
+
+def parse_diff_files(diff: str) -> dict[str, DiffFile]:
+    """Extract changed path, status, rename source, and added lines once."""
+    files: dict[str, DiffFile] = {}
+    old_path: str | None = None
+    path: str | None = None
+    status = "modified"
+    added: set[int] = set()
+    new_line: int | None = None
+    def finish() -> None:
+        if path:
+            files[path] = DiffFile(path, old_path, status, frozenset(added))
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            finish(); old_path = path = None; status = "modified"; added = set(); new_line = None
+            match = re.match(r"diff --git a/(.*?) b/(.*)$", line)
+            if match: old_path, path = match.group(1), match.group(2)
+        elif line.startswith("new file mode "):
+            status = "added"
+        elif line.startswith("deleted file mode "):
+            status = "deleted"
+        elif line.startswith("rename from "):
+            old_path = line[len("rename from "):]
+            status = "renamed"
+        elif line.startswith("rename to "):
+            path = line[len("rename to "):]
+            status = "renamed"
+        elif line.startswith("+++ "):
+            candidate = line[4:]
+            if candidate == "/dev/null": path = old_path
+            elif candidate.startswith("b/"): path = candidate[2:]
+        elif (match := re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)):
+            new_line = int(match.group(1))
+        elif new_line is not None and not line.startswith("\\"):
+            if line.startswith("+"): added.add(new_line); new_line += 1
+            elif not line.startswith("-"): new_line += 1
+    finish()
+    return files
+
+
+def _safe_context_path(path: str, denied_patterns: tuple[str, ...]) -> bool:
+    return bool(path) and not path.startswith("/") and "\\" not in path and all(part not in {"", ".", ".."} for part in path.split("/")) and not any(re.search(pattern, path) for pattern in denied_patterns)
+
+
+def _git_blob(ref: str, path: str, max_bytes: int) -> bytes | None:
+    result = subprocess.run(["git", "show", f"{ref}:{path}"], capture_output=True, check=False)
+    if result.returncode or b"\x00" in result.stdout or len(result.stdout) > max_bytes:
+        return None
+    try: result.stdout.decode("utf-8")
+    except UnicodeDecodeError: return None
+    return result.stdout
 
 
 def format_changed_locations(changed_lines: dict[str, set[int]]) -> str:
@@ -450,6 +523,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Path to write a redacted provenance record to",
     )
+    parser.add_argument("--pr-metadata", type=Path, help="Verified PR metadata JSON")
+    parser.add_argument("--base-ref", help="Trusted base SHA/ref used for context blobs")
+    parser.add_argument("--head-ref", help="Fetched untrusted PR-head ref used for context blobs")
+    parser.add_argument("--max-context-rounds", type=int, help="Stricter context-round override")
+    parser.add_argument("--max-context-files", type=int, help="Stricter context-file override")
+    parser.add_argument("--max-context-bytes", type=int, help="Stricter total-context-byte override")
     args = parser.parse_args(argv)
 
     token = os.environ.get("GITHUB_TOKEN")
@@ -572,6 +651,14 @@ def main(argv: list[str] | None = None) -> int:
     changed_lines = changed_lines_by_path(input_text) if reviews_url else {}
     allowed_locations = format_changed_locations(changed_lines) if reviews_url else None
 
+    pr_metadata: dict[str, object] = {}
+    if args.pr_metadata:
+        try:
+            pr_metadata = json.loads(args.pr_metadata.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            parser.error(f"Could not read PR metadata: {error}")
+        if not isinstance(pr_metadata, dict):
+            parser.error("PR metadata must be a JSON object")
     if resolved_bundle is not None:
         try:
             prompt = _compose_integrated_prompt(
@@ -585,7 +672,7 @@ def main(argv: list[str] | None = None) -> int:
                 focus=args.focus,
                 max_comments=effective_max_comments,
                 allowed_locations=allowed_locations,
-                untrusted_content=input_text,
+                untrusted_content=_initial_pr_untrusted(input_text, pr_metadata),
             )
         except PROMPTS.PromptError as error:
             print(f"::error::Prompt composition failed: {error}", file=sys.stderr)
@@ -632,7 +719,15 @@ def main(argv: list[str] | None = None) -> int:
             effective_policy.get("timeout_seconds", provider_timeout)
         )
 
-    if resolved_bundle is not None:
+    audit: ContextAudit | None = None
+    if (resolved_bundle is not None and reviews_url and args.base_ref and args.head_ref
+            and resolved_bundle.get("context_policy") == "pr-review-on-demand-v1"):
+        rc, output, audit = review_with_context_loop(
+            args=args, resolved_bundle=resolved_bundle, effective_policy=effective_policy or {},
+            changed_lines=changed_lines, input_text=input_text, pr_metadata=pr_metadata,
+            effective_max_comments=effective_max_comments, provider_timeout=provider_timeout,
+        )
+    elif resolved_bundle is not None:
         # Plan 2-5 integrated path: stage hash-verified agent/skill content
         # into an isolated OpenCode workspace under RUNNER_TEMP and run with
         # --dir so OpenCode scans only the verified configuration (no fallback
@@ -670,7 +765,7 @@ def main(argv: list[str] | None = None) -> int:
             effective_policy,
             output_contract,
             config_digest,
-            "failed",
+            "failed", audit,
         )
         return rc
     output = (output or "").strip()
@@ -682,7 +777,7 @@ def main(argv: list[str] | None = None) -> int:
             effective_policy,
             output_contract,
             config_digest,
-            "failed",
+            "failed", audit,
         )
         return 1
 
@@ -716,7 +811,7 @@ def main(argv: list[str] | None = None) -> int:
                 effective_policy,
                 output_contract,
                 config_digest,
-                "failed",
+                "failed", audit,
             )
             return 1
         if args.dry_run:
@@ -730,7 +825,7 @@ def main(argv: list[str] | None = None) -> int:
                 effective_policy,
                 output_contract,
                 config_digest,
-                "generated",
+                "generated", audit,
             )
             return 0
         github_request(
@@ -755,7 +850,7 @@ def main(argv: list[str] | None = None) -> int:
             effective_policy,
             output_contract,
             config_digest,
-            "published",
+            "published", audit,
         )
     else:
         try:
@@ -844,6 +939,67 @@ def _run_opencode_integrated(
         shutil.rmtree(workspace, ignore_errors=True)
 
 
+def _initial_pr_untrusted(diff: str, metadata: dict[str, object]) -> str:
+    """Create Tier 0 data only; metadata and diff remain explicitly untrusted."""
+    return "PR metadata (untrusted):\n" + json.dumps(metadata, ensure_ascii=False) + "\n\nUnified diff (untrusted):\n" + diff
+
+
+def _context_limits(policy: dict, args: argparse.Namespace) -> ContextLimits:
+    values = dict(policy.get("context") or {})
+    limits = ContextLimits(max_rounds=int(values.get("max_context_rounds", 3)), max_files=int(values.get("max_context_files", 20)), max_file_bytes=int(values.get("max_context_file_bytes", 200 * 1024)), max_total_bytes=int(values.get("max_context_total_bytes", 1024 * 1024)), max_manifest_entries=int(values.get("max_manifest_entries", 5000)))
+    for attr, override in (("max_rounds", args.max_context_rounds), ("max_files", args.max_context_files), ("max_total_bytes", args.max_context_bytes)):
+        if override is not None:
+            if override < 0 or override > getattr(limits, attr): raise ValueError(f"--{attr.replace('_', '-')} may only lower policy limits")
+            values = dict(limits.__dict__); values[attr] = override
+            limits = ContextLimits(**values)
+    return limits
+
+
+def _requested_context(request: dict, *, diff_files: dict[str, DiffFile], manifest: set[str] | None, base_ref: str, head_ref: str, policy: dict, limits: ContextLimits, audit: ContextAudit) -> tuple[str, set[str] | None]:
+    context_policy = policy.get("context") or {}; denied = tuple(context_policy.get("deny_path_patterns", policy.get("deny_path_patterns", ())))
+    blocks: list[str] = []; req = request["request"]
+    if req["manifest"]:
+        if context_policy.get("allow_repository_manifest", False) and not audit.manifest_supplied:
+            result = subprocess.run(["git", "ls-tree", "-r", "--name-only", base_ref], capture_output=True, text=True, check=False)
+            paths = [p for p in result.stdout.splitlines() if _safe_context_path(p, denied) and not any(x in {"node_modules", ".venv", "vendor", "dist", "build", "coverage"} for x in p.split("/"))][:limits.max_manifest_entries]
+            manifest = set(paths); audit.manifest_supplied = True; blocks.append("Repository manifest (trusted base tree):\n" + "\n".join(f"- {p}{' [affected]' if p in diff_files else ''}" for p in paths))
+        else: blocks.append("Context denied: repository manifest is unavailable.")
+    selected: list[tuple[str, DiffFile | None]] = []
+    for kind, items in (("changed_files", req["changed_files"]), ("repository_files", req["repository_files"])):
+        enabled = context_policy.get("allow_changed_file_context" if kind == "changed_files" else "allow_repository_file_context", False)
+        for item in items:
+            path = item["path"]; valid = enabled and _safe_context_path(path, denied) and (path in diff_files if kind == "changed_files" else manifest is not None and path in manifest)
+            if not valid or len(selected) >= limits.max_files: audit.denied_paths.append(path)
+            else: selected.append((path, diff_files.get(path)))
+    for path, item in selected:
+        snapshots = ([] if item and item.status == "added" else [("base", item.old_path if item else path)]) + ([] if item and item.status == "deleted" else [("head" if item else "base", path)])
+        included = False
+        for label, blob_path in snapshots:
+            if not blob_path: continue
+            blob = _git_blob(head_ref if label == "head" else base_ref, blob_path, limits.max_file_bytes)
+            if blob is None or audit.total_bytes + len(blob) > limits.max_total_bytes: audit.denied_paths.append(blob_path); continue
+            audit.total_bytes += len(blob); included = True; blocks.append(f"File snapshot ({label}): {blob_path}\n---\n{blob.decode('utf-8')}\n---")
+        if included: audit.supplied_paths.append(path)
+    return "\n\n".join(blocks or ["Context denied: no requested files passed policy and budget checks."]), manifest
+
+
+def review_with_context_loop(*, args: argparse.Namespace, resolved_bundle: dict, effective_policy: dict, changed_lines: dict[str, set[int]], input_text: str, pr_metadata: dict[str, object], effective_max_comments: int | None, provider_timeout: int) -> tuple[int, str, ContextAudit]:
+    """Run bounded, stateless Tier 0–3 PR context requests."""
+    limits = _context_limits(effective_policy, args); audit = ContextAudit(); files = parse_diff_files(input_text); transcript = _initial_pr_untrusted(input_text, pr_metadata); manifest = None
+    for attempt in range(limits.max_rounds + 2):
+        final_only = attempt > limits.max_rounds
+        prompt = _compose_integrated_prompt(resolved_bundle=resolved_bundle, feedback_kind=args.feedback_kind, output_contract="pr-review-json-v1", repository=args.repository or "", author_login=args.author, pull_number=args.pull_number, target_title=None, focus=args.focus, max_comments=effective_max_comments, allowed_locations=format_changed_locations(changed_lines), untrusted_content=transcript + ("\n\nNo more context is available. Return final review JSON now." if final_only else ""))
+        rc, output = _run_opencode_integrated(resolved_bundle=resolved_bundle, agent_name=resolved_bundle.get("agent_name") or "default-agent", prompt=prompt, provider_timeout=provider_timeout)
+        if rc: return rc, output, audit
+        try: kind, parsed = PROMPTS.parse_pr_review_response(output, changed_lines=changed_lines, max_comments=effective_max_comments)
+        except PROMPTS.ContractError: return 1, output, audit
+        if kind == "final": return 0, output, audit
+        if final_only: return 1, output, audit
+        audit.rounds += 1; supplied, manifest = _requested_context(parsed, diff_files=files, manifest=manifest, base_ref=args.base_ref, head_ref=args.head_ref, policy=effective_policy, limits=limits, audit=audit)
+        transcript += f"\n\nContext request {audit.rounds}: {parsed['reason']}\nContext response:\n{supplied}"
+    return 1, "", audit
+
+
 def _run_opencode_with_prompt_file(
     *,
     opencode_args: list[str],
@@ -866,10 +1022,15 @@ def _run_opencode_with_prompt_file(
     with tempfile.TemporaryDirectory(prefix="agentic-opencode-prompt-") as tempdir:
         prompt_path = Path(tempdir) / "workflow-prompt.md"
         prompt_path.write_text(prompt, encoding="utf-8")
+        # In OpenCode 1.18.x, the repeatable ``--file`` option greedily
+        # consumes positional values that follow it. Put all attachments
+        # before ``--`` and the instruction after it so neither is parsed as
+        # an attachment. Without the delimiter, OpenCode exits with
+        # ``File not found: Use the attached workflow-prompt.md ...``.
         cmd = ["opencode", "run", *opencode_args, "--file", str(prompt_path)]
         for attachment in attachments:
             cmd.extend(["--file", str(attachment)])
-        cmd.append(OPENCODE_PROMPT_MESSAGE)
+        cmd.extend(["--", OPENCODE_PROMPT_MESSAGE])
         return subprocess.run(
             cmd,
             check=False,
@@ -1007,6 +1168,7 @@ def _maybe_write_provenance(
     output_contract: str | None,
     config_digest: str | None,
     result: str,
+    audit: ContextAudit | None = None,
 ) -> None:
     """Write a redacted provenance record when requested."""
     if not args.provenance:
@@ -1030,7 +1192,10 @@ def _maybe_write_provenance(
         mode=mode,
         result=result,
     )
-    args.provenance.write_text(record.to_json() + "\n", encoding="utf-8")
+    data = record.to_dict()
+    if audit is not None:
+        data["additional_context"] = {"enabled": True, "policy": "pr-review-on-demand-v1", "rounds": audit.rounds, "manifest_supplied": audit.manifest_supplied, "files_supplied": len(audit.supplied_paths), "files_denied": len(audit.denied_paths), "total_extra_context_bytes": audit.total_bytes}
+    args.provenance.write_text(json.dumps(data, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -113,6 +113,30 @@ class ParseReviewOutputTests(unittest.TestCase):
             "<!-- agentic-workflow:issue-feedback:v1 -->",
         )
 
+    def test_parses_diff_file_statuses(self) -> None:
+        diff = """diff --git a/a.txt b/a.txt
+index 1..2 100644
+--- a/a.txt
++++ b/a.txt
+@@ -1 +1 @@
+-old
++new
+diff --git a/new.txt b/new.txt
+new file mode 100644
+--- /dev/null
++++ b/new.txt
+@@ -0,0 +1 @@
++new
+"""
+        files = RUNNER.parse_diff_files(diff)
+        self.assertEqual(files["a.txt"].status, "modified")
+        self.assertEqual(files["new.txt"].status, "added")
+        self.assertEqual(files["a.txt"].added_lines, frozenset({1}))
+
+    def test_rejects_unsafe_context_path(self) -> None:
+        self.assertFalse(RUNNER._safe_context_path("../secret", ()))
+        self.assertFalse(RUNNER._safe_context_path("/secret", ()))
+
 
 if __name__ == "__main__":
     unittest.main()

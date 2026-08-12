@@ -57,6 +57,21 @@ runner validates these locations before calling GitHub; feedback with an
 invalid location is retained in the overall review body rather than causing
 the review to fail.
 
+### On-demand PR review context
+
+The initial PR review packet deliberately contains only verified PR metadata,
+the unified diff, and allowed inline locations—never full repository files.
+For bundles that opt into `pr-review-on-demand-v1`, the agent may return a
+structured request for affected-file contents, then a bounded base-tree
+manifest, and finally selected files from that manifest. Effective policy
+controls these capabilities and strict round, file-count, and byte limits;
+workflow callers cannot choose files or supply prompt text. Requested content
+is read as Git objects from the trusted base (or the fetched PR-head ref only
+for changed-file text), is treated as untrusted data, and is never executed.
+The `pull_request_target` workflow still checks out only the trusted base
+revision. Provenance records counts and byte totals, not file contents, diffs,
+prompts, or model responses.
+
 When an inline item includes a `suggestion`, the runner produces GitHub's
 `suggestion` block, which gives reviewers an **Apply suggestion** control. The
 `body` explains the recommendation and `suggestion` contains only the exact

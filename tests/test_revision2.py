@@ -433,7 +433,10 @@ class ImplementationBranchInPromptTests(unittest.TestCase):
             captured = {}
 
             def fake_run(cmd, **kwargs):
-                captured["prompt"] = cmd[-1]
+                # The composed prompt is deliberately passed through a file to
+                # avoid exceeding argv limits with large issue context.
+                prompt_path = Path(cmd[cmd.index("--file") + 1])
+                captured["prompt"] = prompt_path.read_text(encoding="utf-8")
                 return type(
                     "R",
                     (),

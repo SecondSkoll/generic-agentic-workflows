@@ -106,6 +106,14 @@ BUILTIN_SAFETY_POLICY: dict[str, dict[str, Any]] = {
             r"^\.github/workflows/",
             r"^\.opencode/",
         ],
+        "allow_changed_file_context": True,
+        "allow_repository_manifest": True,
+        "allow_repository_file_context": True,
+        "max_context_rounds": 3,
+        "max_context_files": 20,
+        "max_context_file_bytes": 200 * 1024,
+        "max_context_total_bytes": 1024 * 1024,
+        "max_manifest_entries": 5000,
     },
     "issue-feedback": {
         "capabilities": {
@@ -362,6 +370,7 @@ class EffectivePolicy:
     rejected_conflicts: tuple[str, ...]
     layers: tuple[dict[str, Any], ...]
     sha256: str
+    context: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -381,6 +390,7 @@ class EffectivePolicy:
             "test_commands": list(self.test_commands),
             "rejected_conflicts": list(self.rejected_conflicts),
             "sha256": self.sha256,
+            "context": dict(self.context),
         }
 
     def to_json(self) -> str:
@@ -527,6 +537,37 @@ def merge_policy(
 
     deny_patterns = tuple(builtin["deny_path_patterns"])
 
+    # Additional PR context can only be narrowed by lower layers. Capability
+    # booleans intersect with AND; numeric limits use the minimum.
+    context_keys = (
+        "max_context_rounds", "max_context_files", "max_context_file_bytes",
+        "max_context_total_bytes", "max_manifest_entries",
+    )
+    context = {key: builtin.get(key) for key in context_keys if key in builtin}
+    for key in ("allow_changed_file_context", "allow_repository_manifest", "allow_repository_file_context"):
+        if key in builtin:
+            context[key] = bool(builtin[key])
+    for layer_name, layer in (("bundle", bundle), ("overlay", overlay), ("invocation", invocation)):
+        for key in context_keys:
+            if key in layer:
+                value = layer[key]
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    raise PolicyError(f"{layer_name} {key} must be a non-negative integer")
+                if value > context[key]:
+                    raise PolicyError(f"{layer_name} {key} cannot exceed the effective ceiling")
+                context[key] = min(context[key], value)
+        for key in ("allow_changed_file_context", "allow_repository_manifest", "allow_repository_file_context"):
+            if key in layer:
+                if not isinstance(layer[key], bool):
+                    raise PolicyError(f"{layer_name} {key} must be a boolean")
+                if layer[key] and not context[key]:
+                    raise PolicyError(f"{layer_name} cannot enable disabled {key}")
+                context[key] = context[key] and layer[key]
+    context["deny_path_patterns"] = tuple(deny_patterns) + (
+        r"(^|/)\.env($|\.)", r"\.pem$", r"\.key$", r"(^|/)id_rsa$",
+        r"(^|/)secrets\.", r"(^|/)(?:\.npmrc|\.pypirc|\.netrc)$",
+    )
+
     policy_dict = {
         "workflow": workflow,
         "model_profile": model_profile,
@@ -544,6 +585,7 @@ def merge_policy(
         "test_commands": test_commands,
         "rejected_conflicts": tuple(rejected),
         "layers": layers,
+        "context": context,
     }
     import hashlib
 
@@ -568,6 +610,7 @@ def merge_policy(
         rejected_conflicts=tuple(rejected),
         layers=tuple(layers),
         sha256=sha,
+        context=context,
     )
 
 

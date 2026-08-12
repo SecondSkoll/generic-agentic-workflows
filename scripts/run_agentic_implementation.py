@@ -231,8 +231,13 @@ def _run_opencode_with_prompt_file(
                 "opencode",
                 "run",
                 *opencode_args,
+                # In OpenCode 1.18.x, repeatable --file values greedily
+                # consume following positional arguments. End option parsing
+                # before the instruction so it is always a message, not a
+                # nonexistent file path.
                 "--file",
                 str(prompt_path),
+                "--",
                 OPENCODE_PROMPT_MESSAGE,
             ],
             check=False,
