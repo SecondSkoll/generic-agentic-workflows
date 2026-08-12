@@ -2,7 +2,7 @@ name: OpenCode PR documentation review
 
 on:
   pull_request_target:
-    types: [opened, edited, synchronize]
+    types: [opened]
   workflow_dispatch:
     inputs:
       pull_number:
