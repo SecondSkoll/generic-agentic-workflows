@@ -19,7 +19,9 @@ REPO_ROOT = Path(__file__).parents[1]
 
 
 def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / "scripts" / f"{name}.py")
+    spec = importlib.util.spec_from_file_location(
+        name, REPO_ROOT / "scripts" / f"{name}.py"
+    )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -100,7 +102,9 @@ class CollisionSafeStagingTests(unittest.TestCase):
             # Pre-create a tracked executor.md with distinct content.
             dest = root / ".opencode" / "agents" / "executor.md"
             dest.parent.mkdir(parents=True)
-            original_bytes = b"---\nname: executor\nmode: subagent\n---\n# original tracked\n"
+            original_bytes = (
+                b"---\nname: executor\nmode: subagent\n---\n# original tracked\n"
+            )
             dest.write_bytes(original_bytes)
             staged = CFG.materialize_to_opencode_root(data, root)
             # The staged entry for executor should record it pre-existed.
@@ -136,27 +140,51 @@ class CollisionSafeStagingTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, env=env)
-            subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True, env=env)
-            subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True, env=env)
+            subprocess.run(
+                ["git", "init", "-q", "-b", "main", str(repo)], check=True, env=env
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "user.name", "t"],
+                check=True,
+                env=env,
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "user.email", "t@t"],
+                check=True,
+                env=env,
+            )
             # Commit a tracked executor.md.
             agents = repo / ".opencode" / "agents"
             agents.mkdir(parents=True)
             tracked = agents / "executor.md"
-            tracked.write_bytes(b"---\nname: executor\nmode: subagent\n---\n# tracked\n")
+            tracked.write_bytes(
+                b"---\nname: executor\nmode: subagent\n---\n# tracked\n"
+            )
             subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, env=env)
-            subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "init"], check=True, env=env)
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-q", "-m", "init"],
+                check=True,
+                env=env,
+            )
             # Stage + cleanup.
             staged = CFG.materialize_to_opencode_root(data, repo)
             CFG.cleanup_staged(staged)
             # git status should be clean (no diff).
             status = subprocess.run(
                 ["git", "-C", str(repo), "status", "--porcelain"],
-                capture_output=True, text=True, check=True, env=env,
+                capture_output=True,
+                text=True,
+                check=True,
+                env=env,
             )
-            self.assertEqual(status.stdout.strip(), "", f"git status not clean: {status.stdout!r}")
+            self.assertEqual(
+                status.stdout.strip(), "", f"git status not clean: {status.stdout!r}"
+            )
             # The tracked executor.md bytes are unchanged.
-            self.assertEqual(tracked.read_bytes(), b"---\nname: executor\nmode: subagent\n---\n# tracked\n")
+            self.assertEqual(
+                tracked.read_bytes(),
+                b"---\nname: executor\nmode: subagent\n---\n# tracked\n",
+            )
 
 
 class ProfileMaxCommentsDefaultTests(unittest.TestCase):
@@ -165,9 +193,7 @@ class ProfileMaxCommentsDefaultTests(unittest.TestCase):
     def test_parser_clamps_to_profile_ceiling_without_override(self) -> None:
         # The documentation-review bundle limits max_comments to 10.
         # Without a caller override, the parser should clamp to 10.
-        items = [
-            {"path": "a.py", "line": 1, "body": f"c{i}"} for i in range(15)
-        ]
+        items = [{"path": "a.py", "line": 1, "body": f"c{i}"} for i in range(15)]
         output = json.dumps({"summary": "s", "comments": items})
         summary, comments = PROMPTS.parse_pr_review_output(
             output, {"a.py": {1}}, max_comments=10
@@ -180,39 +206,68 @@ class ProfileMaxCommentsDefaultTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             bundle_path = tmp_path / "bundle.json"
-            bundle_path.write_text(json.dumps(_resolved("documentation-review", "pr-documentation-review")), encoding="utf-8")
+            bundle_path.write_text(
+                json.dumps(
+                    _resolved("documentation-review", "pr-documentation-review")
+                ),
+                encoding="utf-8",
+            )
             policy_path = tmp_path / "policy.json"
-            pol = POLICY.merge_policy(workflow="pr-documentation-review", model_profile="review-readonly")
+            pol = POLICY.merge_policy(
+                workflow="pr-documentation-review", model_profile="review-readonly"
+            )
             policy_path.write_text(json.dumps(pol.to_dict()), encoding="utf-8")
             diff_path = tmp_path / "pr.diff"
-            diff_path.write_text("diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -0,0 +1 @@\n+new\n", encoding="utf-8")
+            diff_path.write_text(
+                "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -0,0 +1 @@\n+new\n",
+                encoding="utf-8",
+            )
             # 15 comments in output; caller passes no --max-comments.
-            valid_output = json.dumps({
-                "summary": "s",
-                "comments": [{"path": "a.py", "line": 1, "body": f"c{i}"} for i in range(15)],
-            })
+            valid_output = json.dumps(
+                {
+                    "summary": "s",
+                    "comments": [
+                        {"path": "a.py", "line": 1, "body": f"c{i}"} for i in range(15)
+                    ],
+                }
+            )
             captured = {}
 
             def fake_run(cmd, **kwargs):
                 captured["cmd"] = cmd
-                return type("R", (), {"stdout": valid_output, "stderr": "", "returncode": 0})()
+                return type(
+                    "R", (), {"stdout": valid_output, "stderr": "", "returncode": 0}
+                )()
 
-            with mock.patch.dict(os.environ, {"GITHUB_TOKEN": "t"}), \
-                 mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run), \
-                 mock.patch.object(RUNNER, "github_request") as mock_gh, \
-                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False), \
-                 mock.patch.object(RUNNER, "has_marker", return_value=False):
-                rc = RUNNER.main([
-                    "--input", str(diff_path),
-                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
-                    "--repository", "o/r",
-                    "--pull-number", "1",
-                    "--head-sha", "abc123",
-                    "--feedback-kind", "pr-documentation-review",
-                    "--author", "octocat",
-                    "--resolved-config", str(bundle_path),
-                    "--effective-policy", str(policy_path),
-                ])
+            with (
+                mock.patch.dict(os.environ, {"GITHUB_TOKEN": "t"}),
+                mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
+                rc = RUNNER.main(
+                    [
+                        "--input",
+                        str(diff_path),
+                        "--comments-url",
+                        "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository",
+                        "o/r",
+                        "--pull-number",
+                        "1",
+                        "--head-sha",
+                        "abc123",
+                        "--feedback-kind",
+                        "pr-documentation-review",
+                        "--author",
+                        "octocat",
+                        "--resolved-config",
+                        str(bundle_path),
+                        "--effective-policy",
+                        str(policy_path),
+                    ]
+                )
             self.assertEqual(rc, 0)
             body = mock_gh.call_args.kwargs["body"]
             # Clamped to profile ceiling of 10.
@@ -225,17 +280,38 @@ class BaseRefHardeningTests(unittest.TestCase):
     def test_collect_raises_on_unresolvable_base_ref(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
-            env = {"GIT_CONFIG_GLOBAL": "/dev/null", "PATH": os.environ["PATH"],
-                   "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
-                   "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
-            subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, env=env)
-            subprocess.run(["git", "-C", str(repo), "config", "user.name", "t"], check=True, env=env)
-            subprocess.run(["git", "-C", str(repo), "config", "user.email", "t@t"], check=True, env=env)
+            env = {
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "PATH": os.environ["PATH"],
+                "GIT_AUTHOR_NAME": "t",
+                "GIT_AUTHOR_EMAIL": "t@t",
+                "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@t",
+            }
+            subprocess.run(
+                ["git", "init", "-q", "-b", "main", str(repo)], check=True, env=env
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "user.name", "t"],
+                check=True,
+                env=env,
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "user.email", "t@t"],
+                check=True,
+                env=env,
+            )
             (repo / "x").write_text("x\n", encoding="utf-8")
             subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, env=env)
-            subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "init"], check=True, env=env)
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-q", "-m", "init"],
+                check=True,
+                env=env,
+            )
             with self.assertRaises(POLICY.PolicyError):
-                POLICY.collect_implementation_changed_paths(repo, base_ref="refs/remotes/origin/nonexistent")
+                POLICY.collect_implementation_changed_paths(
+                    repo, base_ref="refs/remotes/origin/nonexistent"
+                )
 
 
 class OverlayWiringTests(unittest.TestCase):
@@ -243,36 +319,59 @@ class OverlayWiringTests(unittest.TestCase):
 
     def test_cli_loads_overlay_to_narrow_publication(self) -> None:
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp:
             overlay_path = Path(tmp) / "overlay.json"
-            overlay_path.write_text(json.dumps({
-                "max_comments": 3,
-                "allowed_focus": ["documentation"],
-                "publication": {"allow": False},
-            }), encoding="utf-8")
+            overlay_path.write_text(
+                json.dumps(
+                    {
+                        "max_comments": 3,
+                        "allowed_focus": ["documentation"],
+                        "publication": {"allow": False},
+                    }
+                ),
+                encoding="utf-8",
+            )
             result_path = Path(tmp) / "policy.json"
-            rc = POLICY.main([
-                "--workflow", "pr-documentation-review",
-                "--model-profile", "review-readonly",
-                "--overlay", str(overlay_path),
-                "--result", str(result_path),
-            ])
+            rc = POLICY.main(
+                [
+                    "--workflow",
+                    "pr-documentation-review",
+                    "--model-profile",
+                    "review-readonly",
+                    "--overlay",
+                    str(overlay_path),
+                    "--result",
+                    str(result_path),
+                ]
+            )
             self.assertEqual(rc, 0)
             policy = json.loads(result_path.read_text())
             self.assertFalse(policy["publication_allowed"])
 
     def test_cli_rejects_escalating_overlay(self) -> None:
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp:
             overlay_path = Path(tmp) / "overlay.json"
-            overlay_path.write_text(json.dumps({
-                "capabilities": {"shell": "allow"},
-            }), encoding="utf-8")
-            rc = POLICY.main([
-                "--workflow", "pr-documentation-review",
-                "--model-profile", "review-readonly",
-                "--overlay", str(overlay_path),
-            ])
+            overlay_path.write_text(
+                json.dumps(
+                    {
+                        "capabilities": {"shell": "allow"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rc = POLICY.main(
+                [
+                    "--workflow",
+                    "pr-documentation-review",
+                    "--model-profile",
+                    "review-readonly",
+                    "--overlay",
+                    str(overlay_path),
+                ]
+            )
             self.assertEqual(rc, 1)
 
 
@@ -281,7 +380,9 @@ class AgentCapabilitiesFromFrontMatterTests(unittest.TestCase):
 
     def test_parse_capabilities_from_review_agent(self) -> None:
         data = _resolved("documentation-review", "pr-documentation-review")
-        agent_text = (Path(data["bundle_root"]) / data["agent_file"]).read_text(encoding="utf-8")
+        agent_text = (Path(data["bundle_root"]) / data["agent_file"]).read_text(
+            encoding="utf-8"
+        )
         caps = POLICY.parse_agent_capabilities(agent_text)
         # Review agent has edit: deny, bash: deny -> filesystem/shell denied.
         self.assertEqual(caps.get("filesystem"), "deny")
@@ -289,7 +390,9 @@ class AgentCapabilitiesFromFrontMatterTests(unittest.TestCase):
 
     def test_parse_capabilities_from_implementation_planner(self) -> None:
         data = _resolved("default-implementation", "issue-implementation")
-        agent_text = (Path(data["bundle_root"]) / data["agent_file"]).read_text(encoding="utf-8")
+        agent_text = (Path(data["bundle_root"]) / data["agent_file"]).read_text(
+            encoding="utf-8"
+        )
         caps = POLICY.parse_agent_capabilities(agent_text)
         # Planner has bash: allow -> shell requested.
         self.assertEqual(caps.get("shell"), "allow")
@@ -320,7 +423,9 @@ class ImplementationBranchInPromptTests(unittest.TestCase):
             bundle = _resolved("default-implementation", "issue-implementation")
             bundle_path = tmp_path / "bundle.json"
             bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
-            pol = POLICY.merge_policy(workflow="issue-implementation", model_profile="implementation-planner")
+            pol = POLICY.merge_policy(
+                workflow="issue-implementation", model_profile="implementation-planner"
+            )
             policy_path = tmp_path / "policy.json"
             policy_path.write_text(json.dumps(pol.to_dict()), encoding="utf-8")
             ctx_path = tmp_path / "ctx.md"
@@ -329,20 +434,40 @@ class ImplementationBranchInPromptTests(unittest.TestCase):
 
             def fake_run(cmd, **kwargs):
                 captured["prompt"] = cmd[-1]
-                return type("R", (), {"stdout": "IMPLEMENTATION_DECISION: BLOCKED\nIMPLEMENTATION_BLOCKER: x", "stderr": "", "returncode": 0})()
+                return type(
+                    "R",
+                    (),
+                    {
+                        "stdout": "IMPLEMENTATION_DECISION: BLOCKED\nIMPLEMENTATION_BLOCKER: x",
+                        "stderr": "",
+                        "returncode": 0,
+                    },
+                )()
 
-            with mock.patch.dict(os.environ, {"GITHUB_TOKEN": "t"}), \
-                 mock.patch.object(IMPL.subprocess, "run", side_effect=fake_run):
-                IMPL.main([
-                    "--resolved-config", str(bundle_path),
-                    "--effective-policy", str(policy_path),
-                    "--issue-context", str(ctx_path),
-                    "--issue-number", "1",
-                    "--issue-author", "octocat",
-                    "--repository", "o/r",
-                    "--branch", "ai/issue-1-impl",
-                    "--repo-root", str(tmp_path),
-                ])
+            with (
+                mock.patch.dict(os.environ, {"GITHUB_TOKEN": "t"}),
+                mock.patch.object(IMPL.subprocess, "run", side_effect=fake_run),
+            ):
+                IMPL.main(
+                    [
+                        "--resolved-config",
+                        str(bundle_path),
+                        "--effective-policy",
+                        str(policy_path),
+                        "--issue-context",
+                        str(ctx_path),
+                        "--issue-number",
+                        "1",
+                        "--issue-author",
+                        "octocat",
+                        "--repository",
+                        "o/r",
+                        "--branch",
+                        "ai/issue-1-impl",
+                        "--repo-root",
+                        str(tmp_path),
+                    ]
+                )
             self.assertIn("ai/issue-1-impl", captured["prompt"])
 
 

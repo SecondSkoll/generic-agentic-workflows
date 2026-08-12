@@ -64,7 +64,9 @@ class IntegratedRunTests(unittest.TestCase):
     """Exercise the resolved-config path with mocked opencode and GitHub."""
 
     def setUp(self) -> None:
-        self._env = mock.patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"}, clear=False)
+        self._env = mock.patch.dict(
+            os.environ, {"GITHUB_TOKEN": "test-token"}, clear=False
+        )
         self._env.start()
 
     def tearDown(self) -> None:
@@ -89,33 +91,53 @@ class IntegratedRunTests(unittest.TestCase):
             tmp_path = Path(tmp)
             bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
             provenance_path = tmp_path / "provenance.json"
-            valid_output = json.dumps({
-                "summary": "Looks good.",
-                "comments": [{"path": "test-script.py", "line": 1, "body": "Note."}],
-            })
-            with mock.patch.object(RUNNER.subprocess, "run") as mock_run, \
-                 mock.patch.object(RUNNER, "github_request") as mock_gh, \
-                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False), \
-                 mock.patch.object(RUNNER, "has_marker", return_value=False):
+            valid_output = json.dumps(
+                {
+                    "summary": "Looks good.",
+                    "comments": [
+                        {"path": "test-script.py", "line": 1, "body": "Note."}
+                    ],
+                }
+            )
+            with (
+                mock.patch.object(RUNNER.subprocess, "run") as mock_run,
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
                 mock_run.return_value = FakeSubprocessResult(valid_output)
-                rc = RUNNER.main([
-                    "--input", str(diff_path),
-                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
-                    "--repository", "o/r",
-                    "--pull-number", "1",
-                    "--head-sha", "abc123",
-                    "--feedback-kind", "pr-documentation-review",
-                    "--author", "octocat",
-                    "--resolved-config", str(bundle_path),
-                    "--effective-policy", str(policy_path),
-                    "--provenance", str(provenance_path),
-                ])
+                rc = RUNNER.main(
+                    [
+                        "--input",
+                        str(diff_path),
+                        "--comments-url",
+                        "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository",
+                        "o/r",
+                        "--pull-number",
+                        "1",
+                        "--head-sha",
+                        "abc123",
+                        "--feedback-kind",
+                        "pr-documentation-review",
+                        "--author",
+                        "octocat",
+                        "--resolved-config",
+                        str(bundle_path),
+                        "--effective-policy",
+                        str(policy_path),
+                        "--provenance",
+                        str(provenance_path),
+                    ]
+                )
             self.assertEqual(rc, 0)
             mock_gh.assert_called_once()
             # The published review body must carry a v2 marker with config digest.
             call_args = mock_gh.call_args
             body = call_args.kwargs["body"]
-            self.assertIn("<!-- agentic-workflow:pr-documentation-review:v2:", body["body"])
+            self.assertIn(
+                "<!-- agentic-workflow:pr-documentation-review:v2:", body["body"]
+            )
             # Provenance record written with result=published.
             record = json.loads(provenance_path.read_text(encoding="utf-8"))
             self.assertEqual(record["result"], "published")
@@ -130,23 +152,37 @@ class IntegratedRunTests(unittest.TestCase):
             provenance_path = tmp_path / "provenance.json"
             # Malformed output: missing summary.
             bad_output = json.dumps({"comments": []})
-            with mock.patch.object(RUNNER.subprocess, "run") as mock_run, \
-                 mock.patch.object(RUNNER, "github_request") as mock_gh, \
-                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False), \
-                 mock.patch.object(RUNNER, "has_marker", return_value=False):
+            with (
+                mock.patch.object(RUNNER.subprocess, "run") as mock_run,
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
                 mock_run.return_value = FakeSubprocessResult(bad_output)
-                rc = RUNNER.main([
-                    "--input", str(diff_path),
-                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
-                    "--repository", "o/r",
-                    "--pull-number", "1",
-                    "--head-sha", "abc123",
-                    "--feedback-kind", "pr-documentation-review",
-                    "--author", "octocat",
-                    "--resolved-config", str(bundle_path),
-                    "--effective-policy", str(policy_path),
-                    "--provenance", str(provenance_path),
-                ])
+                rc = RUNNER.main(
+                    [
+                        "--input",
+                        str(diff_path),
+                        "--comments-url",
+                        "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository",
+                        "o/r",
+                        "--pull-number",
+                        "1",
+                        "--head-sha",
+                        "abc123",
+                        "--feedback-kind",
+                        "pr-documentation-review",
+                        "--author",
+                        "octocat",
+                        "--resolved-config",
+                        str(bundle_path),
+                        "--effective-policy",
+                        str(policy_path),
+                        "--provenance",
+                        str(provenance_path),
+                    ]
+                )
             self.assertEqual(rc, 1)
             mock_gh.assert_not_called()
             record = json.loads(provenance_path.read_text(encoding="utf-8"))
@@ -157,21 +193,35 @@ class IntegratedRunTests(unittest.TestCase):
             tmp_path = Path(tmp)
             bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
             provenance_path = tmp_path / "provenance.json"
-            with mock.patch.object(RUNNER.subprocess, "run") as mock_run, \
-                 mock.patch.object(RUNNER, "github_request") as mock_gh, \
-                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=True):
-                rc = RUNNER.main([
-                    "--input", str(diff_path),
-                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
-                    "--repository", "o/r",
-                    "--pull-number", "1",
-                    "--head-sha", "abc123",
-                    "--feedback-kind", "pr-documentation-review",
-                    "--author", "octocat",
-                    "--resolved-config", str(bundle_path),
-                    "--effective-policy", str(policy_path),
-                    "--provenance", str(provenance_path),
-                ])
+            with (
+                mock.patch.object(RUNNER.subprocess, "run") as mock_run,
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=True),
+            ):
+                rc = RUNNER.main(
+                    [
+                        "--input",
+                        str(diff_path),
+                        "--comments-url",
+                        "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository",
+                        "o/r",
+                        "--pull-number",
+                        "1",
+                        "--head-sha",
+                        "abc123",
+                        "--feedback-kind",
+                        "pr-documentation-review",
+                        "--author",
+                        "octocat",
+                        "--resolved-config",
+                        str(bundle_path),
+                        "--effective-policy",
+                        str(policy_path),
+                        "--provenance",
+                        str(provenance_path),
+                    ]
+                )
             self.assertEqual(rc, 0)
             mock_run.assert_not_called()
             mock_gh.assert_not_called()
@@ -184,24 +234,38 @@ class IntegratedRunTests(unittest.TestCase):
             bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
             provenance_path = tmp_path / "provenance.json"
             valid_output = json.dumps({"summary": "s", "comments": []})
-            with mock.patch.object(RUNNER.subprocess, "run") as mock_run, \
-                 mock.patch.object(RUNNER, "github_request") as mock_gh, \
-                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False), \
-                 mock.patch.object(RUNNER, "has_marker", return_value=False):
+            with (
+                mock.patch.object(RUNNER.subprocess, "run") as mock_run,
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
                 mock_run.return_value = FakeSubprocessResult(valid_output)
-                rc = RUNNER.main([
-                    "--input", str(diff_path),
-                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
-                    "--repository", "o/r",
-                    "--pull-number", "1",
-                    "--head-sha", "abc123",
-                    "--feedback-kind", "pr-documentation-review",
-                    "--author", "octocat",
-                    "--dry-run",
-                    "--resolved-config", str(bundle_path),
-                    "--effective-policy", str(policy_path),
-                    "--provenance", str(provenance_path),
-                ])
+                rc = RUNNER.main(
+                    [
+                        "--input",
+                        str(diff_path),
+                        "--comments-url",
+                        "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository",
+                        "o/r",
+                        "--pull-number",
+                        "1",
+                        "--head-sha",
+                        "abc123",
+                        "--feedback-kind",
+                        "pr-documentation-review",
+                        "--author",
+                        "octocat",
+                        "--dry-run",
+                        "--resolved-config",
+                        str(bundle_path),
+                        "--effective-policy",
+                        str(policy_path),
+                        "--provenance",
+                        str(provenance_path),
+                    ]
+                )
             self.assertEqual(rc, 0)
             mock_gh.assert_not_called()
             record = json.loads(provenance_path.read_text(encoding="utf-8"))
@@ -213,7 +277,9 @@ class LegacyRunTests(unittest.TestCase):
     """The legacy Plan 1 path must still work end-to-end with a v1 marker."""
 
     def setUp(self) -> None:
-        self._env = mock.patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"}, clear=False)
+        self._env = mock.patch.dict(
+            os.environ, {"GITHUB_TOKEN": "test-token"}, clear=False
+        )
         self._env.start()
 
     def tearDown(self) -> None:
@@ -223,43 +289,74 @@ class LegacyRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             diff_path = tmp_path / "pr.diff"
-            diff_path.write_text("diff --git a/x b/x\n@@ -1 +1,2 @@\n+new\n", encoding="utf-8")
+            diff_path.write_text(
+                "diff --git a/x b/x\n@@ -1 +1,2 @@\n+new\n", encoding="utf-8"
+            )
             agent_path = REPO_ROOT / ".opencode" / "agents" / "example-agent.md"
-            skill_path = REPO_ROOT / ".opencode" / "skills" / "basic-review" / "SKILL.md"
-            valid_output = json.dumps({
-                "summary": "ok",
-                "comments": [{"path": "x", "line": 1, "body": "note"}],
-            })
+            skill_path = (
+                REPO_ROOT / ".opencode" / "skills" / "basic-review" / "SKILL.md"
+            )
+            valid_output = json.dumps(
+                {
+                    "summary": "ok",
+                    "comments": [{"path": "x", "line": 1, "body": "note"}],
+                }
+            )
             captured_prompt = {}
 
             def fake_run(cmd, **kwargs):
-                # cmd = [opencode, run, --agent, name, prompt, --file, input]
-                captured_prompt["prompt"] = cmd[4]
+                prompt_file = Path(cmd[cmd.index("--file") + 1])
+                captured_prompt["prompt"] = prompt_file.read_text(encoding="utf-8")
+                captured_prompt["cmd"] = cmd
                 captured_prompt["timeout"] = kwargs.get("timeout")
                 return FakeSubprocessResult(valid_output)
 
-            with mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run) as mock_run, \
-                 mock.patch.object(RUNNER, "github_request") as mock_gh, \
-                 mock.patch.object(RUNNER, "has_marker", return_value=False):
-                rc = RUNNER.main([
-                    "--input", str(diff_path),
-                    "--prompt", "Evaluate this pull request diff.",
-                    "--agent-file", str(agent_path),
-                    "--skill-file", str(skill_path),
-                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
-                    "--repository", "o/r",
-                    "--pull-number", "1",
-                    "--head-sha", "abc123",
-                    "--feedback-kind", "pr-documentation-review",
-                    "--author", "octocat",
-                ])
+            with (
+                mock.patch.object(
+                    RUNNER.subprocess, "run", side_effect=fake_run
+                ) as mock_run,
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
+                rc = RUNNER.main(
+                    [
+                        "--input",
+                        str(diff_path),
+                        "--prompt",
+                        "Evaluate this pull request diff.",
+                        "--agent-file",
+                        str(agent_path),
+                        "--skill-file",
+                        str(skill_path),
+                        "--comments-url",
+                        "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository",
+                        "o/r",
+                        "--pull-number",
+                        "1",
+                        "--head-sha",
+                        "abc123",
+                        "--feedback-kind",
+                        "pr-documentation-review",
+                        "--author",
+                        "octocat",
+                    ]
+                )
             self.assertEqual(rc, 0)
             mock_gh.assert_called_once()
             # Legacy prompt includes the hard-coded JSON shape instruction.
-            self.assertIn("Return JSON only, with this exact shape", captured_prompt["prompt"])
+            self.assertIn(
+                "Return JSON only, with this exact shape", captured_prompt["prompt"]
+            )
+            # The prompt itself is transported as a file to avoid argv limits.
+            self.assertNotIn(captured_prompt["prompt"], captured_prompt["cmd"])
+            self.assertEqual(captured_prompt["cmd"][-1], RUNNER.OPENCODE_PROMPT_MESSAGE)
             # Published review body carries the legacy v1 marker.
             body = mock_gh.call_args.kwargs["body"]
-            self.assertIn("<!-- agentic-workflow:pr-documentation-review:v1:abc123 -->", body["body"])
+            self.assertIn(
+                "<!-- agentic-workflow:pr-documentation-review:v1:abc123 -->",
+                body["body"],
+            )
             # Bounded timeout applied.
             self.assertEqual(captured_prompt["timeout"], 180)
 
@@ -269,7 +366,9 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
     ceiling, and single-channel untrusted content."""
 
     def setUp(self) -> None:
-        self._env = mock.patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"}, clear=False)
+        self._env = mock.patch.dict(
+            os.environ, {"GITHUB_TOKEN": "test-token"}, clear=False
+        )
         self._env.start()
 
     def tearDown(self) -> None:
@@ -287,7 +386,7 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
         )
         return bundle_path, policy_path, diff_path
 
-    def test_integrated_path_uses_dir_and_no_file_flag(self):
+    def test_integrated_path_uses_dir_and_prompt_file_transport(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
@@ -296,27 +395,45 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
 
             def fake_run(cmd, **kwargs):
                 captured["cmd"] = cmd
+                prompt_file = Path(cmd[cmd.index("--file") + 1])
+                captured["prompt"] = prompt_file.read_text(encoding="utf-8")
                 return FakeSubprocessResult(valid_output)
 
-            with mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run), \
-                 mock.patch.object(RUNNER, "github_request"), \
-                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False), \
-                 mock.patch.object(RUNNER, "has_marker", return_value=False):
-                rc = RUNNER.main([
-                    "--input", str(diff_path),
-                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
-                    "--repository", "o/r",
-                    "--pull-number", "1",
-                    "--head-sha", "abc123",
-                    "--feedback-kind", "pr-documentation-review",
-                    "--author", "octocat",
-                    "--resolved-config", str(bundle_path),
-                    "--effective-policy", str(policy_path),
-                ])
+            with (
+                mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(RUNNER, "github_request"),
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
+                rc = RUNNER.main(
+                    [
+                        "--input",
+                        str(diff_path),
+                        "--comments-url",
+                        "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository",
+                        "o/r",
+                        "--pull-number",
+                        "1",
+                        "--head-sha",
+                        "abc123",
+                        "--feedback-kind",
+                        "pr-documentation-review",
+                        "--author",
+                        "octocat",
+                        "--resolved-config",
+                        str(bundle_path),
+                        "--effective-policy",
+                        str(policy_path),
+                    ]
+                )
             self.assertEqual(rc, 0)
-            # Integrated path uses --dir (isolated workspace) and no --file.
+            # Integrated path uses --dir (isolated workspace) and transports
+            # the composed prompt as a file so large prompts are not argv.
             self.assertIn("--dir", captured["cmd"])
-            self.assertNotIn("--file", captured["cmd"])
+            self.assertEqual(captured["cmd"].count("--file"), 1)
+            self.assertIn("documentation impact", captured["prompt"])
+            self.assertNotIn(captured["prompt"], captured["cmd"])
 
     def test_max_comments_above_profile_ceiling_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -325,23 +442,37 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
             valid_output = json.dumps({"summary": "s", "comments": []})
             # The documentation-review bundle limits max_comments to 10.
             # Requesting 15 must be rejected by the typed-override validator.
-            with mock.patch.object(RUNNER.subprocess, "run") as m, \
-                 mock.patch.object(RUNNER, "github_request"), \
-                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False), \
-                 mock.patch.object(RUNNER, "has_marker", return_value=False):
+            with (
+                mock.patch.object(RUNNER.subprocess, "run") as m,
+                mock.patch.object(RUNNER, "github_request"),
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
                 m.return_value = FakeSubprocessResult(valid_output)
-                rc = RUNNER.main([
-                    "--input", str(diff_path),
-                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
-                    "--repository", "o/r",
-                    "--pull-number", "1",
-                    "--head-sha", "abc123",
-                    "--feedback-kind", "pr-documentation-review",
-                    "--author", "octocat",
-                    "--max-comments", "15",
-                    "--resolved-config", str(bundle_path),
-                    "--effective-policy", str(policy_path),
-                ])
+                rc = RUNNER.main(
+                    [
+                        "--input",
+                        str(diff_path),
+                        "--comments-url",
+                        "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository",
+                        "o/r",
+                        "--pull-number",
+                        "1",
+                        "--head-sha",
+                        "abc123",
+                        "--feedback-kind",
+                        "pr-documentation-review",
+                        "--author",
+                        "octocat",
+                        "--max-comments",
+                        "15",
+                        "--resolved-config",
+                        str(bundle_path),
+                        "--effective-policy",
+                        str(policy_path),
+                    ]
+                )
             self.assertEqual(rc, 1)
             m.assert_not_called()
 
@@ -353,24 +484,38 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
             captured = {}
 
             def fake_run(cmd, **kwargs):
-                captured["prompt"] = cmd[-1]
+                prompt_file = Path(cmd[cmd.index("--file") + 1])
+                captured["prompt"] = prompt_file.read_text(encoding="utf-8")
                 return FakeSubprocessResult(valid_output)
 
-            with mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run), \
-                 mock.patch.object(RUNNER, "github_request"), \
-                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False), \
-                 mock.patch.object(RUNNER, "has_marker", return_value=False):
-                RUNNER.main([
-                    "--input", str(diff_path),
-                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
-                    "--repository", "o/r",
-                    "--pull-number", "1",
-                    "--head-sha", "abc123",
-                    "--feedback-kind", "pr-documentation-review",
-                    "--author", "octocat",
-                    "--resolved-config", str(bundle_path),
-                    "--effective-policy", str(policy_path),
-                ])
+            with (
+                mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(RUNNER, "github_request"),
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
+                RUNNER.main(
+                    [
+                        "--input",
+                        str(diff_path),
+                        "--comments-url",
+                        "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository",
+                        "o/r",
+                        "--pull-number",
+                        "1",
+                        "--head-sha",
+                        "abc123",
+                        "--feedback-kind",
+                        "pr-documentation-review",
+                        "--author",
+                        "octocat",
+                        "--resolved-config",
+                        str(bundle_path),
+                        "--effective-policy",
+                        str(policy_path),
+                    ]
+                )
             # The bundle's prompt template text is used (contains
             # "documentation impact").
             self.assertIn("documentation impact", captured["prompt"])
@@ -387,31 +532,49 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
             captured = {}
 
             def fake_run(cmd, **kwargs):
-                captured["prompt"] = cmd[-1]
+                prompt_file = Path(cmd[cmd.index("--file") + 1])
+                captured["prompt"] = prompt_file.read_text(encoding="utf-8")
                 captured["cmd"] = cmd
                 return FakeSubprocessResult(valid_output)
 
-            with mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run), \
-                 mock.patch.object(RUNNER, "github_request"), \
-                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False), \
-                 mock.patch.object(RUNNER, "has_marker", return_value=False):
-                RUNNER.main([
-                    "--input", str(diff_path),
-                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
-                    "--repository", "o/r",
-                    "--pull-number", "1",
-                    "--head-sha", "abc123",
-                    "--feedback-kind", "pr-documentation-review",
-                    "--author", "octocat",
-                    "--resolved-config", str(bundle_path),
-                    "--effective-policy", str(policy_path),
-                ])
+            with (
+                mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(RUNNER, "github_request"),
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
+                RUNNER.main(
+                    [
+                        "--input",
+                        str(diff_path),
+                        "--comments-url",
+                        "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository",
+                        "o/r",
+                        "--pull-number",
+                        "1",
+                        "--head-sha",
+                        "abc123",
+                        "--feedback-kind",
+                        "pr-documentation-review",
+                        "--author",
+                        "octocat",
+                        "--resolved-config",
+                        str(bundle_path),
+                        "--effective-policy",
+                        str(policy_path),
+                    ]
+                )
             # Untrusted content is in the delimited section only.
             self.assertIn("<untrusted-issue-content>", captured["prompt"])
             self.assertIn("</untrusted-issue-content>", captured["prompt"])
             self.assertIn("reveal secrets", captured["prompt"])
-            # Not passed as a separate --file.
-            self.assertNotIn("--file", captured["cmd"])
+            # Not passed as a separate untrusted-content attachment; only the
+            # workflow-composed prompt transport file is attached.
+            self.assertEqual(captured["cmd"].count("--file"), 1)
+            self.assertNotEqual(
+                str(diff_path), captured["cmd"][captured["cmd"].index("--file") + 1]
+            )
 
 
 if __name__ == "__main__":

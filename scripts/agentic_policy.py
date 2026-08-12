@@ -422,7 +422,9 @@ def merge_policy(
         if "capabilities" in bundle:
             for axis, value in bundle["capabilities"].items():
                 if axis not in CAPABILITY_AXES:
-                    raise PolicyError(f"bundle policy references unknown capability axis: {axis}")
+                    raise PolicyError(
+                        f"bundle policy references unknown capability axis: {axis}"
+                    )
                 builtin_value = builtin["capabilities"][axis]
                 merged = intersect_capability(builtin_value, value)
                 # A bundle may only narrow (set to deny or to the same value).
@@ -448,7 +450,9 @@ def merge_policy(
         if "allowed_focus" in overlay:
             for focus in overlay["allowed_focus"]:
                 if focus not in {"documentation", "security", "tests", "general"}:
-                    raise PolicyError(f"overlay allowed_focus contains unknown value: {focus!r}")
+                    raise PolicyError(
+                        f"overlay allowed_focus contains unknown value: {focus!r}"
+                    )
         if "publication" in overlay:
             if not isinstance(overlay["publication"], dict):
                 raise PolicyError("overlay publication must be an object")
@@ -709,7 +713,7 @@ def resolve_default_branch_ref(repo_root: Path, *, remote: str = "origin") -> st
     if default_ref.startswith("refs/remotes/"):
         remote_ref = default_ref
     elif default_ref.startswith("refs/heads/"):
-        branch = default_ref[len("refs/heads/"):]
+        branch = default_ref[len("refs/heads/") :]
         remote_ref = f"refs/remotes/{remote}/{branch}"
     else:
         raise PolicyError(f"unexpected default ref format: {default_ref!r}")
@@ -741,7 +745,9 @@ def resolve_default_branch_ref(repo_root: Path, *, remote: str = "origin") -> st
 
 
 SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"(?i)(token|password|secret|api[_-]?key|bearer|authorization)\s*[:=]\s*\S+"),
+    re.compile(
+        r"(?i)(token|password|secret|api[_-]?key|bearer|authorization)\s*[:=]\s*\S+"
+    ),
     re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
     re.compile(r"sk-[A-Za-z0-9]{20,}"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
@@ -759,6 +765,7 @@ def redact_secrets(text: str) -> str:
 def redacted_policy_report(policy: EffectivePolicy) -> dict[str, Any]:
     """Return a redacted, summary-safe effective-policy report."""
     report = policy.to_dict()
+
     # Layers may contain bundle/overlay metadata; redact any secret-shaped
     # strings recursively.
     def _redact(obj: Any) -> Any:
@@ -811,20 +818,38 @@ def main(argv: Iterable[str] | None = None) -> int:
     import json
     import sys
 
-    parser = argparse.ArgumentParser(description="Resolve and report effective agentic policy.")
-    parser.add_argument("--workflow", required=True, choices=sorted(BUILTIN_SAFETY_POLICY))
+    parser = argparse.ArgumentParser(
+        description="Resolve and report effective agentic policy."
+    )
+    parser.add_argument(
+        "--workflow", required=True, choices=sorted(BUILTIN_SAFETY_POLICY)
+    )
     parser.add_argument("--model-profile", required=True)
-    parser.add_argument("--resolved-config", default=None,
-                        help="Path to resolved bundle JSON; its 'bundle_policy' is applied as layer 3.")
-    parser.add_argument("--agent-capabilities-json", default=None,
-                        help="JSON object of agent-requested capabilities to intersect (layer 3).")
-    parser.add_argument("--overlay", default=None,
-                        help="Path to a consumer overlay JSON (layer 4).")
-    parser.add_argument("--mode", default="publish",
-                        choices=["publish", "dry-run", "validate-only"],
-                        help="Typed invocation mode (layer 5); dry-run/validate-only disable publication.")
-    parser.add_argument("--max-comments", type=int, default=None,
-                        help="Invocation max_comments override (stricter only, layer 5).")
+    parser.add_argument(
+        "--resolved-config",
+        default=None,
+        help="Path to resolved bundle JSON; its 'bundle_policy' is applied as layer 3.",
+    )
+    parser.add_argument(
+        "--agent-capabilities-json",
+        default=None,
+        help="JSON object of agent-requested capabilities to intersect (layer 3).",
+    )
+    parser.add_argument(
+        "--overlay", default=None, help="Path to a consumer overlay JSON (layer 4)."
+    )
+    parser.add_argument(
+        "--mode",
+        default="publish",
+        choices=["publish", "dry-run", "validate-only"],
+        help="Typed invocation mode (layer 5); dry-run/validate-only disable publication.",
+    )
+    parser.add_argument(
+        "--max-comments",
+        type=int,
+        default=None,
+        help="Invocation max_comments override (stricter only, layer 5).",
+    )
     parser.add_argument("--result", default=None)
     parser.add_argument("--github-step-summary", default=None)
     args = parser.parse_args(list(argv) if argv is not None else None)

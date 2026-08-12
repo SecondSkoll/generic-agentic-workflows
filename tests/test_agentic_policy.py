@@ -30,7 +30,9 @@ class CapabilityIntersectionTests(unittest.TestCase):
 
     def test_different_grants_intersect_to_deny(self):
         self.assertEqual(
-            POLICY.intersect_capability("read-trusted-checkout-diff", "review-comment-only"),
+            POLICY.intersect_capability(
+                "read-trusted-checkout-diff", "review-comment-only"
+            ),
             "deny",
         )
 
@@ -42,7 +44,9 @@ class ModelProfileTests(unittest.TestCase):
 
     def test_profile_workflow_mismatch_rejected(self):
         with self.assertRaises(POLICY.PolicyError):
-            POLICY.validate_model_profile("review-readonly", workflow="issue-implementation")
+            POLICY.validate_model_profile(
+                "review-readonly", workflow="issue-implementation"
+            )
 
     def test_profile_above_ceiling_rejected(self):
         # Temporarily patch a profile to exceed the ceiling.
@@ -50,7 +54,9 @@ class ModelProfileTests(unittest.TestCase):
         try:
             POLICY.MODEL_PROFILES["review-readonly"]["max_tokens"] = 999999
             with self.assertRaises(POLICY.PolicyError):
-                POLICY.validate_model_profile("review-readonly", workflow="pr-documentation-review")
+                POLICY.validate_model_profile(
+                    "review-readonly", workflow="pr-documentation-review"
+                )
         finally:
             POLICY.MODEL_PROFILES["review-readonly"] = original
 
@@ -228,11 +234,18 @@ class ChangedPathTests(unittest.TestCase):
             ["package.json", "package-lock.json", "uv.lock", "pyproject.toml"],
             workflow="issue-implementation",
         )
-        self.assertEqual(set(offenders), {"package.json", "package-lock.json", "uv.lock", "pyproject.toml"})
+        self.assertEqual(
+            set(offenders),
+            {"package.json", "package-lock.json", "uv.lock", "pyproject.toml"},
+        )
 
     def test_agent_instruction_change_rejected(self):
         offenders = POLICY.enforce_changed_paths(
-            [".opencode/agents/x.md", ".opencode/skills/y/SKILL.md", ".opencode/configuration/z/bundle.json"],
+            [
+                ".opencode/agents/x.md",
+                ".opencode/skills/y/SKILL.md",
+                ".opencode/configuration/z/bundle.json",
+            ],
             workflow="issue-implementation",
         )
         self.assertEqual(len(offenders), 3)
@@ -250,9 +263,11 @@ class CollectChangedPathsTests(unittest.TestCase):
 
     def setUp(self) -> None:
         import tempfile
+
         self._tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self._tmp.name)
         import subprocess
+
         env = os.environ.copy()
         env["GIT_CONFIG_GLOBAL"] = "/dev/null"
         env["GIT_AUTHOR_NAME"] = "test"
@@ -260,20 +275,42 @@ class CollectChangedPathsTests(unittest.TestCase):
         env["GIT_COMMITTER_NAME"] = "test"
         env["GIT_COMMITTER_EMAIL"] = "test@example.com"
         self._env = env
-        subprocess.run(["git", "init", "-q", "-b", "main", str(self.repo)], check=True, env=env)
-        subprocess.run(["git", "-C", str(self.repo), "config", "user.name", "test"], check=True, env=env)
-        subprocess.run(["git", "-C", str(self.repo), "config", "user.email", "test@example.com"], check=True, env=env)
+        subprocess.run(
+            ["git", "init", "-q", "-b", "main", str(self.repo)], check=True, env=env
+        )
+        subprocess.run(
+            ["git", "-C", str(self.repo), "config", "user.name", "test"],
+            check=True,
+            env=env,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.repo), "config", "user.email", "test@example.com"],
+            check=True,
+            env=env,
+        )
         (self.repo / "README.md").write_text("init\n", encoding="utf-8")
-        subprocess.run(["git", "-C", str(self.repo), "add", "README.md"], check=True, env=env)
-        subprocess.run(["git", "-C", str(self.repo), "commit", "-q", "-m", "init"], check=True, env=env)
+        subprocess.run(
+            ["git", "-C", str(self.repo), "add", "README.md"], check=True, env=env
+        )
+        subprocess.run(
+            ["git", "-C", str(self.repo), "commit", "-q", "-m", "init"],
+            check=True,
+            env=env,
+        )
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
     def _git(self, *args):
         import subprocess
-        return subprocess.run(["git", "-C", str(self.repo), *args], check=True, env=self._env,
-                              capture_output=True, text=True)
+
+        return subprocess.run(
+            ["git", "-C", str(self.repo), *args],
+            check=True,
+            env=self._env,
+            capture_output=True,
+            text=True,
+        )
 
     def test_untracked_workflow_file_is_collected(self):
         # Create an untracked file in a denied category.
@@ -298,7 +335,9 @@ class CollectChangedPathsTests(unittest.TestCase):
         (wf_dir / "evil.yml").write_text("name: evil\n", encoding="utf-8")
         self._git("add", "-A")
         self._git("commit", "-q", "-m", "agent commit")
-        paths = POLICY.collect_implementation_changed_paths(self.repo, base_ref="HEAD~1")
+        paths = POLICY.collect_implementation_changed_paths(
+            self.repo, base_ref="HEAD~1"
+        )
         self.assertIn(".github/workflows/evil.yml", paths)
 
     def test_clean_workspace_passes(self):
@@ -309,7 +348,9 @@ class CollectChangedPathsTests(unittest.TestCase):
 
 class RedactionTests(unittest.TestCase):
     def test_redact_token(self):
-        text = "token=ghp_abcdefghijklmnopqrstuvwxyz and sk-abcdefghijklmnopqrstuvwxyz0123"
+        text = (
+            "token=ghp_abcdefghijklmnopqrstuvwxyz and sk-abcdefghijklmnopqrstuvwxyz0123"
+        )
         redacted = POLICY.redact_secrets(text)
         self.assertNotIn("ghp_", redacted)
         self.assertNotIn("sk-", redacted)
@@ -329,30 +370,52 @@ class RedactionTests(unittest.TestCase):
 
 class CliTests(unittest.TestCase):
     def test_cli_returns_zero(self):
-        rc = POLICY.main(["--workflow", "pr-documentation-review", "--model-profile", "review-readonly"])
+        rc = POLICY.main(
+            [
+                "--workflow",
+                "pr-documentation-review",
+                "--model-profile",
+                "review-readonly",
+            ]
+        )
         self.assertEqual(rc, 0)
 
     def test_cli_rejects_unknown_profile(self):
-        rc = POLICY.main(["--workflow", "pr-documentation-review", "--model-profile", "nope"])
+        rc = POLICY.main(
+            ["--workflow", "pr-documentation-review", "--model-profile", "nope"]
+        )
         self.assertEqual(rc, 1)
 
     def test_cli_wires_bundle_policy_and_invocation_mode(self):
         """Required change #6: CLI accepts resolved bundle policy + invocation mode."""
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp:
             bundle_path = Path(tmp) / "bundle.json"
-            bundle_path.write_text(json.dumps({
-                "bundle_policy": {"capabilities": {"github_write": "deny"}},
-                "limits": {"max_comments": 5},
-            }), encoding="utf-8")
+            bundle_path.write_text(
+                json.dumps(
+                    {
+                        "bundle_policy": {"capabilities": {"github_write": "deny"}},
+                        "limits": {"max_comments": 5},
+                    }
+                ),
+                encoding="utf-8",
+            )
             result_path = Path(tmp) / "policy.json"
-            rc = POLICY.main([
-                "--workflow", "pr-documentation-review",
-                "--model-profile", "review-readonly",
-                "--resolved-config", str(bundle_path),
-                "--mode", "dry-run",
-                "--result", str(result_path),
-            ])
+            rc = POLICY.main(
+                [
+                    "--workflow",
+                    "pr-documentation-review",
+                    "--model-profile",
+                    "review-readonly",
+                    "--resolved-config",
+                    str(bundle_path),
+                    "--mode",
+                    "dry-run",
+                    "--result",
+                    str(result_path),
+                ]
+            )
             self.assertEqual(rc, 0)
             policy = json.loads(result_path.read_text())
             # Bundle narrowed github_write to deny.
@@ -362,16 +425,27 @@ class CliTests(unittest.TestCase):
 
     def test_cli_rejects_bundle_escalation(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmp:
             bundle_path = Path(tmp) / "bundle.json"
-            bundle_path.write_text(json.dumps({
-                "bundle_policy": {"capabilities": {"shell": "allow"}},
-            }), encoding="utf-8")
-            rc = POLICY.main([
-                "--workflow", "pr-documentation-review",
-                "--model-profile", "review-readonly",
-                "--resolved-config", str(bundle_path),
-            ])
+            bundle_path.write_text(
+                json.dumps(
+                    {
+                        "bundle_policy": {"capabilities": {"shell": "allow"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rc = POLICY.main(
+                [
+                    "--workflow",
+                    "pr-documentation-review",
+                    "--model-profile",
+                    "review-readonly",
+                    "--resolved-config",
+                    str(bundle_path),
+                ]
+            )
             self.assertEqual(rc, 1)
 
 

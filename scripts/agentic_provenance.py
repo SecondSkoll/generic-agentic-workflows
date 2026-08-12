@@ -70,7 +70,9 @@ ALLOWED_MODES: frozenset[str] = frozenset({"publish", "dry-run", "validate-only"
 #: Marker schema versions.
 MARKER_SCHEMA_V1 = "v1"
 MARKER_SCHEMA_V2 = "v2"
-SUPPORTED_MARKER_VERSIONS: frozenset[str] = frozenset({MARKER_SCHEMA_V1, MARKER_SCHEMA_V2})
+SUPPORTED_MARKER_VERSIONS: frozenset[str] = frozenset(
+    {MARKER_SCHEMA_V1, MARKER_SCHEMA_V2}
+)
 
 
 @dataclass(frozen=True)
@@ -152,9 +154,13 @@ def build_provenance(
     complete issue text, unredacted diffs, or raw model responses.
     """
     if mode not in ALLOWED_MODES:
-        raise ProvenanceError(f"mode must be one of {sorted(ALLOWED_MODES)}; got {mode!r}")
+        raise ProvenanceError(
+            f"mode must be one of {sorted(ALLOWED_MODES)}; got {mode!r}"
+        )
     if result not in ALLOWED_RESULTS:
-        raise ProvenanceError(f"result must be one of {sorted(ALLOWED_RESULTS)}; got {result!r}")
+        raise ProvenanceError(
+            f"result must be one of {sorted(ALLOWED_RESULTS)}; got {result!r}"
+        )
     bundle = bundle or {}
     digest = configuration_digest(
         {
@@ -262,7 +268,9 @@ def job_summary(record: ProvenanceRecord) -> str:
     if record.error:
         lines.append(f"- Error: `{record.error}`")
     if record.target_number is not None:
-        lines.append(f"- Target: `{record.target_kind or 'target'}#{record.target_number}`")
+        lines.append(
+            f"- Target: `{record.target_kind or 'target'}#{record.target_number}`"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -369,15 +377,21 @@ def matches_current_config(
 def main(argv: Iterable[str] | None = None) -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Build a provenance record for an agentic run.")
+    parser = argparse.ArgumentParser(
+        description="Build a provenance record for an agentic run."
+    )
     parser.add_argument("--result", default=None)
     parser.add_argument("--github-step-summary", default=None)
     parser.add_argument("--workflow-version", default="dev")
     parser.add_argument("--workflow-name", required=True)
     parser.add_argument("--caller-repository", required=True)
     parser.add_argument("--mode", default="publish", choices=sorted(ALLOWED_MODES))
-    parser.add_argument("--result-status", default="validated", choices=sorted(ALLOWED_RESULTS))
-    parser.add_argument("--bundle-json", default=None, help="Path to resolved bundle JSON")
+    parser.add_argument(
+        "--result-status", default="validated", choices=sorted(ALLOWED_RESULTS)
+    )
+    parser.add_argument(
+        "--bundle-json", default=None, help="Path to resolved bundle JSON"
+    )
     parser.add_argument("--output-contract", default=None)
     parser.add_argument("--model-profile", default=None)
     parser.add_argument("--effective-policy-sha256", default=None)

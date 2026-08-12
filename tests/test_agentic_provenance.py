@@ -232,7 +232,9 @@ class MarkerTests(unittest.TestCase):
 
     def test_v2_marker_head_sha_mismatch(self):
         digest = "a" * 64
-        marker = PROV.feedback_marker("pr-documentation-review", config_digest=digest, head_sha="aaaaaaa")
+        marker = PROV.feedback_marker(
+            "pr-documentation-review", config_digest=digest, head_sha="aaaaaaa"
+        )
         self.assertFalse(
             PROV.matches_current_config(
                 marker,

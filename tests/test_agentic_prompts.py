@@ -73,15 +73,15 @@ class TemplateRenderingTests(unittest.TestCase):
 
     def test_oversized_template_rejected(self):
         with self.assertRaises(PROMPTS.PromptError):
-            PROMPTS.validate_template("{{repository}}" + "x" * PROMPTS.MAX_TEMPLATE_BYTES)
+            PROMPTS.validate_template(
+                "{{repository}}" + "x" * PROMPTS.MAX_TEMPLATE_BYTES
+            )
 
 
 class TypedOverridesTests(unittest.TestCase):
     def test_unknown_key_rejected(self):
         with self.assertRaises(PROMPTS.PromptError):
-            PROMPTS.validate_overrides(
-                {"evil": "yes"}, profile_allows={"evil": True}
-            )
+            PROMPTS.validate_overrides({"evil": "yes"}, profile_allows={"evil": True})
 
     def test_key_not_permitted_by_profile_rejected(self):
         with self.assertRaises(PROMPTS.PromptError):
@@ -140,7 +140,9 @@ class CompositionOrderTests(unittest.TestCase):
 
     def test_immutable_output_suffix_always_present(self):
         composed = _compose()
-        self.assertIn("Output contract: pr-review-json-v1 (non-overrideable)", composed.text)
+        self.assertIn(
+            "Output contract: pr-review-json-v1 (non-overrideable)", composed.text
+        )
 
     def test_profile_cannot_remove_safety_section(self):
         # Even a minimal template still gets section 1 and 5 appended.
@@ -183,12 +185,16 @@ class UntrustedContentTests(unittest.TestCase):
         )
         # The literal attack string is inside the delimiters only.
         marker_block = composed.text[
-            composed.text.index(PROMPTS.START_MARKER) : composed.text.index(PROMPTS.END_MARKER)
+            composed.text.index(PROMPTS.START_MARKER) : composed.text.index(
+                PROMPTS.END_MARKER
+            )
         ]
         self.assertIn("config_source=remote", marker_block)
         # The runtime context section still shows the verified repository.
         ctx_section = composed.text[
-            composed.text.index("Runtime context (verified)") : composed.text.index("Untrusted content")
+            composed.text.index("Runtime context (verified)") : composed.text.index(
+                "Untrusted content"
+            )
         ]
         self.assertIn("owner/repo", ctx_section)
         self.assertNotIn("config_source=remote", ctx_section)
@@ -196,12 +202,12 @@ class UntrustedContentTests(unittest.TestCase):
 
 class OutputContractTests(unittest.TestCase):
     def test_pr_review_valid(self):
-        output = json.dumps({
-            "summary": "Looks good.",
-            "comments": [
-                {"path": "a.py", "line": 10, "body": "Fix typo."}
-            ],
-        })
+        output = json.dumps(
+            {
+                "summary": "Looks good.",
+                "comments": [{"path": "a.py", "line": 10, "body": "Fix typo."}],
+            }
+        )
         changed = {"a.py": {10}}
         summary, comments = PROMPTS.parse_pr_review_output(output, changed)
         self.assertEqual(summary, "Looks good.")
@@ -213,26 +219,32 @@ class OutputContractTests(unittest.TestCase):
             PROMPTS.parse_pr_review_output(output, {})
 
     def test_pr_review_bounds_summary_size(self):
-        output = json.dumps({"summary": "x" * (PROMPTS.MAX_SUMMARY_BYTES + 1), "comments": []})
+        output = json.dumps(
+            {"summary": "x" * (PROMPTS.MAX_SUMMARY_BYTES + 1), "comments": []}
+        )
         with self.assertRaises(PROMPTS.ContractError):
             PROMPTS.parse_pr_review_output(output, {})
 
     def test_pr_review_deduplicates_identical_comments(self):
-        output = json.dumps({
-            "summary": "s",
-            "comments": [
-                {"path": "a.py", "line": 10, "body": "dup"},
-                {"path": "a.py", "line": 10, "body": "dup"},
-            ],
-        })
+        output = json.dumps(
+            {
+                "summary": "s",
+                "comments": [
+                    {"path": "a.py", "line": 10, "body": "dup"},
+                    {"path": "a.py", "line": 10, "body": "dup"},
+                ],
+            }
+        )
         _, comments = PROMPTS.parse_pr_review_output(output, {"a.py": {10}})
         self.assertEqual(len(comments), 1)
 
     def test_pr_review_invalid_location_falls_back_to_summary(self):
-        output = json.dumps({
-            "summary": "s",
-            "comments": [{"path": "a.py", "line": 999, "body": "out of range"}],
-        })
+        output = json.dumps(
+            {
+                "summary": "s",
+                "comments": [{"path": "a.py", "line": 999, "body": "out of range"}],
+            }
+        )
         summary, comments = PROMPTS.parse_pr_review_output(output, {"a.py": {10}})
         self.assertEqual(comments, [])
         self.assertIn("Additional feedback", summary)
@@ -240,14 +252,25 @@ class OutputContractTests(unittest.TestCase):
     def test_pr_review_clamps_max_comments(self):
         items = [{"path": "a.py", "line": 10, "body": f"c{i}"} for i in range(5)]
         output = json.dumps({"summary": "s", "comments": items})
-        _, comments = PROMPTS.parse_pr_review_output(output, {"a.py": {10}}, max_comments=2)
+        _, comments = PROMPTS.parse_pr_review_output(
+            output, {"a.py": {10}}, max_comments=2
+        )
         self.assertEqual(len(comments), 2)
 
     def test_pr_review_rejects_code_fence_in_suggestion(self):
-        output = json.dumps({
-            "summary": "s",
-            "comments": [{"path": "a.py", "line": 10, "body": "b", "suggestion": "```code```"}],
-        })
+        output = json.dumps(
+            {
+                "summary": "s",
+                "comments": [
+                    {
+                        "path": "a.py",
+                        "line": 10,
+                        "body": "b",
+                        "suggestion": "```code```",
+                    }
+                ],
+            }
+        )
         with self.assertRaises(PROMPTS.ContractError):
             PROMPTS.parse_pr_review_output(output, {"a.py": {10}})
 
@@ -257,7 +280,7 @@ class OutputContractTests(unittest.TestCase):
 
     def test_issue_feedback_rejects_machine_fields(self):
         with self.assertRaises(PROMPTS.ContractError):
-            PROMPTS.parse_issue_feedback_output("```json\n{\"x\": 1}\n```")
+            PROMPTS.parse_issue_feedback_output('```json\n{"x": 1}\n```')
 
     def test_issue_feedback_rejects_hidden_markers(self):
         with self.assertRaises(PROMPTS.ContractError):
@@ -271,7 +294,9 @@ class OutputContractTests(unittest.TestCase):
 
     def test_implementation_decision_blocked_requires_blocker(self):
         with self.assertRaises(PROMPTS.ContractError):
-            PROMPTS.parse_implementation_decision_output("IMPLEMENTATION_DECISION: BLOCKED\n")
+            PROMPTS.parse_implementation_decision_output(
+                "IMPLEMENTATION_DECISION: BLOCKED\n"
+            )
 
     def test_implementation_decision_blocked_valid(self):
         output = "IMPLEMENTATION_DECISION: BLOCKED\nIMPLEMENTATION_BLOCKER: need version info"

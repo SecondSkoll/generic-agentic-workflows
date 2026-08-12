@@ -126,15 +126,23 @@ def normalize_bundle_path(value: Any) -> str:
     if "\\" in candidate:
         raise ConfigurationError(f"bundle path must not contain backslashes: {value!r}")
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in candidate):
-        raise ConfigurationError(f"bundle path must not contain control characters: {value!r}")
+        raise ConfigurationError(
+            f"bundle path must not contain control characters: {value!r}"
+        )
     candidate = candidate.replace("\\", "/")
     if candidate.startswith("/"):
-        raise ConfigurationError(f"bundle path must be relative, got absolute path: {value!r}")
+        raise ConfigurationError(
+            f"bundle path must be relative, got absolute path: {value!r}"
+        )
     parts = candidate.split("/")
     if any(part in {"", "."} for part in parts):
-        raise ConfigurationError(f"bundle path must not contain empty or '.' segments: {value!r}")
+        raise ConfigurationError(
+            f"bundle path must not contain empty or '.' segments: {value!r}"
+        )
     if any(part == ".." for part in parts):
-        raise ConfigurationError(f"bundle path must not contain '..' segments: {value!r}")
+        raise ConfigurationError(
+            f"bundle path must not contain '..' segments: {value!r}"
+        )
     if candidate.endswith("/"):
         raise ConfigurationError(f"bundle path must not end with '/': {value!r}")
     return candidate
@@ -264,7 +272,9 @@ def validate_agent_front_matter(text: str, *, workflow: str) -> dict[str, str]:
         raise ConfigurationError(f"agent name must be a safe identifier, got {name!r}")
     mode = front.get("mode", "primary")
     if mode not in {"primary", "subagent"}:
-        raise ConfigurationError(f"agent mode must be primary or subagent, got {mode!r}")
+        raise ConfigurationError(
+            f"agent mode must be primary or subagent, got {mode!r}"
+        )
     # Review workflows must remain non-code-writing regardless of profile.
     if workflow in {"pr-documentation-review", "issue-feedback"}:
         body_match = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
@@ -312,7 +322,10 @@ def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
     if not isinstance(payload, dict):
         raise ConfigurationError("bundle manifest must be a JSON object")
     schema_version = payload.get("schema_version")
-    if not isinstance(schema_version, int) or schema_version not in SUPPORTED_SCHEMA_VERSIONS:
+    if (
+        not isinstance(schema_version, int)
+        or schema_version not in SUPPORTED_SCHEMA_VERSIONS
+    ):
         raise ConfigurationError(
             f"schema_version must be one of {SUPPORTED_SCHEMA_VERSIONS}; got {schema_version!r}"
         )
@@ -341,7 +354,9 @@ def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
     raw_additional_agents = payload.get("additional_agent_files", [])
     if not isinstance(raw_additional_agents, list):
         raise ConfigurationError("additional_agent_files must be a list")
-    additional_agent_files = tuple(normalize_bundle_path(s) for s in raw_additional_agents)
+    additional_agent_files = tuple(
+        normalize_bundle_path(s) for s in raw_additional_agents
+    )
     if len(additional_agent_files) != len({s for s in additional_agent_files}):
         raise ConfigurationError("additional_agent_files must be unique")
     if agent_file in additional_agent_files:
@@ -351,7 +366,10 @@ def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
     if not isinstance(model_profile, str) or not PROFILE_PATTERN.match(model_profile):
         raise ConfigurationError("model_profile must match [a-z0-9][a-z0-9-]{0,62}")
     output_contract = payload.get("output_contract")
-    if not isinstance(output_contract, str) or output_contract not in SUPPORTED_OUTPUT_CONTRACTS:
+    if (
+        not isinstance(output_contract, str)
+        or output_contract not in SUPPORTED_OUTPUT_CONTRACTS
+    ):
         raise ConfigurationError(
             f"output_contract must be one of {sorted(SUPPORTED_OUTPUT_CONTRACTS)}; got {output_contract!r}"
         )
@@ -459,7 +477,9 @@ def _read_bounded(path: Path, *, max_bytes: int, label: str) -> bytes:
     try:
         raw.decode("utf-8")
     except UnicodeDecodeError as error:
-        raise ConfigurationError(f"{label} must be valid UTF-8: {path}: {error}") from error
+        raise ConfigurationError(
+            f"{label} must be valid UTF-8: {path}: {error}"
+        ) from error
     return raw
 
 
@@ -473,12 +493,16 @@ def _load_hashes(bundle_root: Path) -> dict[str, str]:
     except json.JSONDecodeError as error:
         raise ConfigurationError(f"hashes.json must be valid JSON: {error}") from error
     if not isinstance(data, dict):
-        raise ConfigurationError("hashes.json must be a JSON object mapping paths to digests")
+        raise ConfigurationError(
+            "hashes.json must be a JSON object mapping paths to digests"
+        )
     hashes: dict[str, str] = {}
     for rel, digest in data.items():
         normalized = normalize_bundle_path(rel)
         if not isinstance(digest, str) or not SHA256_PATTERN.match(digest):
-            raise ConfigurationError(f"invalid SHA-256 digest for {rel!r} in hashes.json")
+            raise ConfigurationError(
+                f"invalid SHA-256 digest for {rel!r} in hashes.json"
+            )
         hashes[normalized] = digest
     return hashes
 
@@ -535,7 +559,9 @@ def resolve_local_bundle(
     assert_no_symlink(manifest_path)
     if not is_contained(bundle_root, manifest_path):
         raise ConfigurationError("manifest path escapes bundle root")
-    manifest_raw = _read_bounded(manifest_path, max_bytes=MAX_MANIFEST_BYTES, label="bundle.json")
+    manifest_raw = _read_bounded(
+        manifest_path, max_bytes=MAX_MANIFEST_BYTES, label="bundle.json"
+    )
     try:
         manifest_payload = json.loads(manifest_raw)
     except json.JSONDecodeError as error:
@@ -603,7 +629,9 @@ def resolve_local_bundle(
     # rejected: the manifest is the authority for what the runner reads.
     extra = set(hashes) - seen
     if extra:
-        raise ConfigurationError(f"hashes.json declares undeclared content: {sorted(extra)}")
+        raise ConfigurationError(
+            f"hashes.json declares undeclared content: {sorted(extra)}"
+        )
 
     return ResolvedBundle(
         source_alias="local",
@@ -641,13 +669,11 @@ class RemoteFetchClient(Protocol):
 
     def fetch_manifest(
         self, *, repository: str, root: str, profile: str, sha: str
-    ) -> tuple[bytes, str]:
-        ...
+    ) -> tuple[bytes, str]: ...
 
     def fetch_content(
         self, *, repository: str, root: str, path: str, sha: str
-    ) -> bytes:
-        ...
+    ) -> bytes: ...
 
 
 class GitHubContentsClient:
@@ -674,16 +700,16 @@ class GitHubContentsClient:
         max_response_bytes: int = FETCH_RESPONSE_BYTES,
     ) -> None:
         if not token:
-            raise ConfigurationError("a GitHub token is required for remote bundle fetch")
+            raise ConfigurationError(
+                "a GitHub token is required for remote bundle fetch"
+            )
         self._token = token
         self._timeout = timeout
         self._max_retries = max_retries
         self._max_response_bytes = max_response_bytes
 
     def _contents_url(self, repository: str, path: str, sha: str) -> str:
-        return (
-            f"https://api.github.com/repos/{repository}/contents/{path}?ref={sha}"
-        )
+        return f"https://api.github.com/repos/{repository}/contents/{path}?ref={sha}"
 
     def _get(self, url: str) -> bytes:
         """Fetch and decode a single file from the GitHub Contents API.
@@ -798,7 +824,9 @@ def resolve_remote_bundle(
             f"unknown remote source alias: {source_alias!r}; "
             f"allowlisted aliases are {sorted(REMOTE_SOURCE_ALIASES)}"
         )
-    if not isinstance(configuration_ref, str) or not SHA_PATTERN.match(configuration_ref):
+    if not isinstance(configuration_ref, str) or not SHA_PATTERN.match(
+        configuration_ref
+    ):
         raise ConfigurationError(
             "remote configuration_ref must be a full 40-character lowercase commit SHA"
         )
@@ -847,7 +875,9 @@ def resolve_remote_bundle(
         try:
             manifest_payload = json.loads(manifest_raw)
         except json.JSONDecodeError as error:
-            raise ConfigurationError(f"remote bundle.json must be valid JSON: {error}") from error
+            raise ConfigurationError(
+                f"remote bundle.json must be valid JSON: {error}"
+            ) from error
         manifest = parse_manifest(manifest_payload, workflow=workflow)
         if manifest.profile_name != profile:
             raise ConfigurationError(
@@ -857,19 +887,26 @@ def resolve_remote_bundle(
         (profile_dir / "bundle.json").write_bytes(manifest_raw)
 
         hashes_raw = client.fetch_content(
-            repository=repository, root=root, path=f"{root}/{profile}/hashes.json", sha=configuration_ref
+            repository=repository,
+            root=root,
+            path=f"{root}/{profile}/hashes.json",
+            sha=configuration_ref,
         )
         try:
             hashes_payload = json.loads(hashes_raw)
         except json.JSONDecodeError as error:
-            raise ConfigurationError(f"remote hashes.json must be valid JSON: {error}") from error
+            raise ConfigurationError(
+                f"remote hashes.json must be valid JSON: {error}"
+            ) from error
         if not isinstance(hashes_payload, dict):
             raise ConfigurationError("remote hashes.json must be a JSON object")
         hashes: dict[str, str] = {}
         for rel, digest in hashes_payload.items():
             normalized = normalize_bundle_path(rel)
             if not isinstance(digest, str) or not SHA256_PATTERN.match(digest):
-                raise ConfigurationError(f"invalid SHA-256 digest for {rel!r} in remote hashes.json")
+                raise ConfigurationError(
+                    f"invalid SHA-256 digest for {rel!r} in remote hashes.json"
+                )
             hashes[normalized] = digest
         (profile_dir / "hashes.json").write_bytes(hashes_raw)
 
@@ -890,15 +927,24 @@ def resolve_remote_bundle(
                 raise ConfigurationError(f"duplicate declared content path: {rel}")
             seen.add(rel)
             if rel not in hashes:
-                raise ConfigurationError(f"no hash declared for {rel} in remote hashes.json")
+                raise ConfigurationError(
+                    f"no hash declared for {rel} in remote hashes.json"
+                )
             content = client.fetch_content(
-                repository=repository, root=root, path=f"{root}/{profile}/{rel}", sha=configuration_ref
+                repository=repository,
+                root=root,
+                path=f"{root}/{profile}/{rel}",
+                sha=configuration_ref,
             )
             if len(content) > MAX_FILE_BYTES:
-                raise ConfigurationError(f"remote content file exceeds {MAX_FILE_BYTES} bytes: {rel}")
+                raise ConfigurationError(
+                    f"remote content file exceeds {MAX_FILE_BYTES} bytes: {rel}"
+                )
             total += len(content)
             if total > MAX_TOTAL_BYTES:
-                raise ConfigurationError("remote bundle total content exceeds the byte limit")
+                raise ConfigurationError(
+                    "remote bundle total content exceeds the byte limit"
+                )
             actual = sha256_bytes(content)
             if actual != hashes[rel]:
                 raise ConfigurationError(
@@ -909,7 +955,9 @@ def resolve_remote_bundle(
 
         extra = set(hashes) - seen
         if extra:
-            raise ConfigurationError(f"remote hashes.json declares undeclared content: {sorted(extra)}")
+            raise ConfigurationError(
+                f"remote hashes.json declares undeclared content: {sorted(extra)}"
+            )
 
         resolved = _resolved_from_local(
             profile_dir=profile_dir,
@@ -1028,11 +1076,15 @@ def materialize_to_opencode_root(
                 f"cannot stage content with missing rel/name: rel={rel!r} name={name!r}"
             )
         if rel not in content_hashes:
-            raise ConfigurationError(f"no hash for declared content {rel!r}; refusing to stage")
+            raise ConfigurationError(
+                f"no hash for declared content {rel!r}; refusing to stage"
+            )
         src = bundle_root / rel
         assert_no_symlink(src)
         if not src.is_file():
-            raise ConfigurationError(f"verified content file missing from bundle root: {rel}")
+            raise ConfigurationError(
+                f"verified content file missing from bundle root: {rel}"
+            )
         raw = _read_bounded(src, max_bytes=MAX_FILE_BYTES, label=rel)
         if sha256_bytes(raw) != content_hashes[rel]:
             raise ConfigurationError(
@@ -1062,8 +1114,12 @@ def materialize_to_opencode_root(
             raise ConfigurationError(f"staged file hash mismatch for {rel!r}")
         staged.append(
             StagedContent(
-                rel=rel, staged_path=dest, name=name, kind=kind,
-                backup_path=backup_path, existed=existed,
+                rel=rel,
+                staged_path=dest,
+                name=name,
+                kind=kind,
+                backup_path=backup_path,
+                existed=existed,
             )
         )
     return staged
@@ -1097,7 +1153,11 @@ def cleanup_staged(staged: list[StagedContent]) -> None:
             # Remove newly-empty parents (skills/<name>, skills) but never
             # remove non-empty directories or the .opencode root itself.
             parent = entry.staged_path.parent
-            opencode_root = entry.staged_path.parents[1] if len(entry.staged_path.parents) > 1 else None
+            opencode_root = (
+                entry.staged_path.parents[1]
+                if len(entry.staged_path.parents) > 1
+                else None
+            )
             for ancestor in [parent, parent.parent]:
                 try:
                     if ancestor == opencode_root:
@@ -1145,7 +1205,10 @@ def opencode_config_smoke_check(
         return False, f"{binary} debug config timed out after {timeout}s"
     combined = (result.stdout or "") + (result.stderr or "")
     if result.returncode != 0:
-        return False, f"{binary} debug config failed (rc={result.returncode}):\n{combined[:1000]}"
+        return (
+            False,
+            f"{binary} debug config failed (rc={result.returncode}):\n{combined[:1000]}",
+        )
     return True, "ok"
 
 
@@ -1184,8 +1247,12 @@ def resolve_legacy_bundle(
     agent_path = repo_root / normalized_agent
     assert_no_symlink(agent_path)
     if not is_contained(repo_root, agent_path) or not agent_path.is_file():
-        raise ConfigurationError(f"legacy agent file not found or escapes repo root: {agent_file}")
-    agent_raw = _read_bounded(agent_path, max_bytes=MAX_FILE_BYTES, label=normalized_agent)
+        raise ConfigurationError(
+            f"legacy agent file not found or escapes repo root: {agent_file}"
+        )
+    agent_raw = _read_bounded(
+        agent_path, max_bytes=MAX_FILE_BYTES, label=normalized_agent
+    )
     agent_text = agent_raw.decode("utf-8")
     agent_front = validate_agent_front_matter(agent_text, workflow=workflow)
 
@@ -1197,8 +1264,12 @@ def resolve_legacy_bundle(
         skill_path = repo_root / normalized_skill
         assert_no_symlink(skill_path)
         if not is_contained(repo_root, skill_path) or not skill_path.is_file():
-            raise ConfigurationError(f"legacy skill file not found or escapes repo root: {skill_file}")
-        skill_raw = _read_bounded(skill_path, max_bytes=MAX_FILE_BYTES, label=normalized_skill)
+            raise ConfigurationError(
+                f"legacy skill file not found or escapes repo root: {skill_file}"
+            )
+        skill_raw = _read_bounded(
+            skill_path, max_bytes=MAX_FILE_BYTES, label=normalized_skill
+        )
         skill_text = skill_raw.decode("utf-8")
         validate_skill_front_matter(skill_text)
         skill_files = (normalized_skill,)
@@ -1309,12 +1380,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Resolve and validate an agentic configuration bundle."
     )
-    parser.add_argument("--workflow", required=True, choices=sorted(SUPPORTED_WORKFLOWS))
+    parser.add_argument(
+        "--workflow", required=True, choices=sorted(SUPPORTED_WORKFLOWS)
+    )
     parser.add_argument("--bundle-root", default=".opencode/configuration")
     parser.add_argument("--configuration-source", default="local")
     parser.add_argument("--configuration-ref", default=None)
     parser.add_argument("--configuration-profile", default=None)
-    parser.add_argument("--result", default=None, help="Path to write the resolved bundle JSON to.")
+    parser.add_argument(
+        "--result", default=None, help="Path to write the resolved bundle JSON to."
+    )
     parser.add_argument(
         "--legacy-agent-file",
         default=None,
@@ -1354,7 +1429,9 @@ def main(argv: Iterable[str] | None = None) -> int:
             )
         elif args.configuration_source == "local":
             if not args.configuration_profile:
-                parser.error("--configuration-profile is required (or use --legacy-agent-file)")
+                parser.error(
+                    "--configuration-profile is required (or use --legacy-agent-file)"
+                )
             resolved = resolve_local_bundle(
                 bundle_root=Path(args.bundle_root),
                 profile=args.configuration_profile,

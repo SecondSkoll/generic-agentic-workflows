@@ -176,11 +176,15 @@ def _coerce_int(value: Any, name: str, minimum: int, maximum: int) -> int:
         try:
             candidate = int(text)
         except ValueError as error:
-            raise InvocationError(f"{name} must be an integer, got {value!r}") from error
+            raise InvocationError(
+                f"{name} must be an integer, got {value!r}"
+            ) from error
     else:
         raise InvocationError(f"{name} must be an integer, got {value!r}")
     if candidate < minimum or candidate > maximum:
-        raise InvocationError(f"{name} must be between {minimum} and {maximum}, got {candidate}")
+        raise InvocationError(
+            f"{name} must be between {minimum} and {maximum}, got {candidate}"
+        )
     return candidate
 
 
@@ -269,8 +273,7 @@ def _validate_request_label(label: Any) -> str | None:
     normalized = label.strip()
     if not PROFILE_PATTERN.match(normalized):
         raise InvocationError(
-            "request_label must match [a-z0-9][a-z0-9-]{0,62}; "
-            f"got {label!r}"
+            f"request_label must match [a-z0-9][a-z0-9-]{{0,62}}; got {label!r}"
         )
     return normalized
 
@@ -351,9 +354,13 @@ def resolve_invocation(
         if resolved_focus is not None:
             raise InvocationError("focus is not supported for issue implementation")
         if resolved_max_comments is not None:
-            raise InvocationError("max_comments is not supported for issue implementation")
+            raise InvocationError(
+                "max_comments is not supported for issue implementation"
+            )
         if resolved_max_issues is not None:
-            raise InvocationError("max_issues is not supported for issue implementation")
+            raise InvocationError(
+                "max_issues is not supported for issue implementation"
+            )
 
     # Remote sources are validated for shape only; Plan 2 wires up fetching.
     if resolved_source != "local" and resolved_ref is None:
@@ -451,7 +458,11 @@ def write_job_summary(resolved: ResolvedInvocation, summary_path: Path) -> None:
         lines.append(f"- Target number: `{resolved.target_number}`")
     if resolved.request_label:
         lines.append(f"- Request label: `{resolved.request_label}`")
-    mode = "validate-only" if resolved.validate_only else ("dry-run" if resolved.dry_run else "publish")
+    mode = (
+        "validate-only"
+        if resolved.validate_only
+        else ("dry-run" if resolved.dry_run else "publish")
+    )
     lines.append(f"- Mode: `{mode}`")
     existing = ""
     if summary_path.exists():
@@ -470,7 +481,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Normalize and validate reusable-workflow invocation inputs."
     )
-    parser.add_argument("--workflow", required=True, choices=sorted(SUPPORTED_WORKFLOWS))
+    parser.add_argument(
+        "--workflow", required=True, choices=sorted(SUPPORTED_WORKFLOWS)
+    )
     parser.add_argument("--configuration-source", default="local")
     parser.add_argument("--configuration-ref", default=None)
     parser.add_argument("--configuration-profile", required=True)

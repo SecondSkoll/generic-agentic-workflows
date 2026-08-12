@@ -40,7 +40,9 @@ def _write_bundle(
     prompt_text = prompt_text or "# prompt\nReview the diff for {{feedback_kind}}.\n"
     (profile_dir / "agent.md").write_text(agent_text, encoding="utf-8")
     (profile_dir / "skills" / "documentation").mkdir(parents=True, exist_ok=True)
-    (profile_dir / "skills" / "documentation" / "SKILL.md").write_text(skill_text, encoding="utf-8")
+    (profile_dir / "skills" / "documentation" / "SKILL.md").write_text(
+        skill_text, encoding="utf-8"
+    )
     (profile_dir / "prompts").mkdir(parents=True, exist_ok=True)
     (profile_dir / "prompts" / "review.md").write_text(prompt_text, encoding="utf-8")
     manifest = manifest or {
@@ -60,7 +62,9 @@ def _write_bundle(
 
         hashes = {
             "agent.md": hashlib.sha256(agent_text.encode()).hexdigest(),
-            "skills/documentation/SKILL.md": hashlib.sha256(skill_text.encode()).hexdigest(),
+            "skills/documentation/SKILL.md": hashlib.sha256(
+                skill_text.encode()
+            ).hexdigest(),
             "prompts/review.md": hashlib.sha256(prompt_text.encode()).hexdigest(),
         }
     (profile_dir / "hashes.json").write_text(json.dumps(hashes), encoding="utf-8")
@@ -102,7 +106,9 @@ class PathSafetyTests(unittest.TestCase):
             CFG.normalize_bundle_path("agent\x00.md")
 
     def test_normalize_accepts_nested(self):
-        self.assertEqual(CFG.normalize_bundle_path("skills/foo/SKILL.md"), "skills/foo/SKILL.md")
+        self.assertEqual(
+            CFG.normalize_bundle_path("skills/foo/SKILL.md"), "skills/foo/SKILL.md"
+        )
 
 
 class LocalResolutionTests(unittest.TestCase):
@@ -125,7 +131,9 @@ class LocalResolutionTests(unittest.TestCase):
             profile="issue-feedback",
             workflow="issue-feedback",
         )
-        self.assertEqual(resolved.manifest.output_contract, "issue-feedback-markdown-v1")
+        self.assertEqual(
+            resolved.manifest.output_contract, "issue-feedback-markdown-v1"
+        )
 
     def test_implementation_local_bundle_resolves(self):
         resolved = CFG.resolve_local_bundle(
@@ -133,7 +141,9 @@ class LocalResolutionTests(unittest.TestCase):
             profile="default-implementation",
             workflow="issue-implementation",
         )
-        self.assertEqual(resolved.manifest.output_contract, "issue-implementation-decision-v1")
+        self.assertEqual(
+            resolved.manifest.output_contract, "issue-implementation-decision-v1"
+        )
 
     def test_unknown_profile_rejected(self):
         with self.assertRaises(CFG.ConfigurationError):
@@ -157,7 +167,9 @@ class LocalResolutionTests(unittest.TestCase):
             (root / "doc-review").mkdir()
             with self.assertRaises(CFG.ConfigurationError):
                 CFG.resolve_local_bundle(
-                    bundle_root=root, profile="doc-review", workflow="pr-documentation-review"
+                    bundle_root=root,
+                    profile="doc-review",
+                    workflow="pr-documentation-review",
                 )
 
     def test_malformed_schema_version_rejected(self):
@@ -180,7 +192,9 @@ class LocalResolutionTests(unittest.TestCase):
             )
             with self.assertRaises(CFG.ConfigurationError):
                 CFG.resolve_local_bundle(
-                    bundle_root=root, profile="bad-schema", workflow="pr-documentation-review"
+                    bundle_root=root,
+                    profile="bad-schema",
+                    workflow="pr-documentation-review",
                 )
 
     def test_traversal_in_manifest_rejected(self):
@@ -203,7 +217,9 @@ class LocalResolutionTests(unittest.TestCase):
             )
             with self.assertRaises(CFG.ConfigurationError):
                 CFG.resolve_local_bundle(
-                    bundle_root=root, profile="traversal", workflow="pr-documentation-review"
+                    bundle_root=root,
+                    profile="traversal",
+                    workflow="pr-documentation-review",
                 )
 
     def test_symlink_rejected(self):
@@ -217,7 +233,9 @@ class LocalResolutionTests(unittest.TestCase):
             (profile_dir / "agent.md").symlink_to(outside)
             with self.assertRaises(CFG.ConfigurationError):
                 CFG.resolve_local_bundle(
-                    bundle_root=root, profile="symlink-bundle", workflow="pr-documentation-review"
+                    bundle_root=root,
+                    profile="symlink-bundle",
+                    workflow="pr-documentation-review",
                 )
 
     def test_hash_mismatch_rejected(self):
@@ -234,7 +252,9 @@ class LocalResolutionTests(unittest.TestCase):
             )
             with self.assertRaises(CFG.ConfigurationError):
                 CFG.resolve_local_bundle(
-                    bundle_root=root, profile="hashfail", workflow="pr-documentation-review"
+                    bundle_root=root,
+                    profile="hashfail",
+                    workflow="pr-documentation-review",
                 )
 
     def test_missing_hash_for_declared_content_rejected(self):
@@ -250,7 +270,9 @@ class LocalResolutionTests(unittest.TestCase):
             )
             with self.assertRaises(CFG.ConfigurationError):
                 CFG.resolve_local_bundle(
-                    bundle_root=root, profile="missing-hash", workflow="pr-documentation-review"
+                    bundle_root=root,
+                    profile="missing-hash",
+                    workflow="pr-documentation-review",
                 )
 
     def test_undeclared_hash_content_rejected(self):
@@ -258,7 +280,9 @@ class LocalResolutionTests(unittest.TestCase):
             root = Path(tmp)
             import hashlib
 
-            agent_text = "---\nname: documentation-review\nmode: primary\n---\n# agent\n"
+            agent_text = (
+                "---\nname: documentation-review\nmode: primary\n---\n# agent\n"
+            )
             skill_text = "---\nname: documentation\n---\n# skill\n"
             prompt_text = "# prompt\n"
             _write_bundle(
@@ -269,14 +293,20 @@ class LocalResolutionTests(unittest.TestCase):
                 prompt_text=prompt_text,
                 hashes={
                     "agent.md": hashlib.sha256(agent_text.encode()).hexdigest(),
-                    "skills/documentation/SKILL.md": hashlib.sha256(skill_text.encode()).hexdigest(),
-                    "prompts/review.md": hashlib.sha256(prompt_text.encode()).hexdigest(),
+                    "skills/documentation/SKILL.md": hashlib.sha256(
+                        skill_text.encode()
+                    ).hexdigest(),
+                    "prompts/review.md": hashlib.sha256(
+                        prompt_text.encode()
+                    ).hexdigest(),
                     "extra.md": hashlib.sha256(b"extra").hexdigest(),
                 },
             )
             with self.assertRaises(CFG.ConfigurationError):
                 CFG.resolve_local_bundle(
-                    bundle_root=root, profile="undeclared", workflow="pr-documentation-review"
+                    bundle_root=root,
+                    profile="undeclared",
+                    workflow="pr-documentation-review",
                 )
 
     def test_oversized_file_rejected(self):
@@ -290,7 +320,9 @@ class LocalResolutionTests(unittest.TestCase):
             )
             with self.assertRaises(CFG.ConfigurationError):
                 CFG.resolve_local_bundle(
-                    bundle_root=root, profile="oversized", workflow="pr-documentation-review"
+                    bundle_root=root,
+                    profile="oversized",
+                    workflow="pr-documentation-review",
                 )
 
     def test_invalid_utf8_rejected(self):
@@ -301,30 +333,50 @@ class LocalResolutionTests(unittest.TestCase):
             (profile_dir / "agent.md").write_bytes(b"---\nname: bad\n---\n\xff\xfe\n")
             (profile_dir / "skills").mkdir()
             (profile_dir / "skills" / "s").mkdir()
-            (profile_dir / "skills" / "s" / "SKILL.md").write_text("---\nname: s\n---\n", encoding="utf-8")
+            (profile_dir / "skills" / "s" / "SKILL.md").write_text(
+                "---\nname: s\n---\n", encoding="utf-8"
+            )
             (profile_dir / "prompts").mkdir()
-            (profile_dir / "prompts" / "review.md").write_text("# p\n", encoding="utf-8")
-            (profile_dir / "bundle.json").write_text(json.dumps({
-                "schema_version": 1,
-                "profile_name": "utf8fail",
-                "allowed_workflows": ["pr-documentation-review"],
-                "agent_file": "agent.md",
-                "skill_files": ["skills/s/SKILL.md"],
-                "prompt_template": "prompts/review.md",
-                "model_profile": "review-readonly",
-                "output_contract": "pr-review-json-v1",
-                "limits": {},
-            }), encoding="utf-8")
+            (profile_dir / "prompts" / "review.md").write_text(
+                "# p\n", encoding="utf-8"
+            )
+            (profile_dir / "bundle.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "profile_name": "utf8fail",
+                        "allowed_workflows": ["pr-documentation-review"],
+                        "agent_file": "agent.md",
+                        "skill_files": ["skills/s/SKILL.md"],
+                        "prompt_template": "prompts/review.md",
+                        "model_profile": "review-readonly",
+                        "output_contract": "pr-review-json-v1",
+                        "limits": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
             import hashlib
 
-            (profile_dir / "hashes.json").write_text(json.dumps({
-                "agent.md": hashlib.sha256(b"---\nname: bad\n---\n\xff\xfe\n").hexdigest(),
-                "skills/s/SKILL.md": hashlib.sha256(b"---\nname: s\n---\n").hexdigest(),
-                "prompts/review.md": hashlib.sha256(b"# p\n").hexdigest(),
-            }), encoding="utf-8")
+            (profile_dir / "hashes.json").write_text(
+                json.dumps(
+                    {
+                        "agent.md": hashlib.sha256(
+                            b"---\nname: bad\n---\n\xff\xfe\n"
+                        ).hexdigest(),
+                        "skills/s/SKILL.md": hashlib.sha256(
+                            b"---\nname: s\n---\n"
+                        ).hexdigest(),
+                        "prompts/review.md": hashlib.sha256(b"# p\n").hexdigest(),
+                    }
+                ),
+                encoding="utf-8",
+            )
             with self.assertRaises(CFG.ConfigurationError):
                 CFG.resolve_local_bundle(
-                    bundle_root=root, profile="utf8fail", workflow="pr-documentation-review"
+                    bundle_root=root,
+                    profile="utf8fail",
+                    workflow="pr-documentation-review",
                 )
 
     def test_review_agent_requesting_edit_rejected(self):
@@ -339,7 +391,9 @@ class LocalResolutionTests(unittest.TestCase):
             )
             with self.assertRaises(CFG.ConfigurationError):
                 CFG.resolve_local_bundle(
-                    bundle_root=root, profile="edit-agent", workflow="pr-documentation-review"
+                    bundle_root=root,
+                    profile="edit-agent",
+                    workflow="pr-documentation-review",
                 )
 
     def test_profile_name_mismatch_rejected(self):
@@ -369,7 +423,9 @@ class LocalResolutionTests(unittest.TestCase):
 
 
 class RemoteResolutionTests(unittest.TestCase):
-    def _make_remote_files(self, profile: str = "documentation-review") -> tuple[dict[str, bytes], str]:
+    def _make_remote_files(
+        self, profile: str = "documentation-review"
+    ) -> tuple[dict[str, bytes], str]:
         import hashlib
 
         src_dir = REPO_ROOT / ".opencode" / "configuration" / profile
@@ -378,7 +434,11 @@ class RemoteResolutionTests(unittest.TestCase):
         root = ".opencode/configuration"
         files[f"{root}/{profile}/bundle.json"] = (src_dir / "bundle.json").read_bytes()
         files[f"{root}/{profile}/hashes.json"] = (src_dir / "hashes.json").read_bytes()
-        for rel in [manifest["agent_file"], *manifest["skill_files"], manifest["prompt_template"]]:
+        for rel in [
+            manifest["agent_file"],
+            *manifest["skill_files"],
+            manifest["prompt_template"],
+        ]:
             files[f"{root}/{profile}/{rel}"] = (src_dir / rel).read_bytes()
         sha = "a" * 40
         return files, sha
@@ -502,8 +562,12 @@ class RemoteResolutionTests(unittest.TestCase):
                 client=client,
                 cache_dir=Path(tmp),
             )
-            self.assertEqual(first.manifest.manifest_sha256, second.manifest.manifest_sha256)
-            self.assertEqual(len(client.fetch_calls), before)  # cache hit: no new fetches
+            self.assertEqual(
+                first.manifest.manifest_sha256, second.manifest.manifest_sha256
+            )
+            self.assertEqual(
+                len(client.fetch_calls), before
+            )  # cache hit: no new fetches
 
 
 class LegacyCompatTests(unittest.TestCase):
@@ -598,22 +662,29 @@ class RemoteTransportTests(unittest.TestCase):
         response.read.side_effect = [payload, b""]
         with mock.patch("urllib.request.urlopen", return_value=response):
             with self.assertRaises(CFG.ConfigurationError):
-                client._get("https://api.github.com/repos/o/r/contents/x?ref=" + "a" * 40)
+                client._get(
+                    "https://api.github.com/repos/o/r/contents/x?ref=" + "a" * 40
+                )
 
     def test_client_decodes_base64_content(self):
         import base64
+
         client = CFG.GitHubContentsClient(token="t", max_retries=1)
         raw = b"hello world"
-        payload = json.dumps({
-            "type": "file",
-            "encoding": "base64",
-            "content": base64.b64encode(raw).decode(),
-        }).encode()
+        payload = json.dumps(
+            {
+                "type": "file",
+                "encoding": "base64",
+                "content": base64.b64encode(raw).decode(),
+            }
+        ).encode()
         response = mock.MagicMock()
         response.__enter__.return_value = response
         response.read.side_effect = [payload, b""]
         with mock.patch("urllib.request.urlopen", return_value=response):
-            data = client._get("https://api.github.com/repos/o/r/contents/x?ref=" + "a" * 40)
+            data = client._get(
+                "https://api.github.com/repos/o/r/contents/x?ref=" + "a" * 40
+            )
         self.assertEqual(data, raw)
 
 
@@ -622,11 +693,13 @@ class SingleAliasSourceTests(unittest.TestCase):
 
     def test_resolve_invocation_mirrors_configuration_aliases(self):
         import importlib.util
+
         spec = importlib.util.spec_from_file_location(
             "resolve_invocation", REPO_ROOT / "scripts" / "resolve_invocation.py"
         )
         ri = importlib.util.module_from_spec(spec)
         import sys
+
         sys.modules["resolve_invocation"] = ri
         spec.loader.exec_module(ri)
         expected = {"local"} | set(CFG.REMOTE_SOURCE_ALIASES.keys())
@@ -642,7 +715,11 @@ class CacheSlotRobustnessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)
             # Create a partial/leftover slot.
-            slot = cache / CFG._cache_key("agentic-configuration_example-configuration", sha, "documentation-review")
+            slot = cache / CFG._cache_key(
+                "agentic-configuration_example-configuration",
+                sha,
+                "documentation-review",
+            )
             slot.mkdir(parents=True)
             (slot / "junk").write_text("partial", encoding="utf-8")
             # Resolution must succeed by removing the leftover slot.
@@ -658,6 +735,7 @@ class CacheSlotRobustnessTests(unittest.TestCase):
 
     def _make_remote_files(self, profile="documentation-review"):
         import hashlib
+
         src_dir = REPO_ROOT / ".opencode" / "configuration" / profile
         files = {}
         manifest = json.loads((src_dir / "bundle.json").read_text())

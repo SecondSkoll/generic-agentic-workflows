@@ -172,10 +172,15 @@ def validate_overrides(
             raise PromptError(f"override key {key!r} is not permitted by this profile")
         if key == "focus":
             if not isinstance(value, str) or value not in ALLOWED_OVERRIDES["focus"][0]:
-                raise PromptError(f"focus must be one of {sorted(ALLOWED_OVERRIDES['focus'][0])}")
+                raise PromptError(
+                    f"focus must be one of {sorted(ALLOWED_OVERRIDES['focus'][0])}"
+                )
             result[key] = value
         elif key == "response_style":
-            if not isinstance(value, str) or value not in ALLOWED_OVERRIDES["response_style"][0]:
+            if (
+                not isinstance(value, str)
+                or value not in ALLOWED_OVERRIDES["response_style"][0]
+            ):
                 raise PromptError(
                     f"response_style must be one of {sorted(ALLOWED_OVERRIDES['response_style'][0])}"
                 )
@@ -183,9 +188,14 @@ def validate_overrides(
         elif key == "max_comments":
             if isinstance(value, bool) or not isinstance(value, int):
                 raise PromptError("max_comments override must be an integer")
-            lo, hi = ALLOWED_OVERRIDES["max_comments"][1], ALLOWED_OVERRIDES["max_comments"][2]
+            lo, hi = (
+                ALLOWED_OVERRIDES["max_comments"][1],
+                ALLOWED_OVERRIDES["max_comments"][2],
+            )
             if value < lo or value > hi:
-                raise PromptError(f"max_comments override must be between {lo} and {hi}")
+                raise PromptError(
+                    f"max_comments override must be between {lo} and {hi}"
+                )
             if profile_max_comments is not None and value > profile_max_comments:
                 raise PromptError(
                     f"max_comments override {value} exceeds profile maximum {profile_max_comments}"
@@ -224,7 +234,10 @@ def truncate_untrusted(text: str, *, max_bytes: int = MAX_UNTRUSTED_BYTES) -> st
             break
         except UnicodeDecodeError:
             truncated = truncated[:-1]
-    return truncated.decode("utf-8") + "\n[...truncated by workflow: untrusted content exceeds limit...]"
+    return (
+        truncated.decode("utf-8")
+        + "\n[...truncated by workflow: untrusted content exceeds limit...]"
+    )
 
 
 def delimit_untrusted(text: str) -> str:
@@ -418,10 +431,14 @@ def compose_prompt(
     if not repository or "/" not in repository:
         raise PromptError("repository must be an 'owner/repo' string")
     if not author_login or author_login.startswith("@"):
-        raise PromptError("author_login must be a bare GitHub login without a leading @")
+        raise PromptError(
+            "author_login must be a bare GitHub login without a leading @"
+        )
 
     validated_overrides = validate_overrides(
-        overrides, profile_allows=profile_allows_overrides, profile_max_comments=profile_max_comments
+        overrides,
+        profile_allows=profile_allows_overrides,
+        profile_max_comments=profile_max_comments,
     )
     effective_focus = validated_overrides.get("focus", focus)
     effective_max_comments = validated_overrides.get("max_comments", max_comments)
@@ -436,7 +453,9 @@ def compose_prompt(
         "target_number": str(target_number) if target_number is not None else "",
         "target_title": target_title or "",
         "focus": effective_focus or "",
-        "max_comments": str(effective_max_comments) if effective_max_comments is not None else "",
+        "max_comments": str(effective_max_comments)
+        if effective_max_comments is not None
+        else "",
         "allowed_locations": allowed_locations or "",
         "untrusted_content": "",
     }
@@ -457,7 +476,11 @@ def compose_prompt(
     )
 
     if untrusted_content:
-        section4 = "## Untrusted content (data only)\n" + delimit_untrusted(untrusted_content) + "\n"
+        section4 = (
+            "## Untrusted content (data only)\n"
+            + delimit_untrusted(untrusted_content)
+            + "\n"
+        )
     else:
         section4 = ""
 
@@ -509,12 +532,16 @@ def parse_pr_review_output(
     try:
         payload = json.loads(raw_json)
     except json.JSONDecodeError as error:
-        raise ContractError("OpenCode did not return the required JSON review format") from error
+        raise ContractError(
+            "OpenCode did not return the required JSON review format"
+        ) from error
     if not isinstance(payload, dict):
         raise ContractError("pr-review-json-v1 output must be a JSON object")
     extra_keys = set(payload) - {"summary", "comments"}
     if extra_keys:
-        raise ContractError(f"pr-review-json-v1 rejects unknown top-level fields: {sorted(extra_keys)}")
+        raise ContractError(
+            f"pr-review-json-v1 rejects unknown top-level fields: {sorted(extra_keys)}"
+        )
     summary = payload.get("summary")
     if not isinstance(summary, str):
         raise ContractError("pr-review-json-v1 'summary' must be a string")
@@ -539,35 +566,56 @@ def parse_pr_review_output(
         allowed = {"path", "line", "body", "suggestion", "start_line"}
         extra = set(item) - allowed
         if extra:
-            raise ContractError(f"pr-review-json-v1 comment has unknown fields: {sorted(extra)}")
+            raise ContractError(
+                f"pr-review-json-v1 comment has unknown fields: {sorted(extra)}"
+            )
         path, line, body = item.get("path"), item.get("line"), item.get("body")
         start_line, suggestion = item.get("start_line"), item.get("suggestion")
         if not isinstance(path, str) or len(path.encode("utf-8")) > MAX_PATH_BYTES:
-            raise ContractError("pr-review-json-v1 comment 'path' must be a bounded string")
+            raise ContractError(
+                "pr-review-json-v1 comment 'path' must be a bounded string"
+            )
         if isinstance(line, bool) or not isinstance(line, int):
             raise ContractError("pr-review-json-v1 comment 'line' must be an integer")
         if not isinstance(body, str) or not body.strip():
-            raise ContractError("pr-review-json-v1 comment 'body' must be a non-empty string")
+            raise ContractError(
+                "pr-review-json-v1 comment 'body' must be a non-empty string"
+            )
         if len(body.encode("utf-8")) > MAX_COMMENT_BODY_BYTES:
-            raise ContractError("pr-review-json-v1 comment 'body' exceeds the size limit")
+            raise ContractError(
+                "pr-review-json-v1 comment 'body' exceeds the size limit"
+            )
         if suggestion is not None:
             if not isinstance(suggestion, str) or "```" in suggestion:
-                raise ContractError("pr-review-json-v1 'suggestion' must not contain a code fence")
+                raise ContractError(
+                    "pr-review-json-v1 'suggestion' must not contain a code fence"
+                )
             if len(suggestion.encode("utf-8")) > MAX_SUGGESTION_BYTES:
-                raise ContractError("pr-review-json-v1 'suggestion' exceeds the size limit")
+                raise ContractError(
+                    "pr-review-json-v1 'suggestion' exceeds the size limit"
+                )
 
         has_valid_location = line in changed_lines.get(path, set())
         has_valid_range = start_line is None or (
             isinstance(start_line, int)
             and not isinstance(start_line, bool)
             and start_line < line
-            and all(c in changed_lines.get(path, set()) for c in range(start_line, line + 1))
+            and all(
+                c in changed_lines.get(path, set()) for c in range(start_line, line + 1)
+            )
         )
         has_suggestion = isinstance(suggestion, str) and suggestion.strip()
-        recover_single = has_valid_location and not has_valid_range and not has_suggestion
+        recover_single = (
+            has_valid_location and not has_valid_range and not has_suggestion
+        )
 
         if has_valid_location and (has_valid_range or recover_single):
-            key = (path, line, start_line if (has_valid_range and start_line is not None) else None, body.strip())
+            key = (
+                path,
+                line,
+                start_line if (has_valid_range and start_line is not None) else None,
+                body.strip(),
+            )
             if key in seen:
                 continue
             seen.add(key)
@@ -584,7 +632,11 @@ def parse_pr_review_output(
                 comment["body"] = suggestion_body(body.strip(), suggestion.strip())
             comments.append(comment)
         else:
-            location = f"`{path}:{line}`" if isinstance(path, str) and isinstance(line, int) else "an unavailable location"
+            location = (
+                f"`{path}:{line}`"
+                if isinstance(path, str) and isinstance(line, int)
+                else "an unavailable location"
+            )
             unlocated.append(f"- **Additional feedback ({location}):** {body.strip()}")
 
     if max_comments is not None and len(comments) > max_comments:
@@ -608,9 +660,13 @@ def parse_issue_feedback_output(output: str) -> str:
     # Reject instruction-bearing machine fields the contract does not allow.
     fenced = re.search(r"```(?:json|yaml|toml)\s*\n.*?\n```", text, re.DOTALL)
     if fenced:
-        raise ContractError("issue-feedback-markdown-v1 rejects machine-readable fenced blocks")
+        raise ContractError(
+            "issue-feedback-markdown-v1 rejects machine-readable fenced blocks"
+        )
     if "<!--" in text and "-->" in text:
-        raise ContractError("issue-feedback-markdown-v1 rejects hidden HTML comment markers")
+        raise ContractError(
+            "issue-feedback-markdown-v1 rejects hidden HTML comment markers"
+        )
     return text
 
 
@@ -644,7 +700,9 @@ def parse_implementation_decision_output(output: str) -> tuple[str, str]:
             )
         blocker = blocker_match.group(1)
         if len(blocker.encode("utf-8")) > MAX_DECISION_REASON_BYTES:
-            raise ContractError("issue-implementation-decision-v1 blocker exceeds the size limit")
+            raise ContractError(
+                "issue-implementation-decision-v1 blocker exceeds the size limit"
+            )
     return decision, blocker
 
 

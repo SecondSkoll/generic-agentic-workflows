@@ -18,29 +18,64 @@ SPEC.loader.exec_module(RUNNER)
 class ParseReviewOutputTests(unittest.TestCase):
     """Verify valid locations remain inline and invalid ones remain safe."""
 
-    def parse(self, comments: list[dict[str, object]]) -> tuple[str, list[dict[str, object]]]:
+    def parse(
+        self, comments: list[dict[str, object]]
+    ) -> tuple[str, list[dict[str, object]]]:
         return RUNNER.parse_review_output(
             json.dumps({"summary": "Overall review.", "comments": comments}),
             {"test-script.py": {10, 11}},
         )
 
     def test_accepts_valid_single_line_comment(self) -> None:
-        _, comments = self.parse([{"path": "test-script.py", "line": 10, "body": "Review note."}])
+        _, comments = self.parse(
+            [{"path": "test-script.py", "line": 10, "body": "Review note."}]
+        )
 
-        self.assertEqual(comments, [{"path": "test-script.py", "line": 10, "side": "RIGHT", "body": "Review note."}])
+        self.assertEqual(
+            comments,
+            [
+                {
+                    "path": "test-script.py",
+                    "line": 10,
+                    "side": "RIGHT",
+                    "body": "Review note.",
+                }
+            ],
+        )
 
     def test_recovers_valid_line_with_invalid_range_without_suggestion(self) -> None:
         _, comments = self.parse(
-            [{"path": "test-script.py", "start_line": 9, "line": 10, "body": "Review note."}]
+            [
+                {
+                    "path": "test-script.py",
+                    "start_line": 9,
+                    "line": 10,
+                    "body": "Review note.",
+                }
+            ]
         )
 
-        self.assertEqual(comments, [{"path": "test-script.py", "line": 10, "side": "RIGHT", "body": "Review note."}])
+        self.assertEqual(
+            comments,
+            [
+                {
+                    "path": "test-script.py",
+                    "line": 10,
+                    "side": "RIGHT",
+                    "body": "Review note.",
+                }
+            ],
+        )
 
     def test_retains_invalid_line_as_summary_feedback(self) -> None:
-        summary, comments = self.parse([{"path": "test-script.py", "line": 9, "body": "Review note."}])
+        summary, comments = self.parse(
+            [{"path": "test-script.py", "line": 9, "body": "Review note."}]
+        )
 
         self.assertEqual(comments, [])
-        self.assertIn("Additional feedback (`test-script.py:9`):** Review note.", summary)
+        self.assertIn(
+            "Additional feedback (`test-script.py:9`):** Review note.", summary
+        )
 
     def test_rejects_invalid_suggestion_range(self) -> None:
         summary, comments = self.parse(
@@ -56,7 +91,9 @@ class ParseReviewOutputTests(unittest.TestCase):
         )
 
         self.assertEqual(comments, [])
-        self.assertIn("Additional feedback (`test-script.py:10`):** Review note.", summary)
+        self.assertIn(
+            "Additional feedback (`test-script.py:10`):** Review note.", summary
+        )
 
     def test_formats_allowed_locations(self) -> None:
         self.assertEqual(
