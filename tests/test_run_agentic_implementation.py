@@ -124,8 +124,12 @@ class ImplementationRunnerTests(unittest.TestCase):
             self.assertEqual(captured_cmd["cmd"].count("--file"), 1)
             self.assertNotIn(captured_cmd["prompt"], captured_cmd["cmd"])
             self.assertLess(
-                captured_cmd["cmd"].index(IMPL.OPENCODE_PROMPT_MESSAGE),
                 captured_cmd["cmd"].index("--file"),
+                captured_cmd["cmd"].index("--"),
+            )
+            self.assertEqual(
+                captured_cmd["cmd"][captured_cmd["cmd"].index("--") + 1],
+                IMPL.OPENCODE_PROMPT_MESSAGE,
             )
             # --dir is used so OpenCode scans the staged workspace.
             self.assertIn("--dir", captured_cmd["cmd"])
