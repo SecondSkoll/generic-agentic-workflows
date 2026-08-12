@@ -1022,10 +1022,13 @@ def _run_opencode_with_prompt_file(
     with tempfile.TemporaryDirectory(prefix="agentic-opencode-prompt-") as tempdir:
         prompt_path = Path(tempdir) / "workflow-prompt.md"
         prompt_path.write_text(prompt, encoding="utf-8")
-        cmd = ["opencode", "run", *opencode_args, "--file", str(prompt_path)]
+        # OpenCode's --file option accepts one or more paths. Keep the
+        # positional instruction before it, otherwise the CLI treats the
+        # instruction text as another file path.
+        cmd = ["opencode", "run", *opencode_args, OPENCODE_PROMPT_MESSAGE]
+        cmd.extend(["--file", str(prompt_path)])
         for attachment in attachments:
             cmd.extend(["--file", str(attachment)])
-        cmd.append(OPENCODE_PROMPT_MESSAGE)
         return subprocess.run(
             cmd,
             check=False,

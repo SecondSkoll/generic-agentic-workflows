@@ -322,7 +322,7 @@ jobs:
           PY
 
       - name: Install OpenCode
-        run: npm install -g opencode-ai
+        run: npm install -g opencode-ai@1.18.16
 
       - name: Create implementation prompt
         id: context

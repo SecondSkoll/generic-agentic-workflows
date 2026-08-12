@@ -256,7 +256,7 @@ jobs:
 
       - name: Install OpenCode
         if: steps.resolve.outputs.validate_only != 'true'
-        run: npm install -g opencode-ai
+        run: npm install -g opencode-ai@1.18.16
 
       - name: Collect open issues
         if: steps.resolve.outputs.validate_only != 'true'

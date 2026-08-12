@@ -317,7 +317,9 @@ jobs:
 
       - name: Install OpenCode
         if: steps.resolve.outputs.validate_only != 'true'
-        run: npm install -g opencode-ai
+        # Keep CLI parsing stable; `--file` accepts multiple paths in current
+        # OpenCode releases, so unpinned updates can change invocation behavior.
+        run: npm install -g opencode-ai@1.18.16
 
       - name: Review documentation impact
         if: steps.resolve.outputs.validate_only != 'true'

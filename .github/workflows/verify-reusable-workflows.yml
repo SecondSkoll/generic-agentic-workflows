@@ -71,7 +71,7 @@ jobs:
           python3 -m py_compile scripts/*.py
 
       - name: Install OpenCode for schema smoke checks
-        run: npm install -g opencode-ai
+        run: npm install -g opencode-ai@1.18.16
 
       - name: Run unit tests (includes real OpenCode smoke when binary present)
         run: |
