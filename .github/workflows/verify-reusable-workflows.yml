@@ -50,7 +50,7 @@ jobs:
           from pathlib import Path
           import yaml
           files = [
-              ".github/workflows/opencode-review.yml",
+              ".github/workflows/opencode-documentation-review.yml",
               ".github/workflows/opencode-issue-feedback.yml",
               ".github/workflows/opencode-issue-implementation.yml",
               ".github/workflows/verify-reusable-workflows.yml",
