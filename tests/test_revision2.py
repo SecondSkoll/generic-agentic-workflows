@@ -236,7 +236,23 @@ class ProfileMaxCommentsDefaultTests(unittest.TestCase):
             def fake_run(cmd, **kwargs):
                 captured["cmd"] = cmd
                 return type(
-                    "R", (), {"stdout": valid_output, "stderr": "", "returncode": 0}
+                    "R",
+                    (),
+                    {
+                        "stdout": json.dumps(
+                            {
+                                "type": "text",
+                                "part": {
+                                    "type": "text",
+                                    "text": valid_output,
+                                    "time": {"start": 1, "end": 2},
+                                },
+                            }
+                        )
+                        + "\n",
+                        "stderr": "",
+                        "returncode": 0,
+                    },
                 )()
 
             with (
