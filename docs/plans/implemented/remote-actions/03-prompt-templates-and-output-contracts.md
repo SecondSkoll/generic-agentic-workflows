@@ -146,7 +146,7 @@ Improve `parse_review_output` incrementally by:
 2. Define template syntax, a variable registry, limits, and clear exceptions.
 3. Add validated template data to the bundle resolver result.
 4. Move current hard-coded prompts into workflow-owned contract/default
-   templates, preserving existing behavior for legacy local configurations.
+  templates while preserving established behavior.
 5. Replace direct prompt concatenation in `run_agentic_feedback.py` with the
    ordered composition model.
 6. Use the same composer for issue implementation so planner and executor

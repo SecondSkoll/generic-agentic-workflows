@@ -329,16 +329,6 @@ class ResolveFromEnvTests(unittest.TestCase):
         with self.assertRaises(RESOLVER.InvocationError):
             RESOLVER.resolve_from_env(env)
 
-    def test_env_resolution_passes_legacy_through(self) -> None:
-        env = self._base_env()
-        env["AGENTIC_LEGACY_CUSTOM_AGENT_FILE"] = ".opencode/agents/default-agent.md"
-        resolved = RESOLVER.resolve_from_env(env)
-        self.assertEqual(
-            resolved.legacy["AGENTIC_LEGACY_CUSTOM_AGENT_FILE"],
-            ".opencode/agents/default-agent.md",
-        )
-
-
 class OutputWriterTests(unittest.TestCase):
     """Verify $GITHUB_OUTPUT and job summary writers."""
 

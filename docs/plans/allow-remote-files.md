@@ -20,7 +20,7 @@ after:
 6. pull-request review additional-context controls from Plan 6.
 
 Remote file references should extend those systems. They must not reintroduce
-the legacy pattern where workflow callers pass arbitrary prompt, agent, skill,
+the former pattern where workflow callers pass arbitrary prompt, agent, skill,
 path, URL, model, or tool values directly to a workflow.
 
 ## Scope
@@ -720,8 +720,7 @@ Update `README.md` and examples with:
 - remote-content policy examples for organizations;
 - compatibility modes and expected publication notes;
 - troubleshooting for common resolver failures;
-- migration guidance from legacy local `CUSTOM_AGENT_FILE` and
-	`CUSTOM_SKILL_FILE` usage to local or remote bundles.
+- guidance for adopting local or remote bundles.
 
 ## Rollout Strategy
 

@@ -16,7 +16,6 @@ executing workflow configuration.
 | Built-in local profile | The repository can use one of the supplied profiles unchanged. | The trusted default-branch checkout. | Yes, for initial adoption. |
 | Repository-local bundle | The repository needs its own instructions, skill, or prompt. | `.opencode/configuration/<profile>/` in the consumer repository. | Yes, for repository-specific behavior. |
 | Approved remote bundle | Multiple repositories share centrally reviewed configuration. | An allowlisted central repository, pinned to a commit. | Yes, for organization-wide reuse. |
-| Legacy local files | A repository is migrating from an older workflow configuration. | `CUSTOM_AGENT_FILE` and `CUSTOM_SKILL_FILE`. | No; supported temporarily only. |
 
 Configuration is selected only through typed workflow inputs. A caller cannot
 pass a raw prompt, arbitrary agent/skill path, model ID, repository URL, branch,
@@ -88,14 +87,10 @@ the mode in stages:
 `validate_only` and `dry_run` are mutually exclusive. A validation-only run
 stops before model invocation and GitHub writes.
 
-### Direct workflows and the legacy fallback
+### Direct workflows
 
-The workflows included in this repository retain direct-event triggers for
-compatibility. While the legacy variables below are present, a direct run may
-build a synthetic legacy configuration instead of resolving a bundle. New
-consumer wrappers should always set `configuration_profile` and should not set
-legacy environment variables. See [Migrate legacy files](#migrate-legacy-files)
-for the removal path.
+The workflows included in this repository retain direct-event triggers. Direct
+runs resolve the configured local profile in the trusted checkout.
 
 ## 2. Create a repository-local bundle
 
@@ -265,36 +260,6 @@ are a future extension described in
 active interface in this release. This preserves a single, reviewable trust
 boundary while the referenced agent, skill, and prompt files remain hash
 verified.
-
-## Migrate legacy files
-
-Older direct workflows use these variables:
-
-```yaml
-CUSTOM_AGENT_FILE: .opencode/agents/default-agent.md
-CUSTOM_SKILL_FILE: .opencode/skills/basic-review/SKILL.md
-```
-
-They remain supported **only for local sources** during the documented migration
-window and emit a GitHub Actions warning. They are deprecated and will be
-removed in the first major release after that window closes.
-
-Migration steps:
-
-1. Create a local bundle by copying the closest supplied profile.
-2. Move the agent and skill guidance into `agent.md` and
-   `skills/<name>/SKILL.md`; add a profile prompt template.
-3. Create `bundle.json` and `hashes.json`, then regenerate digests.
-4. Configure `configuration_source: local` and
-   `configuration_profile: <profile>` in the wrapper.
-5. Remove `CUSTOM_AGENT_FILE` and `CUSTOM_SKILL_FILE`.
-6. Roll out with `validate_only`, then `dry_run`, then publication.
-
-The bundle path uses a v2 idempotency marker containing its configuration
-digest. Migrating intentionally triggers one fresh review; existing legacy v1
-markers are still recognized during the migration window. See
-[`operations/migration-and-deprecation.md`](operations/migration-and-deprecation.md)
-for the schedule and operational details.
 
 ## Security model
 

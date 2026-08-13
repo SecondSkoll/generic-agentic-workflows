@@ -9,9 +9,8 @@ validate, and record the precise bundle content it uses.
 
 ## Scope
 
-This plan defines the bundle contract, resolution algorithm, source trust
-policy, and migration from `CUSTOM_AGENT_FILE` / `CUSTOM_SKILL_FILE`. Prompt
-templates and model/tool policy are addressed by Plans 3 and 4.
+This plan defines the bundle contract, resolution algorithm, and source trust
+policy. Prompt templates and model/tool policy are addressed by Plans 3 and 4.
 
 Expected code changes:
 
@@ -89,9 +88,6 @@ trusted revision:
 - no event payload, issue text, PR text, or dispatch free text can choose a
   local bundle path.
 
-For migration, map legacy agent and skill variables to an internally built
-local bundle only until a published deprecation date.
-
 ### Remote source
 
 Remote sources must be named aliases, not URLs. Store their repository identity
@@ -142,22 +138,11 @@ an internal JSON result to `RUNNER_TEMP`. Downstream commands read only this
 result.
 
 Update `run_agentic_feedback.py` to consume resolved configuration data rather
-than independently opening paths passed by the workflow. Retain a narrow
-compatibility mode for local legacy paths during Phase 1.
+than independently opening paths passed by the workflow.
 
 The issue-implementation workflow currently reads an agent name with `sed`.
 Replace it with the same resolver result used by the feedback workflows to
 avoid inconsistent validation.
-
-## Migration Plan
-
-1. Introduce bundle support with local source as default.
-2. Add reference local bundles mirroring the current example agent and skill.
-3. Mark `CUSTOM_AGENT_FILE` and `CUSTOM_SKILL_FILE` deprecated in documentation
-   and emit a non-secret warning when they are used.
-4. Add remote bundle support behind an organization allowlist.
-5. Remove legacy variables only in a major-version workflow release after a
-   published migration window.
 
 ## Tests
 
@@ -173,7 +158,6 @@ network requests.
 - Missing/mismatched hash values and unlisted declared content.
 - Mutable ref rejection, invalid SHAs, unknown source aliases, and remote
   repository allowlist rejection.
-- Legacy variable compatibility and deterministic deprecation warnings.
 - Redacted provenance output containing source/revision/hash but no secrets.
 
 ## Acceptance Criteria
@@ -183,4 +167,3 @@ network requests.
 - Production remote bundles are pinned to a full commit SHA.
 - All agents and skills are verified before OpenCode is invoked.
 - Remote configuration failures fail closed.
-- Legacy local paths continue to work during the documented migration period.

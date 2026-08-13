@@ -6,8 +6,7 @@ The repository configuration and security guide is now published at
 It documents:
 
 - supplied local profiles and the safe validation-to-publication rollout;
-- repository-local configuration bundles, manifests, hashes, and migration from
-	legacy agent/skill variables;
+- repository-local configuration bundles, manifests, and hashes;
 - approved, SHA-pinned remote configuration bundles and private-repository
 	token handling;
 - the distinction between supported remote bundles and the future direct
@@ -17,5 +16,4 @@ It documents:
 	workflow model.
 
 Related operational details are maintained in
-[`../operations/operations-guide.md`](../operations/operations-guide.md) and
-[`../operations/migration-and-deprecation.md`](../operations/migration-and-deprecation.md).
+[`../operations/operations-guide.md`](../operations/operations-guide.md).

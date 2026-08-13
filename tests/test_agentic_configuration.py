@@ -570,32 +570,6 @@ class RemoteResolutionTests(unittest.TestCase):
             )  # cache hit: no new fetches
 
 
-class LegacyCompatTests(unittest.TestCase):
-    def test_legacy_bundle_builds_with_warning(self):
-        agent = REPO_ROOT / ".opencode" / "agents" / "default-agent.md"
-        skill = REPO_ROOT / ".opencode" / "skills" / "basic-review" / "SKILL.md"
-        resolved = CFG.resolve_legacy_bundle(
-            agent_file=str(agent.relative_to(REPO_ROOT)),
-            skill_file=str(skill.relative_to(REPO_ROOT)),
-            workflow="pr-documentation-review",
-            repo_root=REPO_ROOT,
-            output_contract="pr-review-json-v1",
-        )
-        self.assertEqual(resolved.profile_name, "legacy")
-        self.assertEqual(resolved.agent_name, "default-agent")
-        self.assertEqual(resolved.manifest.output_contract, "pr-review-json-v1")
-
-    def test_legacy_traversal_rejected(self):
-        with self.assertRaises(CFG.ConfigurationError):
-            CFG.resolve_legacy_bundle(
-                agent_file="../etc/passwd",
-                skill_file=None,
-                workflow="pr-documentation-review",
-                repo_root=REPO_ROOT,
-                output_contract="pr-review-json-v1",
-            )
-
-
 class FailureRecordTests(unittest.TestCase):
     def test_failure_record_redacted(self):
         err = CFG.ConfigurationError("bundle missing hashes.json")

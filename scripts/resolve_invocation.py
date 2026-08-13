@@ -19,7 +19,7 @@ import argparse
 import json
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from collections.abc import Iterable
@@ -109,7 +109,6 @@ class ResolvedInvocation:
     validate_only: bool
     target_number: int | None
     request_label: str | None
-    legacy: dict[str, str] = field(default_factory=dict)
 
     def to_json(self) -> str:
         """Serialize the resolved invocation as deterministic JSON."""
@@ -128,7 +127,6 @@ class ResolvedInvocation:
             "validate_only": self.validate_only,
             "target_number": self.target_number,
             "request_label": self.request_label,
-            "legacy": dict(self.legacy),
         }
 
 
@@ -307,7 +305,6 @@ def resolve_invocation(
     validate_only: bool | str = False,
     target_number: int | str | None = None,
     request_label: str | None = None,
-    legacy: dict[str, str] | None = None,
 ) -> ResolvedInvocation:
     """Validate and normalize all invocation inputs.
 
@@ -378,7 +375,6 @@ def resolve_invocation(
         validate_only=resolved_validate_only,
         target_number=resolved_target,
         request_label=resolved_label,
-        legacy=dict(legacy or {}),
     )
 
 
@@ -401,11 +397,6 @@ def resolve_from_env(env: dict[str, str]) -> ResolvedInvocation:
         validate_only=env.get("AGENTIC_VALIDATE_ONLY", "false"),
         target_number=env.get("AGENTIC_TARGET_NUMBER") or None,
         request_label=env.get("AGENTIC_REQUEST_LABEL") or None,
-        legacy={
-            key: value
-            for key, value in env.items()
-            if key.startswith("AGENTIC_LEGACY_")
-        },
     )
 
 

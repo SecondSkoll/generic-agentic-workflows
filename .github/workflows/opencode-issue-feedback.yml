@@ -59,11 +59,6 @@ jobs:
       contents: read
       issues: write
     env:
-      # Customise these paths to use repository-specific OpenCode guidance.
-      # These remain supported during the migration period; reusable callers
-      # should use configuration_profile instead (see Plan 2).
-      CUSTOM_AGENT_FILE: .opencode/agents/default-agent.md
-      CUSTOM_SKILL_FILE: .opencode/skills/basic-review/SKILL.md
       FEEDBACK_KIND: issue-feedback
     steps:
       # Check out before running repository-owned helper scripts. This is the
@@ -153,32 +148,12 @@ jobs:
           AGENTIC_WORKFLOW_VERSION: ${{ github.sha }}
         run: |
           set -euo pipefail
-          resolve_config() {
-            if [[ "$AGENTIC_CONFIGURATION_SOURCE" == "local" && -z "$AGENTIC_CONFIGURATION_REF" ]]; then
-              if [[ -f "$CUSTOM_AGENT_FILE" && -f "$CUSTOM_SKILL_FILE" ]]; then
-                python3 scripts/agentic_configuration.py \
-                  --workflow issue-feedback \
-                  --legacy-agent-file "$CUSTOM_AGENT_FILE" \
-                  --legacy-skill-file "$CUSTOM_SKILL_FILE" \
-                  --output-contract issue-feedback-markdown-v1 \
-                  --result "$RUNNER_TEMP/resolved-agentic-configuration.json"
-              else
-                python3 scripts/agentic_configuration.py \
-                  --workflow issue-feedback \
-                  --bundle-root .opencode/configuration \
-                  --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
-                  --result "$RUNNER_TEMP/resolved-agentic-configuration.json"
-              fi
-            else
-              python3 scripts/agentic_configuration.py \
-                --workflow issue-feedback \
-                --configuration-source "$AGENTIC_CONFIGURATION_SOURCE" \
-                --configuration-ref "$AGENTIC_CONFIGURATION_REF" \
-                --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
-                --result "$RUNNER_TEMP/resolved-agentic-configuration.json"
-            fi
-          }
-          if ! resolve_config; then
+          if ! python3 scripts/agentic_configuration.py \
+            --workflow issue-feedback \
+            --configuration-source "$AGENTIC_CONFIGURATION_SOURCE" \
+            --configuration-ref "$AGENTIC_CONFIGURATION_REF" \
+            --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
+            --result "$RUNNER_TEMP/resolved-agentic-configuration.json"; then
             python3 - <<'PY'
           import json, os, sys
           from pathlib import Path
