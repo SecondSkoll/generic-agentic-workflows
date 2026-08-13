@@ -7,10 +7,10 @@ on:
   workflow_call:
     inputs:
       configuration_source:
-        description: local or an approved remote source alias
+        description: default (supplied profile), local (caller repository), or an approved central alias
         type: string
         required: false
-        default: local
+        default: default
       configuration_ref:
         description: Full 40-character commit SHA for a remote bundle
         type: string

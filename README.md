@@ -26,7 +26,7 @@ number.
 
 ### Customise agents and skills
 
-Configure repository-specific guidance in a versioned bundle under
+Configure calling-repository-specific guidance in a versioned bundle under
 `.opencode/configuration/<profile>/`. The bundle manifest declares the agent,
 skills, and prompt template; its hashes ensure the resolved configuration
 cannot silently drift. Agent and skill files must start with YAML front matter
@@ -119,7 +119,7 @@ Each workflow also exposes an `on.workflow_call` interface so consumer repositor
 
 | Input | Type | Required | Purpose |
 | --- | --- | --- | --- |
-| `configuration_source` | string | no | `local` or an approved remote source alias; default `local`. |
+| `configuration_source` | string | no | `default` (supplied profile), `local` (calling repository), or `central`; default `default` for reusable calls. |
 | `configuration_ref` | string | no | Full 40-character commit SHA for a remote bundle. |
 | `configuration_profile` | string | yes | Bundle profile name, constrained to `[a-z0-9][a-z0-9-]{0,62}`. |
 | `focus` | string | no | Allowlisted review focus; no arbitrary prompt text. |
@@ -132,11 +132,20 @@ Each workflow also exposes an `on.workflow_call` interface so consumer repositor
 
 The reusable workflows do **not** expose raw prompt, agent path, skill path, model identifier, arbitrary URL, or mutable reference inputs. Any attempt to supply them is rejected before checkout or model invocation by the `Resolve invocation` step (`scripts/resolve_invocation.py`).
 
-### Using a non-local `configuration_source`
+### Configuration-source semantics
 
-`configuration_source: local` uses configuration from the trusted checkout selected by the reusable workflow. To use shared configuration from somewhere else, the source must be an approved alias built into the reusable workflow release, such as `central`; callers cannot pass a URL, repository name, branch, tag, raw file URL, or PR ref.
+`configuration_source: local` uses configuration from the trusted checkout of
+the repository calling the reusable workflow. `configuration_source: default`
+uses the standard profiles supplied by this repository; a reusable invocation
+fetches them remotely at the pinned `configuration_ref`. `configuration_source:
+central` uses the centrally controlled, allowlisted configuration repository.
+Callers cannot pass a URL, repository name, branch, tag, raw file URL, or PR
+ref.
 
-> **Current implementation note:** this repository allowlists `local` in `scripts/resolve_invocation.py` and the `central` remote alias in `scripts/agentic_configuration.py`. The remote examples below show the caller syntax for an approved remote alias. Unknown aliases fail closed during `Resolve invocation`.
+> **Current implementation note:** `scripts/resolve_invocation.py` accepts
+> caller-local `local` plus the remote `default` and `central` aliases defined
+> in `scripts/agentic_configuration.py`. Unknown aliases fail closed during
+> `Resolve invocation`.
 
 When an approved remote alias is available:
 
@@ -174,7 +183,8 @@ Pull-request review supports `focus`, `max_comments`, `dry_run`, `validate_only`
 
 ```yaml
 with:
-  configuration_source: local
+  configuration_source: default
+  configuration_ref: <pinned-workflow-sha>
   configuration_profile: documentation-review
   focus: security          # one of documentation, security, tests, general
   max_comments: 5          # 0-20; PR review only
@@ -186,7 +196,8 @@ Issue feedback supports `focus`, `max_issues`, `dry_run`, `validate_only`, and `
 
 ```yaml
 with:
-  configuration_source: local
+  configuration_source: default
+  configuration_ref: <pinned-workflow-sha>
   configuration_profile: issue-feedback
   focus: general
   max_issues: 25           # 1-100; issue feedback only
@@ -198,7 +209,8 @@ Issue implementation supports `request_label`, `issue_number`, `dry_run`, and `v
 
 ```yaml
 with:
-  configuration_source: local
+  configuration_source: default
+  configuration_ref: <pinned-workflow-sha>
   configuration_profile: default-implementation
   request_label: ai-implementation-requested
   dry_run: true            # cannot create branches, push commits, open PRs, or comment
@@ -224,7 +236,8 @@ jobs:
       contents: read
       pull-requests: write
     with:
-      configuration_source: local
+      configuration_source: default
+      configuration_ref: <pinned-workflow-sha>
       configuration_profile: documentation-review
       focus: documentation
       max_comments: 10

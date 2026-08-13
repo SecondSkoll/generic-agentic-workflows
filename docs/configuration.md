@@ -13,9 +13,9 @@ executing workflow configuration.
 
 | Model | Use it when | Configuration lives in | Recommended? |
 | --- | --- | --- | --- |
-| Built-in local profile | The repository can use one of the supplied profiles unchanged. | The trusted default-branch checkout. | Yes, for initial adoption. |
-| Repository-local bundle | The repository needs its own instructions, skill, or prompt. | `.opencode/configuration/<profile>/` in the consumer repository. | Yes, for repository-specific behavior. |
-| Approved remote bundle | Multiple repositories share centrally reviewed configuration. | An allowlisted central repository, pinned to a commit. | Yes, for organization-wide reuse. |
+| Supplied default profile (`default`) | The repository can use one of this repository's standard profiles unchanged. | This repository, fetched remotely at a pinned commit. | Yes, for initial adoption. |
+| Caller-local bundle (`local`) | The calling repository needs its own instructions, skill, or prompt. | `.opencode/configuration/<profile>/` in the calling repository's trusted checkout. | Yes, for repository-specific behavior. |
+| Centrally managed bundle (`central`) | Multiple repositories share centrally reviewed configuration. | An allowlisted central repository, pinned to a commit. | Yes, for organization-wide reuse. |
 
 Configuration is selected only through typed workflow inputs. A caller cannot
 pass a raw prompt, arbitrary agent/skill path, model ID, repository URL, branch,
@@ -44,10 +44,11 @@ The wrapper owns triggers, concurrency, permissions, and secret forwarding. The
 reusable workflow owns configuration resolution, validation, model invocation,
 and publication.
 
-## 1. Use a local profile
+## 1. Use a supplied default profile
 
-A local profile is read from the trusted checkout used by the reusable workflow.
-The supplied profiles are:
+`default` resolves a standard profile supplied by this repository. Because a
+consumer calls the reusable workflow remotely, this source is remote too and
+must be pinned with `configuration_ref`. The supplied profiles are:
 
 | Profile | Workflow | Purpose |
 | --- | --- | --- |
@@ -55,8 +56,7 @@ The supplied profiles are:
 | `issue-feedback` | Issue feedback | Produces issue feedback for open issues. |
 | `default-implementation` | Issue implementation | Plans and prepares a constrained implementation for a selected issue. |
 
-For a consumer repository that contains the corresponding bundle, use a wrapper
-like this:
+For initial adoption, use a wrapper like this:
 
 ```yaml
 jobs:
@@ -66,7 +66,8 @@ jobs:
       contents: read
       pull-requests: write
     with:
-      configuration_source: local
+      configuration_source: default
+      configuration_ref: <pinned-workflow-sha>
       configuration_profile: documentation-review
       focus: documentation
       max_comments: 10
@@ -90,11 +91,12 @@ stops before model invocation and GitHub writes.
 ### Direct workflows
 
 The workflows included in this repository retain direct-event triggers. Direct
-runs resolve the configured local profile in the trusted checkout.
+runs use `local`, which resolves the profile from this repository's trusted
+checkout.
 
-## 2. Create a repository-local bundle
+## 2. Create a caller-local bundle
 
-Use a bundle when the default behavior needs repository-specific instructions.
+Use a bundle when the supplied default behavior needs repository-specific instructions.
 Store it on the protected default branch so a pull request cannot choose or
 modify the configuration that reviews it.
 
@@ -191,7 +193,7 @@ with:
   validate_only: true
 ```
 
-A local profile update changes the deterministic configuration digest. The next
+A caller-local profile update changes the deterministic configuration digest. The next
 run therefore performs a new review rather than treating prior feedback as
 current.
 
@@ -201,10 +203,12 @@ Remote configuration is supported as a **bundle**, not as arbitrary individual
 agent, prompt, or skill URLs. This distinction is intentional: a bundle has a
 manifest, immutable source revision, content hashes, and one validation path.
 
-The reusable workflow currently supports the built-in `central` alias in
-addition to `local`. An alias maps to a repository and root path in the
-workflow release; consumers cannot supply a URL or repository name. The current
-example mapping and complete central repository layout are documented in
+The reusable workflow supports `default`, `local`, and the built-in `central`
+alias. `default` is this repository's supplied standard-profile source; `local`
+is always the calling repository's trusted checkout; and `central` maps to a
+centrally controlled repository and root path in the workflow release.
+Consumers cannot supply a URL or repository name. The current example mapping
+and complete central repository layout are documented in
 [`examples/central-configuration/`](examples/central-configuration/README.md).
 
 Use a full commit SHA and run validation first:
@@ -273,7 +277,7 @@ that content as untrusted data, not configuration or commands.
 | --- | --- | --- |
 | Trusted base checkout for PR review | Uses `pull_request_target` only to publish feedback, while checking out the trusted base revision. | Prevents pull-request code and workflow changes from executing with the review token. |
 | Typed, allowlisted selection | Inputs select only a profile, allowed focus, bounded counts, and an approved source alias. | Prevents prompt injection from becoming URL, path, model, or tool selection. |
-| Immutable configuration | Remote bundles require an approved alias and full SHA; local configuration comes from the trusted checkout. | Makes configuration reviewable and prevents branch/tag drift. |
+| Immutable configuration | `default` and `central` bundles require an approved alias and full SHA; caller-local configuration comes from the trusted checkout. | Makes configuration reviewable and prevents branch/tag drift. |
 | Schema, path, and hash validation | Bundle paths are contained; symlinks and traversal are rejected; all declared files are SHA-256 checked. | Stops substitution, undeclared content, and filesystem escape. |
 | Fixed prompt composition | Workflow safety constraints and output suffixes are fixed around the validated profile template; untrusted content is explicitly delimited. | A profile or issue cannot remove safety rules or redefine the required result format. |
 | Restrictive policy merge | Higher-level policy ceilings cannot be broadened by a bundle, overlay, agent, or invocation. | Agent text cannot grant itself tools, access, or quotas. |

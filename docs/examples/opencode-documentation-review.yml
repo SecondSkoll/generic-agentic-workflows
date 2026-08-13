@@ -17,7 +17,8 @@ jobs:
       contents: read
       pull-requests: write
     with:
-      configuration_source: local
+      configuration_source: default
+      configuration_ref: <pinned-workflow-sha>
       configuration_profile: documentation-review
       focus: documentation
       max_comments: 10

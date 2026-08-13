@@ -298,7 +298,9 @@ def feedback_marker(
     The marker carries the configuration digest so a profile update triggers
     new feedback for the same PR head or issue.
     """
-    if not re.match(r"^[0-9a-f]{64}$", config_digest):
+    if not isinstance(config_digest, str) or not re.match(
+        r"^[0-9a-f]{64}$", config_digest
+    ):
         raise ProvenanceError("feedback marker requires a 64-char configuration digest")
     suffix = f":{head_sha}" if head_sha else ""
     return f"<!-- agentic-workflow:{feedback_kind}:v2:{config_digest}{suffix} -->"

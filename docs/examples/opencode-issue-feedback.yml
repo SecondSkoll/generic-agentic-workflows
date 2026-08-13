@@ -18,7 +18,8 @@ jobs:
       contents: read
       issues: write
     with:
-      configuration_source: local
+      configuration_source: default
+      configuration_ref: <pinned-workflow-sha>
       configuration_profile: issue-feedback
       focus: general
       max_issues: 20

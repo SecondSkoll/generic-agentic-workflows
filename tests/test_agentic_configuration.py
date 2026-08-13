@@ -459,6 +459,21 @@ class RemoteResolutionTests(unittest.TestCase):
         self.assertEqual(resolved.resolved_sha, sha)
         self.assertEqual(resolved.manifest.output_contract, "pr-review-json-v1")
 
+    def test_pinned_supplied_default_resolves(self):
+        files, sha = self._make_remote_files()
+        client = FakeRemoteClient(files, sha)
+        with tempfile.TemporaryDirectory() as tmp:
+            resolved = CFG.resolve_remote_bundle(
+                source_alias="default",
+                configuration_ref=sha,
+                profile="documentation-review",
+                workflow="pr-documentation-review",
+                client=client,
+                cache_dir=Path(tmp),
+            )
+        self.assertEqual(resolved.source_alias, "default")
+        self.assertEqual(resolved.resolved_sha, sha)
+
     def test_unknown_source_alias_rejected(self):
         with self.assertRaises(CFG.ConfigurationError):
             CFG.resolve_remote_bundle(

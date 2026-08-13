@@ -3,13 +3,13 @@
 
 This module is dependency-free so it can run on a GitHub Actions runner. It
 parses versioned configuration bundles, validates their manifest, content
-paths, and SHA-256 hashes, and resolves a bundle from either the trusted local
-checkout or an organization-approved remote GitHub repository pinned to a full
-commit SHA.
+paths, and SHA-256 hashes, and resolves a bundle from either the trusted
+caller-repository checkout or an approved remote GitHub repository pinned to a
+full commit SHA.
 
 The resolver never accepts caller-controlled paths into executable
-configuration: it accepts only a bundle root/profile (local) or an allowlisted
-source alias plus a pinned SHA (remote). A failure at any step fails closed;
+configuration: it accepts only a caller-local bundle root/profile or an
+allowlisted remote source alias plus a pinned SHA. A failure at any step fails closed;
 there is no fallback to a different profile, branch, or stale revision.
 
 Remote fetching is implemented through an injectable transport client so tests
@@ -60,6 +60,11 @@ SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 #: allowed root path within that repository. Tests must not require live
 #: network access to validate this allowlist.
 REMOTE_SOURCE_ALIASES: dict[str, dict[str, str]] = {
+    "default": {
+        "repository": "SecondSkoll/generic-agentic-workflows",
+        "root": ".opencode/configuration",
+        "description": "Standard profiles supplied by this workflow repository.",
+    },
     "central": {
         "repository": "agentic-configuration/example-configuration",
         "root": ".opencode/configuration",
@@ -557,12 +562,12 @@ def resolve_local_bundle(
     profile: str,
     workflow: str,
 ) -> ResolvedBundle:
-    """Resolve and validate a local configuration bundle from the trusted checkout."""
+    """Resolve a bundle from the trusted checkout of the calling repository."""
     if not isinstance(profile, str) or not PROFILE_PATTERN.match(profile):
         raise ConfigurationError("profile must match [a-z0-9][a-z0-9-]{0,62}")
     profile_dir = bundle_root / profile
     if not profile_dir.is_dir():
-        raise ConfigurationError(f"local bundle profile not found: {profile}")
+        raise ConfigurationError(f"caller-local bundle profile not found: {profile}")
     if profile_dir.is_symlink():
         raise ConfigurationError("bundle profile directory must not be a symlink")
     manifest_path = profile_dir / "bundle.json"
