@@ -3,7 +3,7 @@
   "description": "Organization policy allowlist for agentic workflows. Approved remote sources, model profiles, and ceilings. This file is declarative and mirrors the constants shipped in scripts/agentic_policy.py and scripts/agentic_configuration.py.",
   "remote_source_allowlist": {
     "central": {
-      "repository": "agentic-configuration/example-configuration",
+      "repository": "SecondSkoll/generic-agentic-workflows-config",
       "root": ".opencode/configuration"
     }
   },

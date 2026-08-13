@@ -66,7 +66,7 @@ REMOTE_SOURCE_ALIASES: dict[str, dict[str, str]] = {
         "description": "Standard profiles supplied by this workflow repository.",
     },
     "central": {
-        "repository": "SecondSkoll/generic-agentic-workflows",
+        "repository": "SecondSkoll/generic-agentic-workflows-config",
         "root": ".opencode/configuration",
         "description": "Organization-approved shared configuration repository.",
     },
