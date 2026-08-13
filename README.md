@@ -25,6 +25,8 @@ issue-to-pull-request implementation path.
 | `local` | Repository-specific instructions | The caller repository's trusted checkout. |
 | `central` | Shared organization profiles | An allowlisted central repository at a full pinned commit SHA. |
 
+Note: `default` and `central` currently point to this repository. `central` should eventually be aimed elswhere to provide a shared, and more agile source or profiles.
+
 All configuration is a hash-verified bundle. Callers cannot provide arbitrary
 prompt text, file paths, model identifiers, URLs, branches, or tags. Remote
 sources require a 40-character commit SHA; resolution failures fail closed.
@@ -33,7 +35,7 @@ sources require a 40-character commit SHA; resolution failures fail closed.
 
 | Workflow | Interface | Required publication permissions |
 | --- | --- | --- |
-| `.github/workflows/opencode-review.yml` | Direct PR trigger or reusable call | `contents: read`, `pull-requests: write` |
+| `.github/workflows/opencode-documentation-review.yml` | Direct PR trigger or reusable call | `contents: read`, `pull-requests: write` |
 | `.github/workflows/opencode-issue-feedback.yml` | Direct issue trigger or reusable call | `contents: read`, `issues: write` |
 | `.github/workflows/opencode-issue-implementation.yml` | Manual dispatch only | `contents: write`, `issues: write`, `pull-requests: write` |
 
@@ -59,7 +61,8 @@ model, validates output, publishes feedback, and uploads redacted provenance.
   layout, and operational safeguards.
 - [Configuration reference](docs/configuration-reference.md) — every caller
   input and bundle field, with examples.
-- [Consumer examples](docs/examples/README.md) — ready-to-copy wrappers.
+- [Consumer examples](docs/examples/README.md) — ready-to-copy wrappers,
+  including complete `default`, `local`, and `central` source examples.
 - [Central configuration example](docs/examples/central-configuration/README.md)
   — remote bundle layout and release process.
 - [Operations guide](docs/operations/operations-guide.md) — rollback,

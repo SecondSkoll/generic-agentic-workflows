@@ -7,7 +7,7 @@ bundle pinned to a full 40-character commit SHA; callers cannot pass a URL,
 repository name, branch, tag, raw file URL, or PR ref.
 
 > The `central` alias maps to repository
-> `agentic-configuration/example-configuration` and root
+> `SecondSkoll/generic-agentic-workflows` and root
 > `.opencode/configuration`. To adopt this for your organization, update
 > `REMOTE_SOURCE_ALIASES` in `scripts/agentic_configuration.py` through a
 > reviewed release and publish the new alias in the compatibility table. The
@@ -88,13 +88,13 @@ undeclared or missing content.
 ```yaml
 jobs:
   review:
-    uses: your-organization/generic-agentic-workflows/.github/workflows/opencode-review.yml@<pinned-workflow-sha>
+    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@61ed1bbd34a878f3ae270b1e4ff027cf786b730b
     permissions:
       contents: read
       pull-requests: write
     with:
       configuration_source: central
-      configuration_ref: 0123456789abcdef0123456789abcdef01234567
+      configuration_ref: 61ed1bbd34a878f3ae270b1e4ff027cf786b730b
       configuration_profile: documentation-review
       focus: documentation
       max_comments: 10
@@ -117,8 +117,8 @@ Rules:
 
 1. Require code review and protected branches/tags.
 2. Update bundle content in a PR; regenerate `hashes.json` with
-   `python3 scripts/agentic_configuration.py` (the resolver recomputes and
-   verifies hashes).
+  `python3 scripts/update_hashes.py` (the resolver recomputes and verifies
+  hashes).
 3. Tag the merged commit with a protected release tag and record the 40-char
    SHA in the compatibility table.
 4. Consumers pin `configuration_ref` to that SHA. To roll forward or back,

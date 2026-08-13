@@ -40,7 +40,7 @@ organization.
 ```yaml
 jobs:
   review:
-    uses: organization/generic-agentic-workflows/.github/workflows/opencode-review.yml@<reviewed-workflow-sha>
+    uses: organization/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
     permissions:
       contents: read
       pull-requests: write

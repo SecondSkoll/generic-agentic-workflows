@@ -31,7 +31,7 @@ must be a lowercase 40-character commit SHA.
 ```yaml
 jobs:
   review:
-    uses: organization/generic-agentic-workflows/.github/workflows/opencode-review.yml@<reviewed-workflow-sha>
+    uses: organization/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
     permissions:
       contents: read
       pull-requests: write
@@ -58,7 +58,7 @@ checkout. Local configuration does **not** use `configuration_ref`.
 ```yaml
 jobs:
   review:
-    uses: organization/generic-agentic-workflows/.github/workflows/opencode-review.yml@<reviewed-workflow-sha>
+    uses: organization/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
     permissions:
       contents: read
       pull-requests: write
@@ -104,7 +104,7 @@ the workflow release. Pin the remote bundle with a full commit SHA.
 ```yaml
 jobs:
   review:
-    uses: organization/generic-agentic-workflows/.github/workflows/opencode-review.yml@<reviewed-workflow-sha>
+    uses: organization/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
     permissions:
       contents: read
       pull-requests: write
@@ -121,7 +121,10 @@ jobs:
       central_config_token: ${{ secrets.CENTRAL_CONFIG_TOKEN }}
 ```
 
-See the [central configuration example](examples/central-configuration/README.md)
+The current `central` alias resolves approved bundles in
+`SecondSkoll/generic-agentic-workflows` under `.opencode/configuration`.
+See the copy-ready [central example](examples/configuration-sources/central/)
+and the [central configuration guide](examples/central-configuration/README.md)
 for its repository layout and release process.
 
 ## Common rules
