@@ -54,7 +54,7 @@ jobs:
               ".github/workflows/opencode-issue-feedback.yml",
               ".github/workflows/opencode-issue-implementation.yml",
               ".github/workflows/verify-reusable-workflows.yml",
-              "docs/examples/opencode-review.yml",
+              "docs/examples/opencode-documentation-review.yml",
               "docs/examples/opencode-issue-feedback.yml",
               "docs/examples/opencode-issue-implementation.yml",
           ]
