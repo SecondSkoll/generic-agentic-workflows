@@ -594,7 +594,7 @@ def parse_pr_review_output(
 ) -> tuple[str, list[dict[str, object]]]:
     """Parse and validate a `pr-review-json-v1` response.
 
-    Improves on the legacy parser by bounding every field, deduplicating
+    Improves on the prior parser by bounding every field, deduplicating
     identical comments, and never letting output control API endpoints,
     repository identity, or permissions. Invalid locations are retained in
     the summary when safe.

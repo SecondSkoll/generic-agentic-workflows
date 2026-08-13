@@ -75,6 +75,11 @@ jobs:
           set -euo pipefail
           uv run python -m py_compile scripts/*.py
 
+      - name: Set up Node.js 24
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+
       - name: Install OpenCode for schema smoke checks
         run: npm install -g opencode-ai@1.18.16
 
@@ -282,7 +287,7 @@ jobs:
               sys.exit(1)
           PY
 
-      - name: Validate provenance redaction and v1/v2 marker behaviour
+      - name: Validate provenance redaction and marker behaviour
         run: |
           set -euo pipefail
           uv run python - <<'PY'
@@ -311,15 +316,12 @@ jobs:
           text = record.to_json()
           assert "OPENROUTER_API_KEY" not in text
           assert "ghp_" not in text
-          # v2 marker carries digest; v1 still parseable.
+          # The marker carries the configuration digest.
           digest = record.configuration_digest
-          m2 = prov.feedback_marker("pr-documentation-review", config_digest=digest, head_sha="aaaaaaa")
-          parsed = prov.parse_marker(m2, feedback_kind="pr-documentation-review")
+          marker = prov.feedback_marker("pr-documentation-review", config_digest=digest, head_sha="aaaaaaa")
+          parsed = prov.parse_marker(marker, feedback_kind="pr-documentation-review")
           assert parsed["version"] == "v2"
           assert parsed["config_digest"] == digest
-          m1 = prov.feedback_marker("pr-documentation-review", head_sha="aaaaaaa", schema_version="v1")
-          parsed1 = prov.parse_marker(m1, feedback_kind="pr-documentation-review")
-          assert parsed1["version"] == "v1"
           print("OK: provenance redaction and markers")
           PY
 

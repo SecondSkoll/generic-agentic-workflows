@@ -28,7 +28,8 @@ jobs:
       issues: write
       pull-requests: write
     with:
-      configuration_source: local
+      configuration_source: default
+      configuration_ref: <pinned-workflow-sha>
       configuration_profile: default-implementation
       request_label: ai-review-requested
       issue_number: ${{ inputs.issue_number != '' && inputs.issue_number || 0 }}

@@ -154,17 +154,6 @@ class FailureRecordTests(unittest.TestCase):
 
 
 class MarkerTests(unittest.TestCase):
-    def test_v1_marker_back_compatible(self):
-        marker = PROV.feedback_marker(
-            "pr-documentation-review",
-            head_sha="abc123",
-            schema_version="v1",
-        )
-        self.assertEqual(
-            marker,
-            "<!-- agentic-workflow:pr-documentation-review:v1:abc123 -->",
-        )
-
     def test_v2_marker_carries_digest(self):
         digest = "a" * 64
         marker = PROV.feedback_marker(
@@ -180,12 +169,6 @@ class MarkerTests(unittest.TestCase):
         with self.assertRaises(PROV.ProvenanceError):
             PROV.feedback_marker("x", config_digest=None)
 
-    def test_parse_v1_marker(self):
-        marker = "<!-- agentic-workflow:issue-feedback:v1 -->"
-        parsed = PROV.parse_marker(marker, feedback_kind="issue-feedback")
-        self.assertEqual(parsed["version"], "v1")
-        self.assertIsNone(parsed["config_digest"])
-
     def test_parse_v2_marker(self):
         digest = "b" * 64
         marker = PROV.feedback_marker(
@@ -195,17 +178,6 @@ class MarkerTests(unittest.TestCase):
         self.assertEqual(parsed["version"], "v2")
         self.assertEqual(parsed["config_digest"], digest)
         self.assertEqual(parsed["head_sha"], "deadbeef")
-
-    def test_v1_marker_does_not_match_v2_config(self):
-        v1 = "<!-- agentic-workflow:issue-feedback:v1 -->"
-        self.assertFalse(
-            PROV.matches_current_config(
-                v1,
-                feedback_kind="issue-feedback",
-                head_sha=None,
-                config_digest="c" * 64,
-            )
-        )
 
     def test_v2_marker_matches_same_config(self):
         digest = "d" * 64

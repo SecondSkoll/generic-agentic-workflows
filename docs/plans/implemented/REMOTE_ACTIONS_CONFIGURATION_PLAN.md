@@ -47,7 +47,7 @@ would require broader permissions.
 
 ## Recommended Change: Introduce a Remote Configuration Bundle
 
-Replace the paired `CUSTOM_AGENT_FILE` and `CUSTOM_SKILL_FILE` settings with
+Replace paired custom agent and skill settings with
 one versioned configuration bundle. A bundle can reside in either:
 
 1. the trusted default branch of the consumer repository (the current default),
@@ -221,7 +221,6 @@ Update `README.md` with:
 - the bundle-manifest schema and supported typed overrides
 - the trust model and explicit warning against mutable refs/untrusted inputs
 - required permissions, secret ownership, audit records, and rollback steps
-- a migration guide from `CUSTOM_AGENT_FILE` and `CUSTOM_SKILL_FILE`
 
 Publish one secure example configuration repository or release directory with a
 review profile, issue-feedback profile, implementation profile, and release
@@ -248,7 +247,7 @@ merging, approved model profiles, and organization-managed shared bundles.
 ### Phase 4: Hardening and rollout
 
 Add signed/attested bundle support if needed, rollout controls, telemetry for
-validation failures, documented rollback, and deprecation dates for the legacy
+validation failures and documented rollback for the former
 pair of file paths.
 
 ## Acceptance Criteria

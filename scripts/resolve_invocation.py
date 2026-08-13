@@ -19,7 +19,7 @@ import argparse
 import json
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from collections.abc import Iterable
@@ -38,9 +38,10 @@ SUPPORTED_WORKFLOWS: frozenset[str] = frozenset(
     }
 )
 
-#: Configuration sources accepted by the resolver. ``local`` is resolved
-#: directly; remote aliases are validated for shape here and fetched by
-#: ``scripts/agentic_configuration.py`` (Plan 2). The remote alias set is the
+#: Configuration sources accepted by the resolver. ``local`` resolves from
+#: the trusted checkout of the calling repository. ``default`` and other
+#: aliases are remote sources: they are validated for shape here and fetched by
+#: ``scripts/agentic_configuration.py``. The remote alias set is the
 #: single source of truth in ``agentic_configuration.REMOTE_SOURCE_ALIASES``;
 #: this frozenset mirrors it so the invocation resolver can run before the
 #: configuration module is imported. The two are kept in sync by tests.
@@ -51,12 +52,15 @@ try:
     _spec = _importlib_util.spec_from_file_location("_agentic_cfg_mirror", _cfg_path)
     if _spec and _spec.loader:
         _mirror = _importlib_util.module_from_spec(_spec)
+        # ``dataclasses`` resolves postponed annotations through
+        # ``sys.modules`` while the configuration module is executing.
+        sys.modules[_spec.name] = _mirror
         _spec.loader.exec_module(_mirror)
         _remote_aliases = frozenset(_mirror.REMOTE_SOURCE_ALIASES.keys())
     else:  # pragma: no cover - defensive
         _remote_aliases = frozenset()
 except Exception:  # pragma: no cover - mirror must never break invocation
-    _remote_aliases = frozenset({"central"})
+    _remote_aliases = frozenset({"default", "central"})
 SUPPORTED_SOURCES: frozenset[str] = frozenset({"local"}) | _remote_aliases
 
 #: Review focus values a caller may select. Profiles may narrow this set, but
@@ -109,7 +113,6 @@ class ResolvedInvocation:
     validate_only: bool
     target_number: int | None
     request_label: str | None
-    legacy: dict[str, str] = field(default_factory=dict)
 
     def to_json(self) -> str:
         """Serialize the resolved invocation as deterministic JSON."""
@@ -128,7 +131,6 @@ class ResolvedInvocation:
             "validate_only": self.validate_only,
             "target_number": self.target_number,
             "request_label": self.request_label,
-            "legacy": dict(self.legacy),
         }
 
 
@@ -307,7 +309,6 @@ def resolve_invocation(
     validate_only: bool | str = False,
     target_number: int | str | None = None,
     request_label: str | None = None,
-    legacy: dict[str, str] | None = None,
 ) -> ResolvedInvocation:
     """Validate and normalize all invocation inputs.
 
@@ -362,7 +363,8 @@ def resolve_invocation(
                 "max_issues is not supported for issue implementation"
             )
 
-    # Remote sources are validated for shape only; Plan 2 wires up fetching.
+    # Remote sources are validated for shape only; configuration resolution
+    # fetches them by their allowlisted alias.
     if resolved_source != "local" and resolved_ref is None:
         raise InvocationError("configuration_ref is required for remote sources")
 
@@ -378,7 +380,6 @@ def resolve_invocation(
         validate_only=resolved_validate_only,
         target_number=resolved_target,
         request_label=resolved_label,
-        legacy=dict(legacy or {}),
     )
 
 
@@ -401,11 +402,6 @@ def resolve_from_env(env: dict[str, str]) -> ResolvedInvocation:
         validate_only=env.get("AGENTIC_VALIDATE_ONLY", "false"),
         target_number=env.get("AGENTIC_TARGET_NUMBER") or None,
         request_label=env.get("AGENTIC_REQUEST_LABEL") or None,
-        legacy={
-            key: value
-            for key, value in env.items()
-            if key.startswith("AGENTIC_LEGACY_")
-        },
     )
 
 

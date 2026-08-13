@@ -125,7 +125,6 @@ hash and schema validation just like a fresh fetch.
 5. Expand to issue feedback after operational telemetry is stable.
 6. Enable issue implementation last, with manual dispatch first and explicit
    maintainer approval gates where appropriate.
-7. Announce deprecation dates for legacy custom file variables only after
    migration examples and tooling are available.
 
 ## Documentation Deliverables
@@ -140,7 +139,6 @@ Update `README.md` and add focused guides for:
 - provider secret ownership and secret redaction;
 - provenance artifact interpretation and idempotency behavior;
 - incident response, manual rollback, and release upgrade steps;
-- migration from `CUSTOM_AGENT_FILE` and `CUSTOM_SKILL_FILE`.
 
 Provide a complete example central configuration repository with documentation
 review, issue feedback, and issue implementation profiles. Its release process
@@ -153,7 +151,6 @@ Before broad rollout, verify:
 
 | Scenario | Expected result |
 | --- | --- |
-| Local legacy configuration | Existing behavior plus deprecation warning. |
 | Local bundle | Validated configuration and normal publication. |
 | Pinned remote bundle | Matching provenance record and normal publication. |
 | Mutable/unknown source | Resolution fails before OpenCode. |
@@ -171,5 +168,4 @@ Before broad rollout, verify:
 - Users have documented examples for local and SHA-pinned remote consumption.
 - Rollout proceeds from validation to low-risk publication before write-capable
   issue implementation.
-- Legacy configuration deprecation is measurable, documented, and reversible
   before removal.

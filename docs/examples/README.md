@@ -39,7 +39,7 @@ declares.
 
 | Input | Type | Required | Purpose |
 | --- | --- | --- | --- |
-| `configuration_source` | string | no | `local` or an approved remote source alias; default `local`. |
+| `configuration_source` | string | no | `default` (supplied profile), `local` (calling repository), or `central`; default `default`. |
 | `configuration_ref` | string | no | Full 40-character commit SHA for a remote bundle. |
 | `configuration_profile` | string | yes | Bundle profile name, constrained to `[a-z0-9][a-z0-9-]{0,62}`. |
 | `focus` | string | no | Allowlisted review focus; no arbitrary prompt text. |

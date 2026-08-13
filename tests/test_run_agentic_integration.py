@@ -62,6 +62,30 @@ class FakeSubprocessResult:
         self.returncode = returncode
 
 
+def _opencode_text_event(text: str, *, completed: bool = True) -> str:
+    return json.dumps(
+        {
+            "type": "text",
+            "sessionID": "session-1",
+            "part": {
+                "type": "text",
+                "text": text,
+                "time": {"start": 1, **({"end": 2} if completed else {})},
+            },
+        }
+    ) + "\n"
+
+
+def _opencode_tool_event() -> str:
+    return json.dumps(
+        {
+            "type": "tool_use",
+            "sessionID": "session-1",
+            "part": {"type": "tool", "state": {"status": "completed"}},
+        }
+    ) + "\n"
+
+
 class IntegratedRunTests(unittest.TestCase):
     """Exercise the resolved-config path with mocked opencode and GitHub."""
 
@@ -107,7 +131,7 @@ class IntegratedRunTests(unittest.TestCase):
                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
                 mock.patch.object(RUNNER, "has_marker", return_value=False),
             ):
-                mock_run.return_value = FakeSubprocessResult(valid_output)
+                mock_run.return_value = FakeSubprocessResult(_opencode_text_event(valid_output))
                 rc = RUNNER.main(
                     [
                         "--input",
@@ -160,7 +184,7 @@ class IntegratedRunTests(unittest.TestCase):
                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
                 mock.patch.object(RUNNER, "has_marker", return_value=False),
             ):
-                mock_run.return_value = FakeSubprocessResult(bad_output)
+                mock_run.return_value = FakeSubprocessResult(_opencode_text_event(bad_output))
                 rc = RUNNER.main(
                     [
                         "--input",
@@ -196,7 +220,7 @@ class IntegratedRunTests(unittest.TestCase):
             bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
             diagnostics_path = tmp_path / "response-diagnostics.json"
             with (
-                mock.patch.object(RUNNER.subprocess, "run", return_value=FakeSubprocessResult("not JSON: secret value")),
+                mock.patch.object(RUNNER.subprocess, "run", return_value=FakeSubprocessResult(_opencode_text_event("not JSON: secret value"))),
                 mock.patch.object(RUNNER, "github_request") as mock_gh,
                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
             ):
@@ -216,6 +240,70 @@ class IntegratedRunTests(unittest.TestCase):
             self.assertNotIn("secret value", diagnostics_path.read_text(encoding="utf-8"))
             self.assertEqual(json.loads(diagnostics_path.read_text())["json_object_candidate_count"], 0)
 
+    def test_jsonl_transport_uses_only_completed_assistant_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
+            valid_output = json.dumps({"summary": "Looks good.", "comments": []})
+            events = (
+                json.dumps({"type": "step_start", "sessionID": "session-1", "part": {"type": "step-start"}})
+                + "\n"
+                + _opencode_text_event('{"summary": "incomplete", "comments": []}', completed=False)
+                + _opencode_text_event(valid_output)
+                + json.dumps({"type": "step_finish", "sessionID": "session-1", "part": {"type": "step-finish"}})
+                + "\n"
+            )
+            with (
+                mock.patch.object(RUNNER.subprocess, "run", return_value=FakeSubprocessResult(events)),
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
+                rc = RUNNER.main([
+                    "--input", str(diff_path),
+                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
+                    "--repository", "o/r", "--pull-number", "1", "--head-sha", "abc123",
+                    "--feedback-kind", "pr-documentation-review", "--author", "octocat",
+                    "--resolved-config", str(bundle_path), "--effective-policy", str(policy_path),
+                ])
+            self.assertEqual(rc, 0)
+            self.assertIn("Looks good.", mock_gh.call_args.kwargs["body"]["body"])
+            self.assertNotIn("incomplete", mock_gh.call_args.kwargs["body"]["body"])
+
+    def test_jsonl_transport_reports_provider_error_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
+            events = json.dumps(
+                {
+                    "type": "error",
+                    "sessionID": "session-1",
+                    "error": {
+                        "name": "ProviderError",
+                        "data": {"message": "Model is unavailable"},
+                    },
+                }
+            ) + "\n"
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(RUNNER.subprocess, "run", return_value=FakeSubprocessResult(events)),
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+                contextlib.redirect_stderr(stderr),
+            ):
+                rc = RUNNER.main([
+                    "--input", str(diff_path),
+                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
+                    "--repository", "o/r", "--pull-number", "1", "--head-sha", "abc123",
+                    "--feedback-kind", "pr-documentation-review", "--author", "octocat",
+                    "--resolved-config", str(bundle_path), "--effective-policy", str(policy_path),
+                ])
+            self.assertEqual(rc, 1)
+            mock_gh.assert_not_called()
+            self.assertIn("OpenCode emitted error event(s)", stderr.getvalue())
+            self.assertIn("ProviderError: Model is unavailable", stderr.getvalue())
+
     def test_invalid_location_is_omitted_from_feedback_and_logged(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -234,7 +322,7 @@ class IntegratedRunTests(unittest.TestCase):
                 }
             )
             with (
-                mock.patch.object(RUNNER.subprocess, "run", return_value=FakeSubprocessResult(output)),
+                mock.patch.object(RUNNER.subprocess, "run", return_value=FakeSubprocessResult(_opencode_text_event(output))),
                 mock.patch.object(RUNNER, "github_request") as mock_gh,
                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
             ):
@@ -307,7 +395,7 @@ class IntegratedRunTests(unittest.TestCase):
                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
                 mock.patch.object(RUNNER, "has_marker", return_value=False),
             ):
-                mock_run.return_value = FakeSubprocessResult(valid_output)
+                mock_run.return_value = FakeSubprocessResult(_opencode_text_event(valid_output))
                 rc = RUNNER.main(
                     [
                         "--input",
@@ -365,7 +453,7 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
         )
         return bundle_path, policy_path, diff_path
 
-    def test_integrated_path_uses_dir_and_prompt_file_transport(self):
+    def test_integrated_path_uses_dir_and_stdin_prompt_transport(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
@@ -374,9 +462,8 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
 
             def fake_run(cmd, **kwargs):
                 captured["cmd"] = cmd
-                prompt_file = Path(cmd[cmd.index("--file") + 1])
-                captured["prompt"] = prompt_file.read_text(encoding="utf-8")
-                return FakeSubprocessResult(valid_output)
+                captured["prompt"] = kwargs["input"]
+                return FakeSubprocessResult(_opencode_text_event(valid_output))
 
             with (
                 mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run),
@@ -408,16 +495,49 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
                 )
             self.assertEqual(rc, 0)
             # Integrated path uses --dir (isolated workspace) and transports
-            # the composed prompt as a file so large prompts are not argv.
+            # the composed prompt through stdin so large prompts are not argv.
             self.assertIn("--dir", captured["cmd"])
-            self.assertEqual(captured["cmd"].count("--file"), 1)
-            self.assertLess(captured["cmd"].index("--file"), captured["cmd"].index("--"))
+            self.assertEqual(captured["cmd"][captured["cmd"].index("--format") + 1], "json")
             self.assertEqual(
                 captured["cmd"][captured["cmd"].index("--") + 1],
                 RUNNER.OPENCODE_PROMPT_MESSAGE,
             )
             self.assertIn("documentation impact", captured["prompt"])
             self.assertNotIn(captured["prompt"], captured["cmd"])
+
+    def test_tool_only_stream_retries_once_with_final_instruction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
+            valid_output = json.dumps({"summary": "Recovered.", "comments": []})
+            captured_inputs: list[str] = []
+
+            def fake_run(cmd, **kwargs):
+                captured_inputs.append(kwargs["input"])
+                output = (
+                    _opencode_tool_event()
+                    if len(captured_inputs) == 1
+                    else _opencode_text_event(valid_output)
+                )
+                return FakeSubprocessResult(output)
+
+            with (
+                mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
+                rc = RUNNER.main([
+                    "--input", str(diff_path),
+                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
+                    "--repository", "o/r", "--pull-number", "1", "--head-sha", "abc123",
+                    "--feedback-kind", "pr-documentation-review", "--author", "octocat",
+                    "--resolved-config", str(bundle_path), "--effective-policy", str(policy_path),
+                ])
+            self.assertEqual(rc, 0)
+            self.assertEqual(len(captured_inputs), 2)
+            self.assertIn("Workflow retry instruction", captured_inputs[1])
+            mock_gh.assert_called_once()
 
     def test_max_comments_above_profile_ceiling_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -432,7 +552,7 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
                 mock.patch.object(RUNNER, "has_marker", return_value=False),
             ):
-                m.return_value = FakeSubprocessResult(valid_output)
+                m.return_value = FakeSubprocessResult(_opencode_text_event(valid_output))
                 rc = RUNNER.main(
                     [
                         "--input",
@@ -468,9 +588,8 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
             captured = {}
 
             def fake_run(cmd, **kwargs):
-                prompt_file = Path(cmd[cmd.index("--file") + 1])
-                captured["prompt"] = prompt_file.read_text(encoding="utf-8")
-                return FakeSubprocessResult(valid_output)
+                captured["prompt"] = kwargs["input"]
+                return FakeSubprocessResult(_opencode_text_event(valid_output))
 
             with (
                 mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run),
@@ -514,7 +633,7 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
                     RUNNER.subprocess,
                     "run",
                     return_value=FakeSubprocessResult(
-                        "", returncode=1, stderr="Error: Model not found: provider/model"
+                        _opencode_text_event(""), returncode=1, stderr="Error: Model not found: provider/model"
                     ),
                 ),
                 mock.patch.object(RUNNER, "github_request"),
@@ -539,6 +658,48 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
             self.assertIn("OpenCode exited with status 1", stderr.getvalue())
             self.assertIn("Model not found", stderr.getvalue())
 
+    def test_integrated_path_reports_empty_successful_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
+            stderr = io.StringIO()
+            provider_diagnostic = "provider returned an empty completion"
+            with (
+                mock.patch.object(
+                    RUNNER.subprocess,
+                    "run",
+                    return_value=FakeSubprocessResult("", stderr=provider_diagnostic),
+                ),
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+                contextlib.redirect_stderr(stderr),
+            ):
+                rc = RUNNER.main(
+                    [
+                        "--input", str(diff_path),
+                        "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository", "o/r",
+                        "--pull-number", "1",
+                        "--head-sha", "abc123",
+                        "--feedback-kind", "pr-documentation-review",
+                        "--author", "octocat",
+                        "--resolved-config", str(bundle_path),
+                        "--effective-policy", str(policy_path),
+                    ]
+                )
+            log = stderr.getvalue()
+            self.assertEqual(rc, 1)
+            mock_gh.assert_not_called()
+            self.assertIn("OpenCode response transport: attempt=1; exit_code=0", log)
+            self.assertIn("stdout_bytes=0", log)
+            self.assertIn(
+                f"stderr_bytes={len(provider_diagnostic.encode('utf-8'))}", log
+            )
+            self.assertIn("emitted no completed assistant text", log)
+            self.assertNotIn("violated the PR review contract", log)
+            self.assertNotIn(provider_diagnostic, log)
+
     def test_untrusted_diff_is_delimited_single_channel(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -551,10 +712,9 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
             captured = {}
 
             def fake_run(cmd, **kwargs):
-                prompt_file = Path(cmd[cmd.index("--file") + 1])
-                captured["prompt"] = prompt_file.read_text(encoding="utf-8")
+                captured["prompt"] = kwargs["input"]
                 captured["cmd"] = cmd
-                return FakeSubprocessResult(valid_output)
+                return FakeSubprocessResult(_opencode_text_event(valid_output))
 
             with (
                 mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run),
@@ -588,12 +748,9 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
             self.assertIn("<untrusted-issue-content>", captured["prompt"])
             self.assertIn("</untrusted-issue-content>", captured["prompt"])
             self.assertIn("reveal secrets", captured["prompt"])
-            # Not passed as a separate untrusted-content attachment; only the
-            # workflow-composed prompt transport file is attached.
-            self.assertEqual(captured["cmd"].count("--file"), 1)
-            self.assertNotEqual(
-                str(diff_path), captured["cmd"][captured["cmd"].index("--file") + 1]
-            )
+            # The untrusted diff is never passed as a separate attachment.
+            self.assertNotIn("--file", captured["cmd"])
+            self.assertNotIn(str(diff_path), captured["cmd"])
 
 
 if __name__ == "__main__":

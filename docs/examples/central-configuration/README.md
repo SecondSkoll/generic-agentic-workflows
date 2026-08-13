@@ -60,8 +60,8 @@ immediately), per-response byte limits, and timeouts.
     hashes.json
 ```
 
-The local bundles in this repository under `.opencode/configuration/` are a
-complete, valid example of the same structure.
+The supplied `default` bundles in this repository under
+`.opencode/configuration/` are a complete, valid example of the same structure.
 
 ## `bundle.json` (schema v1)
 
@@ -107,7 +107,8 @@ Rules:
 - `configuration_ref` must be exactly 40 lowercase hexadecimal characters (a
   full commit SHA). Branches, tags, PR refs, GitHub Gists, raw URLs, and
   shortened SHAs are rejected before any fetch.
-- `configuration_source` must be an approved alias (`local` or `central`).
+- `configuration_source` must be `local` (the calling repository), `default`
+  (profiles supplied by this repository), or an approved central alias.
   Arbitrary URLs and repository names are rejected.
 - A remote resolution failure fails closed: the run does not fall back to a
   local profile, a default branch, or a previous remote revision.

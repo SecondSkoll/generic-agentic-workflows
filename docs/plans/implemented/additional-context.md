@@ -43,7 +43,7 @@ Affected files:
 
 This plan does not change issue feedback or issue implementation workflows.
 It assumes remote-actions Plans 1–5 are already implemented. Do not reintroduce
-legacy `CUSTOM_AGENT_FILE`, `CUSTOM_SKILL_FILE`, raw prompt, model, or
+custom agent/skill paths, raw prompt, model, or
 arbitrary path inputs while adding this feature.
 
 ## Prerequisites from Remote-Actions Plans
@@ -309,7 +309,7 @@ available final review.
 Build on the resolved configuration, effective policy, prompt composer, and
 output-contract registry introduced by remote-actions Plans 2–4. In
 `scripts/run_agentic_feedback.py`, separate the current single OpenCode call
-into smaller functions without restoring legacy direct agent/skill/prompt
+into smaller functions without restoring direct agent/skill/prompt
 paths:
 
 - `run_opencode(resolved_config, effective_policy, prompt_file: Path) -> str`

@@ -1,12 +1,19 @@
-# Documentation
+# Documentation plan — implemented
 
-Guide for how to configure this for your repository
+The repository configuration and security guide is now published at
+[`../configuration.md`](../configuration.md).
 
-* Using the defaults
-* Using your own local files
-* Using remote files for agents and skills
+It documents:
 
-Security documentation
+- supplied local profiles and the safe validation-to-publication rollout;
+- repository-local configuration bundles, manifests, and hashes;
+- approved, SHA-pinned remote configuration bundles and private-repository
+	token handling;
+- the distinction between supported remote bundles and the future direct
+	remote-file design in [`allow-remote-files.md`](allow-remote-files.md);
+- trust boundaries, prompt-injection mitigations, policy and output controls,
+	provenance, incident response, and the rationale for the constrained
+	workflow model.
 
-* What mitigations are in place and why
-* Why this is better than something like the opencode application in GitHub
+Related operational details are maintained in
+[`../operations/operations-guide.md`](../operations/operations-guide.md).

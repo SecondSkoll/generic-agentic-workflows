@@ -459,6 +459,21 @@ class RemoteResolutionTests(unittest.TestCase):
         self.assertEqual(resolved.resolved_sha, sha)
         self.assertEqual(resolved.manifest.output_contract, "pr-review-json-v1")
 
+    def test_pinned_supplied_default_resolves(self):
+        files, sha = self._make_remote_files()
+        client = FakeRemoteClient(files, sha)
+        with tempfile.TemporaryDirectory() as tmp:
+            resolved = CFG.resolve_remote_bundle(
+                source_alias="default",
+                configuration_ref=sha,
+                profile="documentation-review",
+                workflow="pr-documentation-review",
+                client=client,
+                cache_dir=Path(tmp),
+            )
+        self.assertEqual(resolved.source_alias, "default")
+        self.assertEqual(resolved.resolved_sha, sha)
+
     def test_unknown_source_alias_rejected(self):
         with self.assertRaises(CFG.ConfigurationError):
             CFG.resolve_remote_bundle(
@@ -568,32 +583,6 @@ class RemoteResolutionTests(unittest.TestCase):
             self.assertEqual(
                 len(client.fetch_calls), before
             )  # cache hit: no new fetches
-
-
-class LegacyCompatTests(unittest.TestCase):
-    def test_legacy_bundle_builds_with_warning(self):
-        agent = REPO_ROOT / ".opencode" / "agents" / "default-agent.md"
-        skill = REPO_ROOT / ".opencode" / "skills" / "basic-review" / "SKILL.md"
-        resolved = CFG.resolve_legacy_bundle(
-            agent_file=str(agent.relative_to(REPO_ROOT)),
-            skill_file=str(skill.relative_to(REPO_ROOT)),
-            workflow="pr-documentation-review",
-            repo_root=REPO_ROOT,
-            output_contract="pr-review-json-v1",
-        )
-        self.assertEqual(resolved.profile_name, "legacy")
-        self.assertEqual(resolved.agent_name, "default-agent")
-        self.assertEqual(resolved.manifest.output_contract, "pr-review-json-v1")
-
-    def test_legacy_traversal_rejected(self):
-        with self.assertRaises(CFG.ConfigurationError):
-            CFG.resolve_legacy_bundle(
-                agent_file="../etc/passwd",
-                skill_file=None,
-                workflow="pr-documentation-review",
-                repo_root=REPO_ROOT,
-                output_contract="pr-review-json-v1",
-            )
 
 
 class FailureRecordTests(unittest.TestCase):

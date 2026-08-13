@@ -3,13 +3,13 @@
 
 This module is dependency-free so it can run on a GitHub Actions runner. It
 parses versioned configuration bundles, validates their manifest, content
-paths, and SHA-256 hashes, and resolves a bundle from either the trusted local
-checkout or an organization-approved remote GitHub repository pinned to a full
-commit SHA.
+paths, and SHA-256 hashes, and resolves a bundle from either the trusted
+caller-repository checkout or an approved remote GitHub repository pinned to a
+full commit SHA.
 
 The resolver never accepts caller-controlled paths into executable
-configuration: it accepts only a bundle root/profile (local) or an allowlisted
-source alias plus a pinned SHA (remote). A failure at any step fails closed;
+configuration: it accepts only a caller-local bundle root/profile or an
+allowlisted remote source alias plus a pinned SHA. A failure at any step fails closed;
 there is no fallback to a different profile, branch, or stale revision.
 
 Remote fetching is implemented through an injectable transport client so tests
@@ -60,6 +60,11 @@ SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 #: allowed root path within that repository. Tests must not require live
 #: network access to validate this allowlist.
 REMOTE_SOURCE_ALIASES: dict[str, dict[str, str]] = {
+    "default": {
+        "repository": "SecondSkoll/generic-agentic-workflows",
+        "root": ".opencode/configuration",
+        "description": "Standard profiles supplied by this workflow repository.",
+    },
     "central": {
         "repository": "agentic-configuration/example-configuration",
         "root": ".opencode/configuration",
@@ -557,12 +562,12 @@ def resolve_local_bundle(
     profile: str,
     workflow: str,
 ) -> ResolvedBundle:
-    """Resolve and validate a local configuration bundle from the trusted checkout."""
+    """Resolve a bundle from the trusted checkout of the calling repository."""
     if not isinstance(profile, str) or not PROFILE_PATTERN.match(profile):
         raise ConfigurationError("profile must match [a-z0-9][a-z0-9-]{0,62}")
     profile_dir = bundle_root / profile
     if not profile_dir.is_dir():
-        raise ConfigurationError(f"local bundle profile not found: {profile}")
+        raise ConfigurationError(f"caller-local bundle profile not found: {profile}")
     if profile_dir.is_symlink():
         raise ConfigurationError("bundle profile directory must not be a symlink")
     manifest_path = profile_dir / "bundle.json"
@@ -1225,134 +1230,6 @@ def opencode_config_smoke_check(
 
 
 # ---------------------------------------------------------------------------
-# Legacy compatibility shim
-# ---------------------------------------------------------------------------
-
-
-LEGACY_DEPRECATION_WARNING = (
-    "CUSTOM_AGENT_FILE/CUSTOM_SKILL_FILE are deprecated; use a configuration "
-    "bundle (configuration_profile). These variables will be removed in the "
-    "next major workflow release after the published migration window."
-)
-
-
-def resolve_legacy_bundle(
-    *,
-    agent_file: str,
-    skill_file: str | None,
-    workflow: str,
-    repo_root: Path,
-    output_contract: str,
-    model_profile: str = "legacy",
-) -> ResolvedBundle:
-    """Build an in-memory bundle from legacy custom-file variables.
-
-    This preserves Plan 1 behavior during the documented migration window. It
-    emits a deprecation warning to stderr and constructs a synthetic bundle
-    manifest validated by the same path/hash logic. Legacy files must live
-    inside the trusted ``repo_root`` and must not be symlinks.
-    """
-    print(f"::warning::{LEGACY_DEPRECATION_WARNING}", file=sys.stderr)
-    if not isinstance(agent_file, str) or not agent_file:
-        raise ConfigurationError("legacy CUSTOM_AGENT_FILE must be a non-empty path")
-    normalized_agent = normalize_bundle_path(agent_file)
-    agent_path = repo_root / normalized_agent
-    assert_no_symlink(agent_path)
-    if not is_contained(repo_root, agent_path) or not agent_path.is_file():
-        raise ConfigurationError(
-            f"legacy agent file not found or escapes repo root: {agent_file}"
-        )
-    agent_raw = _read_bounded(
-        agent_path, max_bytes=MAX_FILE_BYTES, label=normalized_agent
-    )
-    agent_text = agent_raw.decode("utf-8")
-    agent_front = validate_agent_front_matter(agent_text, workflow=workflow)
-
-    skill_files: tuple[str, ...] = ()
-    skill_names: tuple[str, ...] = ()
-    skill_texts: list[str] = []
-    if skill_file:
-        normalized_skill = normalize_bundle_path(skill_file)
-        skill_path = repo_root / normalized_skill
-        assert_no_symlink(skill_path)
-        if not is_contained(repo_root, skill_path) or not skill_path.is_file():
-            raise ConfigurationError(
-                f"legacy skill file not found or escapes repo root: {skill_file}"
-            )
-        skill_raw = _read_bounded(
-            skill_path, max_bytes=MAX_FILE_BYTES, label=normalized_skill
-        )
-        skill_text = skill_raw.decode("utf-8")
-        validate_skill_front_matter(skill_text)
-        skill_files = (normalized_skill,)
-        skill_names = (parse_front_matter(skill_text)["name"],)
-        skill_texts = [skill_text]
-
-    prompt_text = _default_legacy_prompt(workflow)
-    prompt_sha = sha256_bytes(prompt_text.encode("utf-8"))
-
-    content_hashes = {
-        normalized_agent: sha256_bytes(agent_raw),
-    }
-    for rel, text in zip(skill_files, skill_texts):
-        content_hashes[rel] = sha256_bytes(text.encode("utf-8"))
-
-    manifest_payload = {
-        "schema_version": 1,
-        "profile_name": "legacy",
-        "allowed_workflows": [workflow],
-        "agent_file": normalized_agent,
-        "skill_files": list(skill_files),
-        "prompt_template": "<legacy>",
-        "model_profile": model_profile,
-        "output_contract": output_contract,
-        "limits": {},
-    }
-    manifest = parse_manifest(manifest_payload, workflow=workflow)
-
-    return ResolvedBundle(
-        source_alias="local",
-        repository=None,
-        resolved_sha=None,
-        profile_name="legacy",
-        workflow=workflow,
-        manifest=manifest,
-        agent_name=agent_front["name"],
-        skill_names=skill_names,
-        prompt_template_text=prompt_text,
-        prompt_template_sha256=prompt_sha,
-        content_hashes=content_hashes,
-        agent_file=normalized_agent,
-        skill_files=skill_files,
-        bundle_root=str(repo_root),
-        additional_agent_files=(),
-        additional_agent_names=(),
-    )
-
-
-def _default_legacy_prompt(workflow: str) -> str:
-    """Return the workflow-owned default prompt used for legacy configurations.
-
-    This mirrors the hard-coded prompts that Plan 1 wired into the workflow
-    YAML so legacy callers see identical model instructions during the
-    migration window.
-    """
-    if workflow == "pr-documentation-review":
-        return "Evaluate this pull request diff."
-    if workflow == "issue-feedback":
-        return (
-            "Review this open issue and identify missing information, risks, or "
-            "useful next steps. Be concise and only offer constructive feedback."
-        )
-    if workflow == "issue-implementation":
-        return (
-            "Create a concise, secure plan for the supplied GitHub issue and "
-            "delegate its implementation to the executor agent."
-        )
-    return "Provide feedback on the supplied content."
-
-
-# ---------------------------------------------------------------------------
 # Redacted failure record
 # ---------------------------------------------------------------------------
 
@@ -1403,21 +1280,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--result", default=None, help="Path to write the resolved bundle JSON to."
     )
     parser.add_argument(
-        "--legacy-agent-file",
-        default=None,
-        help="Legacy CUSTOM_AGENT_FILE path; emits a deprecation warning.",
-    )
-    parser.add_argument(
-        "--legacy-skill-file",
-        default=None,
-        help="Legacy CUSTOM_SKILL_FILE path; emits a deprecation warning.",
-    )
-    parser.add_argument(
-        "--output-contract",
-        default=None,
-        help="Output contract to assume for legacy resolution.",
-    )
-    parser.add_argument(
         "--github-step-summary",
         default=None,
         help="Path to append a job summary to.",
@@ -1429,21 +1291,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     try:
-        if args.legacy_agent_file:
-            if not args.output_contract:
-                parser.error("--output-contract is required for legacy resolution")
-            resolved = resolve_legacy_bundle(
-                agent_file=args.legacy_agent_file,
-                skill_file=args.legacy_skill_file,
-                workflow=args.workflow,
-                repo_root=Path.cwd(),
-                output_contract=args.output_contract,
-            )
-        elif args.configuration_source == "local":
+        if args.configuration_source == "local":
             if not args.configuration_profile:
-                parser.error(
-                    "--configuration-profile is required (or use --legacy-agent-file)"
-                )
+                parser.error("--configuration-profile is required for local sources")
             resolved = resolve_local_bundle(
                 bundle_root=Path(args.bundle_root),
                 profile=args.configuration_profile,

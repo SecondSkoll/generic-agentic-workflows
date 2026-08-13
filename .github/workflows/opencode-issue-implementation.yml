@@ -10,10 +10,10 @@ on:
   workflow_call:
     inputs:
       configuration_source:
-        description: local or an approved remote source alias
+        description: default (supplied profile), local (caller repository), or an approved central alias
         type: string
         required: false
-        default: local
+        default: default
       configuration_ref:
         description: Full 40-character commit SHA for a remote bundle
         type: string
@@ -185,8 +185,6 @@ jobs:
       issues: write
       pull-requests: write
     env:
-      CUSTOM_AGENT_FILE: .opencode/agents/issue-implementation.md
-      CUSTOM_SKILL_FILE: .opencode/skills/basic-review/SKILL.md
       ISSUE: ${{ needs.select-issue.outputs.issue }}
       DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
     steps:
@@ -209,29 +207,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.central_config_token || github.token }}
         run: |
           set -euo pipefail
-          if [[ "$AGENTIC_CONFIGURATION_SOURCE" == "local" && -z "$AGENTIC_CONFIGURATION_REF" ]]; then
-            if [[ -d .opencode/configuration/default-implementation ]]; then
-              python3 scripts/agentic_configuration.py \
-                --workflow issue-implementation \
-                --bundle-root .opencode/configuration \
-                --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
-                --result "$RUNNER_TEMP/resolved-agentic-configuration.json"
-            else
-              python3 scripts/agentic_configuration.py \
-                --workflow issue-implementation \
-                --legacy-agent-file "$CUSTOM_AGENT_FILE" \
-                --legacy-skill-file "$CUSTOM_SKILL_FILE" \
-                --output-contract issue-implementation-decision-v1 \
-                --result "$RUNNER_TEMP/resolved-agentic-configuration.json"
-            fi
-          else
-            python3 scripts/agentic_configuration.py \
-              --workflow issue-implementation \
-              --configuration-source "$AGENTIC_CONFIGURATION_SOURCE" \
-              --configuration-ref "$AGENTIC_CONFIGURATION_REF" \
-              --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
-              --result "$RUNNER_TEMP/resolved-agentic-configuration.json"
-          fi
+          python3 scripts/agentic_configuration.py \
+            --workflow issue-implementation \
+            --configuration-source "$AGENTIC_CONFIGURATION_SOURCE" \
+            --configuration-ref "$AGENTIC_CONFIGURATION_REF" \
+            --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
+            --result "$RUNNER_TEMP/resolved-agentic-configuration.json"
 
       - name: Resolve effective policy
         id: policy
@@ -320,6 +301,11 @@ jobs:
               f.write(f"AGENTIC_BASE_REF={ref}\n")
           print(f"OK base ref: {ref}")
           PY
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
 
       - name: Install OpenCode
         run: npm install -g opencode-ai@1.18.16

@@ -1,10 +1,9 @@
 # Agentic workflow operations guide
 
 This guide covers release/versioning, incident response, manual rollback, the
-operational test matrix, configuration provenance, and migration from legacy
-`CUSTOM_AGENT_FILE`/`CUSTOM_SKILL_FILE` variables. It applies to the reusable
-workflows in `.github/workflows/opencode-*.yml` and the dependency-free Python
-modules in `scripts/`.
+operational test matrix and configuration provenance. It applies to the
+reusable workflows in `.github/workflows/opencode-*.yml` and the
+dependency-free Python modules in `scripts/`.
 
 ## Versioning and independent schema versions
 
@@ -17,7 +16,7 @@ with every release:
 | Bundle manifest schema | `bundle.json` `schema_version` | `1` |
 | Output contracts | contract identifier suffix, e.g. `-v1` | `pr-review-json-v1`, `issue-feedback-markdown-v1`, `issue-implementation-decision-v1` |
 | Policy schema | `.opencode/policy/organization-policy.json` `schema_version` | `1` |
-| Feedback marker | marker schema version field | `v1` (legacy) and `v2` (current) |
+| Feedback marker | marker schema version field | `v2` |
 
 Release process:
 
@@ -59,9 +58,7 @@ error message.
 The configuration digest backs the v2 idempotency marker. A configuration
 change (different profile, manifest hash, prompt template hash, output
 contract, or model profile) produces a different digest, which triggers a
-fresh review for the same PR head or issue. Legacy `v1` markers are still
-parsed during the migration window but never match a `v2` digest, so a profile
-upgrade intentionally triggers re-review.
+fresh review for the same PR head or issue.
 
 ## Idempotency and feedback identity
 
@@ -106,7 +103,6 @@ Automatic, unreviewed rollback is intentionally not supported.
 
 | Scenario | Expected result |
 | --- | --- |
-| Local legacy configuration | Existing behavior plus a deprecation warning; provenance still written. |
 | Local bundle | Validated configuration and normal publication; v2 marker carries the digest. |
 | Pinned remote bundle | Matching provenance record with `resolved_sha`; normal publication. |
 | Mutable/unknown source | Resolution fails before OpenCode with a redacted `ConfigurationError`. |

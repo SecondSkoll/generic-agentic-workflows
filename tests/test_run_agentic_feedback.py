@@ -107,18 +107,6 @@ class ParseReviewOutputTests(unittest.TestCase):
             "- a.py:2\n- b.py:1\n- b.py:3",
         )
 
-    def test_scopes_pull_request_marker_to_head_commit(self) -> None:
-        self.assertEqual(
-            RUNNER.feedback_marker("pr-documentation-review", "abc123"),
-            "<!-- agentic-workflow:pr-documentation-review:v1:abc123 -->",
-        )
-
-    def test_keeps_issue_marker_compatible_without_commit(self) -> None:
-        self.assertEqual(
-            RUNNER.feedback_marker("issue-feedback"),
-            "<!-- agentic-workflow:issue-feedback:v1 -->",
-        )
-
     def test_parses_diff_file_statuses(self) -> None:
         diff = """diff --git a/a.txt b/a.txt
 index 1..2 100644

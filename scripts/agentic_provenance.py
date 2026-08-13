@@ -4,8 +4,7 @@
 Dependency-free. Builds a redacted, reproducible provenance record for every
 invocation; emits a concise job summary; provides a deterministic
 configuration digest; and produces a v2 feedback marker that carries the
-configuration digest while retaining legacy v1 marker parsing during the
-migration window.
+configuration digest.
 """
 
 from __future__ import annotations
@@ -66,12 +65,8 @@ ALLOWED_RESULTS: frozenset[str] = frozenset(
 #: Allowed values for the ``mode`` field.
 ALLOWED_MODES: frozenset[str] = frozenset({"publish", "dry-run", "validate-only"})
 
-#: Marker schema versions.
-MARKER_SCHEMA_V1 = "v1"
+#: Marker schema version.
 MARKER_SCHEMA_V2 = "v2"
-SUPPORTED_MARKER_VERSIONS: frozenset[str] = frozenset(
-    {MARKER_SCHEMA_V1, MARKER_SCHEMA_V2}
-)
 
 
 @dataclass(frozen=True)
@@ -283,13 +278,8 @@ def write_job_summary(record: ProvenanceRecord, summary_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Feedback marker (v1 + v2)
+# Feedback marker
 # ---------------------------------------------------------------------------
-
-#: v1 marker: ``<!-- agentic-workflow:<kind>:v1[:<head_sha>] -->``
-_V1_MARKER = re.compile(
-    r"<!-- agentic-workflow:(?P<kind>[a-z0-9-]+):v1(?::(?P<head_sha>[0-9a-f]{7,40}))? -->"
-)
 
 #: v2 marker: ``<!-- agentic-workflow:<kind>:v2:<config_digest>[:<head_sha>] -->``
 _V2_MARKER = re.compile(
@@ -301,33 +291,26 @@ def feedback_marker(
     feedback_kind: str,
     *,
     head_sha: str | None = None,
-    config_digest: str | None = None,
-    schema_version: str = MARKER_SCHEMA_V2,
+    config_digest: str,
 ) -> str:
     """Return the idempotency marker.
 
-    v2 (default) carries the configuration digest so a profile update triggers
-    new feedback for the same PR head or issue. v1 is retained for legacy
-    compatibility during the migration window.
+    The marker carries the configuration digest so a profile update triggers
+    new feedback for the same PR head or issue.
     """
-    if schema_version == MARKER_SCHEMA_V1:
-        suffix = f":{head_sha}" if head_sha else ""
-        return f"<!-- agentic-workflow:{feedback_kind}:v1{suffix} -->"
-    if schema_version == MARKER_SCHEMA_V2:
-        if not config_digest or not re.match(r"^[0-9a-f]{64}$", config_digest):
-            raise ProvenanceError("v2 marker requires a 64-char configuration digest")
-        suffix = f":{head_sha}" if head_sha else ""
-        return f"<!-- agentic-workflow:{feedback_kind}:v2:{config_digest}{suffix} -->"
-    raise ProvenanceError(f"unsupported marker schema version: {schema_version!r}")
+    if not isinstance(config_digest, str) or not re.match(
+        r"^[0-9a-f]{64}$", config_digest
+    ):
+        raise ProvenanceError("feedback marker requires a 64-char configuration digest")
+    suffix = f":{head_sha}" if head_sha else ""
+    return f"<!-- agentic-workflow:{feedback_kind}:v2:{config_digest}{suffix} -->"
 
 
 def parse_marker(text: str, *, feedback_kind: str) -> dict[str, Any] | None:
     """Parse a feedback marker from ``text``.
 
-    Returns ``{"version", "head_sha"}`` for a matching marker of the same
-    feedback kind, or ``None``. v1 markers are still recognized during
-    migration; callers decide per workflow whether a v1 match suppresses
-    re-review.
+    Returns marker metadata for a matching marker of the same feedback kind,
+    or ``None``.
     """
     if not isinstance(text, str):
         return None
@@ -337,13 +320,6 @@ def parse_marker(text: str, *, feedback_kind: str) -> dict[str, Any] | None:
             "version": MARKER_SCHEMA_V2,
             "head_sha": v2.group("head_sha"),
             "config_digest": v2.group("digest"),
-        }
-    v1 = _V1_MARKER.search(text)
-    if v1 and v1.group("kind") == feedback_kind:
-        return {
-            "version": MARKER_SCHEMA_V1,
-            "head_sha": v1.group("head_sha"),
-            "config_digest": None,
         }
     return None
 
@@ -357,8 +333,7 @@ def matches_current_config(
 ) -> bool:
     """Return True when ``text`` contains a v2 marker for the same config.
 
-    Used to suppress duplicate feedback. A v1 marker never matches a v2
-    digest check, so a configuration upgrade triggers a fresh review.
+    Used to suppress duplicate feedback.
     """
     parsed = parse_marker(text, feedback_kind=feedback_kind)
     if not parsed or parsed["version"] != MARKER_SCHEMA_V2:
