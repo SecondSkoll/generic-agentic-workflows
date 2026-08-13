@@ -73,7 +73,7 @@ jobs:
     steps:
       # The reusable workflow's scripts are not present until the caller
       # repository is checked out. Use only the trusted PR base revision.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           persist-credentials: false
@@ -176,7 +176,7 @@ jobs:
           jq '{number, title, body, user: {login: .user.login}, base: {sha: .base.sha, ref: .base.ref}, head: {sha: .head.sha, ref: .head.ref}}' \
             <<< "$pull_request" > "$RUNNER_TEMP/pr-metadata.json"
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         if: steps.resolve.outputs.validate_only != 'true'
         with:
           python-version: '3.12'
@@ -383,7 +383,7 @@ jobs:
 
       - name: Upload resolved invocation artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: resolved-invocation-pr-review
           path: |
