@@ -30,17 +30,22 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@v6
+      - name: Install UV
+        uses: astral-sh/setup-uv@v6
         with:
-          python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
 
-      - name: Install validation dependencies
-        run: python3 -m pip install --disable-pip-version-check PyYAML
+      - name: Sync development dependencies
+        run: uv sync --extra dev
+
+      - name: Lint with ruff
+        run: uv run ruff check scripts tests
 
       - name: Validate workflow YAML
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          uv run python - <<'PY'
           import sys
           from pathlib import Path
           import yaml
@@ -68,30 +73,35 @@ jobs:
       - name: Compile all scripts
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/*.py
+          uv run python -m py_compile scripts/*.py
 
       - name: Install OpenCode for schema smoke checks
         run: npm install -g opencode-ai@1.18.16
 
       - name: Run unit tests (includes real OpenCode smoke when binary present)
         run: |
-          python3 -m unittest discover -s tests -v
+          uv run python -m unittest discover -s tests -v
+
+      - name: Verify bundle hashes are up to date
+        run: |
+          set -euo pipefail
+          uv run scripts/update_hashes.py --dry-run
 
       - name: Exercise resolver in validate_only mode
         run: |
           set -euo pipefail
-          python3 scripts/resolve_invocation.py \
+          uv run python scripts/resolve_invocation.py \
             --workflow pr-documentation-review \
             --configuration-profile documentation-review \
             --target-number 1 \
             --validate-only true \
             --result "$RUNNER_TEMP/pr-review.json"
-          python3 scripts/resolve_invocation.py \
+          uv run python scripts/resolve_invocation.py \
             --workflow issue-feedback \
             --configuration-profile issue-feedback \
             --validate-only true \
             --result "$RUNNER_TEMP/issue-feedback.json"
-          python3 scripts/resolve_invocation.py \
+          uv run python scripts/resolve_invocation.py \
             --workflow issue-implementation \
             --configuration-profile default-implementation \
             --target-number 1 \
@@ -101,7 +111,7 @@ jobs:
       - name: Confirm resolver rejects invalid inputs
         run: |
           set +e
-          python3 scripts/resolve_invocation.py \
+          uv run python scripts/resolve_invocation.py \
             --workflow pr-documentation-review \
             --configuration-profile 'Bad Profile' \
             --target-number 1
@@ -115,7 +125,7 @@ jobs:
       - name: Confirm resolver rejects mutable ref
         run: |
           set +e
-          python3 scripts/resolve_invocation.py \
+          uv run python scripts/resolve_invocation.py \
             --workflow pr-documentation-review \
             --configuration-profile documentation-review \
             --configuration-ref main \
@@ -130,7 +140,7 @@ jobs:
       - name: Resolve and validate every local bundle
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          uv run python - <<'PY'
           import json, sys, tempfile
           from pathlib import Path
           import importlib.util
@@ -179,7 +189,7 @@ jobs:
       - name: Validate changed-path enforcement includes untracked files
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          uv run python - <<'PY'
           import importlib.util, sys, tempfile, subprocess
           from pathlib import Path
           spec = importlib.util.spec_from_file_location(
@@ -207,7 +217,7 @@ jobs:
       - name: Validate model profiles and policy escalation rejection
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          uv run python - <<'PY'
           import importlib.util
           import sys
           spec = importlib.util.spec_from_file_location(
@@ -238,7 +248,7 @@ jobs:
       - name: Validate prompt composition and injection delimiter behaviour
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          uv run python - <<'PY'
           import importlib.util
           import sys
           spec = importlib.util.spec_from_file_location(
@@ -275,7 +285,7 @@ jobs:
       - name: Validate provenance redaction and v1/v2 marker behaviour
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          uv run python - <<'PY'
           import importlib.util
           import sys
           spec = importlib.util.spec_from_file_location(
@@ -316,7 +326,7 @@ jobs:
       - name: Confirm configuration rejects traversal and bad hashes
         run: |
           set +e
-          python3 scripts/agentic_configuration.py \
+          uv run python scripts/agentic_configuration.py \
             --workflow pr-documentation-review \
             --bundle-root .opencode/configuration \
             --configuration-profile '../escape'
@@ -330,7 +340,7 @@ jobs:
       - name: Parse every JSON bundle/policy/contract file
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
           for path in Path(".opencode/configuration").rglob("*.json"):

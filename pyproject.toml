@@ -1,0 +1,73 @@
+[project]
+name = "generic-agentic-workflows"
+version = "0.1.0"
+description = "Reusable GitHub Actions workflows for agentic pull-request and issue feedback using OpenCode."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Michael Park" }]
+# The runtime scripts are intentionally dependency-free so they can run on a
+# GitHub Actions runner without installing packages. Development tooling is
+# declared in the optional `dev` extra below.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.16.2",
+    "pyyaml>=6.0",
+]
+
+[tool.uv]
+package = false
+
+# ---------------------------------------------------------------------------
+# Ruff: linting and formatting
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+    ".opencode",
+    ".venv",
+    ".ruff_cache",
+]
+
+[tool.ruff.lint]
+# A focused, stable rule set. The codebase predates this config and contains
+# compact one-line statements and long lines that would require a large
+# separate cleanup pass; style rules that would force mass reformatting
+# (E501 line-length, E701/E702 multiple-statements) are not enforced yet.
+select = [
+    "F",     # Pyflakes (unused imports/variables, undefined names, etc.)
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "SIM",   # flake8-simplify
+    "RUF",   # ruff-specific
+]
+ignore = [
+    "E501",   # line too long (cleanup pass planned)
+    "E701",   # multiple statements on one line (colon) - existing compact style
+    "E702",   # multiple statements on one line (semicolon) - existing compact style
+    "EXE001", # shebang present but file not executable (scripts run via python)
+    "SIM102", # collapsible-if (readability)
+    "SIM105", # suppressible-exception (contextlib.suppress not always clearer)
+    "SIM108", # if-else-block-instead-of-if-exp (readability)
+    "SIM117", # nested with-statements (readability over collapse)
+    "B007",   # unused-loop-control-variable (renaming would hurt readability)
+    "B905",   # zip-without-explicit-strict (added in 3.10, existing code is fine)
+    "TRY004", # type-check without TypeError (style preference)
+    "BLE001", # blind-except (intentional in CLI runners)
+    "PLW1510", # subprocess-run-without-check (checked explicitly)
+    "RUF012", # mutable class default (dataclass field pattern)
+    "RUF002", # ambiguous-unicode-character-docstring (intentional en-dash etc.)
+    "RUF059", # unused unpacked variable
+    "F402",   # import shadowed by loop var (test fixtures)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "F841",   # unused variable (test mocks often assigned for clarity)
+    "F401",   # unused import (test fixtures import for side effects)
+]

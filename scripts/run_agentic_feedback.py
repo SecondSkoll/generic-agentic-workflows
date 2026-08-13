@@ -21,7 +21,6 @@ operating-system argument length limit before OpenCode starts.
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import importlib.util
 import json
 import os
@@ -1227,4 +1226,4 @@ if __name__ == "__main__":
             f"GitHub API request failed: {error.code} {error.read().decode()}",
             file=sys.stderr,
         )
-        raise SystemExit(1)
+        raise SystemExit(1) from error

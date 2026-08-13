@@ -22,7 +22,8 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
+from collections.abc import Iterable, Mapping
 
 
 # ---------------------------------------------------------------------------
@@ -563,7 +564,8 @@ def merge_policy(
                 if layer[key] and not context[key]:
                     raise PolicyError(f"{layer_name} cannot enable disabled {key}")
                 context[key] = context[key] and layer[key]
-    context["deny_path_patterns"] = tuple(deny_patterns) + (
+    context["deny_path_patterns"] = (
+        *tuple(deny_patterns),
         r"(^|/)\.env($|\.)", r"\.pem$", r"\.key$", r"(^|/)id_rsa$",
         r"(^|/)secrets\.", r"(^|/)(?:\.npmrc|\.pypirc|\.netrc)$",
     )

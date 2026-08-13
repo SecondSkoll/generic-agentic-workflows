@@ -17,13 +17,13 @@ SPEC.loader.exec_module(PROMPTS)
 
 
 def _compose(**overrides):
-    base = dict(
-        feedback_kind="pr-documentation-review",
-        output_contract="pr-review-json-v1",
-        profile_template="Review {{feedback_kind}} for {{repository}} by @{{author_login}}.",
-        repository="owner/repo",
-        author_login="octocat",
-    )
+    base = {
+        "feedback_kind": "pr-documentation-review",
+        "output_contract": "pr-review-json-v1",
+        "profile_template": "Review {{feedback_kind}} for {{repository}} by @{{author_login}}.",
+        "repository": "owner/repo",
+        "author_login": "octocat",
+    }
     base.update(overrides)
     return PROMPTS.compose_prompt(**base)
 

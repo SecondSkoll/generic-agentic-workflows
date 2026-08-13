@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from dataclasses import dataclass
+from typing import Any
+from collections.abc import Mapping
 
 
 # ---------------------------------------------------------------------------
@@ -697,7 +698,7 @@ def parse_pr_review_response(output: str, *, changed_lines: dict[str, set[int]],
         try:
             return "context", parse_pr_review_context_request(output)
         except ContractError:
-            raise final_error
+            raise final_error from None
 
 
 def suggestion_body(feedback: str, suggestion: str) -> str:
