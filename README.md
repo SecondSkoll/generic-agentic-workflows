@@ -9,7 +9,7 @@ security model, see the [configuration guide](docs/configuration.md).
 
 * `.github/workflows/opencode-review.yml` reviews pull-request diffs for documentation impact.
 * `.github/workflows/opencode-issue-feedback.yml` checks every open issue when an issue changes and on a daily schedule. It does not comment again when it finds its existing feedback marker on that issue.
-* `.github/workflows/opencode-issue-implementation.yml` runs on weekdays and can be dispatched manually. It selects one open issue that has either an `[[AI REVIEW REQUESTED]]` (or `[[AI IMPLEMENTATION REQUESTED]]`) comment or an `ai-review-requested` label, unless the manual dispatch supplies an open issue number. It skips issues that already have an implementation-status comment from `github-actions[bot]`, asks OpenCode to prepare an initial implementation, then the workflow commits, pushes, creates the PR, and posts its link—or a failure status—to the issue.
+* `.github/workflows/opencode-issue-implementation.yml` runs only when manually dispatched with an open issue number. It asks OpenCode to prepare an initial implementation, then the workflow commits, pushes, creates the PR, and posts its link—or a failure status—to the issue.
 
 Both workflows invoke `scripts/run_agentic_feedback.py`. The script validates the selected repository customisations, runs OpenCode, and writes one marked GitHub comment per feedback type. For pull requests it creates one GitHub review: its summary is an overall review comment and valid feedback locations are attached directly to changed new-file lines.
 
@@ -100,7 +100,7 @@ Add it as an Actions secret such as `AGENTIC_FEEDBACK_TOKEN`, pass it to `GITHUB
 
 ## Reusable workflows (`workflow_call`)
 
-Each workflow also exposes an `on.workflow_call` interface so consumer repositories can call it through a thin local wrapper. The caller owns event triggers, `permissions:` declarations, concurrency controls, and provider secret forwarding; the reusable workflow owns input validation, model invocation, and publication.
+The pull-request review and issue-feedback workflows expose an `on.workflow_call` interface so consumer repositories can call them through a thin local wrapper. The issue-implementation workflow is deliberately manual-dispatch-only and cannot be called as a reusable workflow. The caller owns event triggers, `permissions:` declarations, concurrency controls, and provider secret forwarding; the reusable workflow owns input validation, model invocation, and publication.
 
 ### Caller/callee responsibility split
 
@@ -125,7 +125,6 @@ Each workflow also exposes an `on.workflow_call` interface so consumer repositor
 | `focus` | string | no | Allowlisted review focus; no arbitrary prompt text. |
 | `max_comments` | number | no | Bounded feedback count, `0`–`20` (PR review only). |
 | `max_issues` | number | no | Bounded issue count, `1`–`100` (issue feedback only). |
-| `request_label` | string | no | Validated label/marker for issue selection (implementation only). |
 | `dry_run` | boolean | no | Resolve, validate, and generate output without publishing. |
 | `validate_only` | boolean | no | Resolve and validate configuration only. |
 | `pull_number` / `issue_number` | number | no | Target number when event context is unavailable. |
@@ -205,18 +204,11 @@ with:
   validate_only: true      # resolve and validate only; no checkout or model call
 ```
 
-Issue implementation supports `request_label`, `issue_number`, `dry_run`, and `validate_only`:
+The issue-implementation workflow is not reusable. Dispatch it manually from
+the Actions tab and provide the required open `issue_number`; it does not
+select issues from labels or comments.
 
-```yaml
-with:
-  configuration_source: default
-  configuration_ref: <pinned-workflow-sha>
-  configuration_profile: default-implementation
-  request_label: ai-implementation-requested
-  dry_run: true            # cannot create branches, push commits, open PRs, or comment
-```
-
-Do not set `dry_run` and `validate_only` together; the resolver rejects that combination. Inputs are workflow-specific: for example, `max_comments` is valid only for PR review, and `request_label` is valid only for issue implementation.
+Do not set `dry_run` and `validate_only` together; the resolver rejects that combination. Inputs are workflow-specific: for example, `max_comments` is valid only for PR review.
 
 ### Modes
 
@@ -249,8 +241,9 @@ Use a real reviewed commit SHA or protected release tag in the `uses:` line, not
 
 ### Using reusable workflows
 
-The workflows retain direct triggers (`pull_request_target`, `issues`, and
-`workflow_dispatch`). To use the reusable form:
+The pull-request review and issue-feedback workflows retain direct triggers
+and support reusable invocation. The issue-implementation workflow supports
+only manual `workflow_dispatch`. To use the reusable form:
 
 1. Pin this repository to a reviewed commit SHA in your wrapper's `uses:` line.
 2. Copy the relevant wrapper from `docs/examples/` into `.github/workflows/` in your repository.

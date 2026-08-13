@@ -66,7 +66,7 @@ fresh review for the same PR head or issue.
 | --- | --- | --- |
 | PR review | `<!-- agentic-workflow:pr-documentation-review:v2:<digest>:<head_sha> -->` | same digest AND same head SHA |
 | Issue feedback | `<!-- agentic-workflow:issue-feedback:v2:<digest> -->` | same digest |
-| Issue implementation status | `<!-- agentic-workflow:issue-implementation-status:v1 -->` | existing status comment suppresses re-selection |
+| Issue implementation status | `<!-- agentic-workflow:issue-implementation-status:v1 -->` | records the result of an explicitly dispatched issue run |
 
 To intentionally re-review after a configuration change, update the pinned
 bundle SHA (remote) or the local bundle content; the new digest produces a new

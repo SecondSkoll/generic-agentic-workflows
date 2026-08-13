@@ -42,7 +42,8 @@ hyphens; remote configuration requires an exact 40-character commit SHA.
 
 The wrapper owns triggers, concurrency, permissions, and secret forwarding. The
 reusable workflow owns configuration resolution, validation, model invocation,
-and publication.
+and publication. Issue implementation is an exception: it is available only as
+a manual dispatch in this repository and requires an explicit open issue number.
 
 ## 1. Use a supplied default profile
 
@@ -90,9 +91,9 @@ stops before model invocation and GitHub writes.
 
 ### Direct workflows
 
-The workflows included in this repository retain direct-event triggers. Direct
-runs use `local`, which resolves the profile from this repository's trusted
-checkout.
+The pull-request review and issue-feedback workflows retain their direct-event
+triggers. Issue implementation is manual-dispatch-only. Direct runs use
+`local`, which resolves the profile from this repository's trusted checkout.
 
 ## 2. Create a caller-local bundle
 
