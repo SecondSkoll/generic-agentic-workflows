@@ -13,7 +13,7 @@ issue-to-pull-request implementation path.
    permissions.
 3. Select one configuration pathway: **default**, **local**, or **central**.
    The [configuration guide](docs/configuration.md) includes complete
-   SHA-pinned examples for all three.
+   SHA-pinned examples for the review and feedback workflows.
 4. Roll out in order: `validate_only: true`, then `dry_run: true`, then normal
    publication.
 
