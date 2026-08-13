@@ -2,7 +2,7 @@
 name: issue-feedback
 description: Provide concise, constructive feedback on open GitHub issues
 mode: primary
-model: openrouter/deepseek/deepseek-v4-flash
+model: openrouter/openai/gpt-5.6-luna
 temperature: 0.1
 permission:
   edit: deny

@@ -2,7 +2,7 @@
 name: default-agent
 description: Provide responses for issues and PRs
 mode: primary
-model: openrouter/deepseek/deepseek-v4-flash
+model: openrouter/openai/gpt-5.6-luna
 temperature: 0.1
 permission:
   edit: deny

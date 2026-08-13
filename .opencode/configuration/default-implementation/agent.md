@@ -2,7 +2,7 @@
 name: default-implementation
 description: Plan a small, safe first implementation for an approved issue and delegate to the executor
 mode: primary
-model: openrouter/openai/gpt-5.6-terra
+model: openai/gpt-5.6-terra
 temperature: 0.1
 permission:
   edit: deny
