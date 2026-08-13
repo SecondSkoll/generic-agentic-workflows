@@ -2,6 +2,9 @@
 
 Reusable GitHub Actions workflows for agentic pull-request and issue feedback using OpenCode.
 
+For consumer setup, configuration bundles, safe remote configuration, and the
+security model, see the [configuration guide](docs/configuration.md).
+
 ## Workflows
 
 * `.github/workflows/opencode-review.yml` reviews pull-request diffs for documentation impact.
