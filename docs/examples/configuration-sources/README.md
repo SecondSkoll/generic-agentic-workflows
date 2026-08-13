@@ -11,7 +11,7 @@ reusable actions in this repository at commit
 | --- | --- | --- | --- |
 | [`default/`](default/) | `default` | None | Use the supplied `documentation-review`, `issue-feedback`, and `release-project-review` profiles unchanged. |
 | [`local/`](local/) | `local` | `.opencode/configuration/local-documentation-review/`, `.opencode/configuration/local-issue-feedback/`, and `.opencode/configuration/local-release-project-review/` | Keep repository-specific reviewed instructions with the consumer. |
-| [`central/`](central/) | `central` | None | Use the centrally approved profiles hosted by this repository. |
+| [`central/`](central/) | `central` | None | Use the centrally approved profiles hosted by the central config repository, defined by this repository. |
 
 Each directory contains `documentation-review.yml`, `issue-feedback.yml`, and
 `release-project-review.yml`. Keep only the workflows needed by the consumer
@@ -34,12 +34,15 @@ reviewed repository when it finds material release-planning or
 project-management gaps. It never runs automatically on a release event.
 
 The remote workflow and remote configuration reference are pinned to complete
-commit SHAs. Update both pins together only after reviewing a newer release.
-The `release-project-review.yml` wrapper pins must point to a reviewed release
-commit that contains both the reusable workflow
-(`.github/workflows/opencode-release-project-review.yml`) and the supplied
-`release-project-review` profile (`.opencode/configuration/release-project-review/`).
-The placeholder pin shown in these examples (`61ed1bbd…`) predates the release
+commit SHAs. Each SHA must be reviewed in the repository it references. For
+the `default` source, the configuration bundle is in this workflow repository,
+so its `configuration_ref` matches the `uses:` SHA. For the `central` source,
+`configuration_ref` instead pins the approved bundle in
+`SecondSkoll/generic-agentic-workflows-config`; it is independent of the
+workflow `uses:` SHA. The `release-project-review.yml` workflow pin must point
+to a reviewed release commit containing
+`.github/workflows/opencode-release-project-review.yml`. The placeholder
+workflow pin shown in these examples (`61ed1bbd…`) predates the release
 project-review work and is a format placeholder only; replace it with a real
 reviewed release commit SHA before enabling the workflow.
 

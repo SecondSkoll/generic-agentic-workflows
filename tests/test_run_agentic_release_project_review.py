@@ -1600,7 +1600,16 @@ class WorkflowYamlTests(unittest.TestCase):
                 self.assertNotIn("configuration_ref", job["with"])
             else:
                 self.assertEqual(job["with"]["configuration_profile"], "release-project-review")
-                self.assertEqual(job["with"]["configuration_ref"], sha)
+                configuration_ref = job["with"]["configuration_ref"]
+                self.assertRegex(configuration_ref, r"^[0-9a-f]{40}$")
+                if source == "default":
+                    self.assertEqual(configuration_ref, sha)
+                elif source == "central":
+                    self.assertEqual(
+                        configuration_ref, "9b35f1fc2860a1d6b8f1abaa9b467dc4eb42aec8"
+                    )
+                else:
+                    self.fail(f"unexpected remote source: {source}")
 
 
 # ===========================================================================

@@ -42,7 +42,8 @@ pins:
 - [`local/`](configuration-sources/local/) — repository-owned configuration,
   including valid placeholder documentation-review and issue-feedback bundles.
 - [`central/`](configuration-sources/central/) — centrally hosted profile;
-   the current central alias resolves this repository's approved bundles.
+   the current central alias resolves approved bundles from
+   `SecondSkoll/generic-agentic-workflows-config`.
 
 Each starts with `validate_only: true`. Follow the rollout instructions in the
 example README before enabling model invocation or publication.

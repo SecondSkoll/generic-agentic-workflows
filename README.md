@@ -27,7 +27,9 @@ release project-review that creates at most one release-readiness issue.
 | `local` | Repository-specific instructions | The caller repository's trusted checkout. |
 | `central` | Shared organization profiles | An allowlisted central repository at a full pinned commit SHA. |
 
-Note: `default` and `central` currently point to this repository. `central` should eventually be aimed elsewhere to provide a shared, and more agile source or profiles.
+`default` resolves profiles from this repository. `central` resolves profiles
+from the separate allowlisted `SecondSkoll/generic-agentic-workflows-config`
+repository, so each source is pinned independently.
 
 All configuration is a hash-verified bundle. Callers cannot provide arbitrary
 prompt text, file paths, model identifiers, URLs, branches, or tags. Remote

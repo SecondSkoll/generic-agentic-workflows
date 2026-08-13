@@ -46,9 +46,12 @@ jobs:
         run: |
           set -euo pipefail
           uv run python - <<'PY'
+          import json
+          import os
           import sys
           from pathlib import Path
           import re
+          from urllib.request import Request, urlopen
           import yaml
 
           files = [
@@ -80,6 +83,33 @@ jobs:
                 "release-project-review",
             ),
           }
+            central_repository = json.loads(
+              Path(".opencode/policy/organization-policy.json").read_text(
+                encoding="utf-8"
+              )
+            )["remote_source_allowlist"]["central"]["repository"]
+            central_ref = "9b35f1fc2860a1d6b8f1abaa9b467dc4eb42aec8"
+            verified_central_refs = set()
+
+            def assert_ref_is_on_main(repository, ref):
+              key = (repository, ref)
+              if key in verified_central_refs:
+                return
+              request = Request(
+                f"https://api.github.com/repos/{repository}/compare/main...{ref}",
+                headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                },
+              )
+              with urlopen(request) as response:
+                comparison = json.load(response)
+              assert comparison["status"] in {"behind", "identical"}, (
+                f"{ref} is not reachable from {repository}'s main branch"
+              )
+              verified_central_refs.add(key)
+
           failures = []
           for path in files:
               try:
@@ -109,7 +139,15 @@ jobs:
                           assert inputs["configuration_profile"] == f"local-{remote_profile}"
                       else:
                           assert inputs["configuration_profile"] == remote_profile
-                          assert inputs["configuration_ref"] == workflow_sha
+                          configuration_ref = inputs["configuration_ref"]
+                          assert re.fullmatch(r"[0-9a-f]{40}", configuration_ref)
+                          if source == "default":
+                            assert configuration_ref == workflow_sha
+                          elif source == "central":
+                            assert configuration_ref == central_ref
+                            assert_ref_is_on_main(central_repository, configuration_ref)
+                          else:
+                            raise AssertionError(f"unexpected remote source: {source}")
                       print(f"OK example: {path}")
                   except Exception as error:
                       failures.append(f"{path}: {error}")
