@@ -119,6 +119,7 @@ class ResolvedInvocation:
         return json.dumps(self.to_dict(), sort_keys=True, indent=2)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return JSON-serialisable normalized invocation fields."""
         return {
             "workflow": self.workflow,
             "configuration_source": self.configuration_source,
@@ -191,12 +192,14 @@ def _coerce_int(value: Any, name: str, minimum: int, maximum: int) -> int:
 
 
 def _optional_int(value: Any, name: str, minimum: int, maximum: int) -> int | None:
+    """Return a bounded integer when supplied, otherwise ``None``."""
     if value is None or value == "":
         return None
     return _coerce_int(value, name, minimum, maximum)
 
 
 def _validate_profile(profile: Any) -> str:
+    """Validate and normalize a configuration profile identifier."""
     if not isinstance(profile, str):
         raise InvocationError("configuration_profile must be a string")
     normalized = profile.strip()
@@ -209,6 +212,7 @@ def _validate_profile(profile: Any) -> str:
 
 
 def _validate_source(source: Any) -> str:
+    """Validate and normalize an allowlisted configuration source."""
     if not isinstance(source, str):
         raise InvocationError("configuration_source must be a string")
     normalized = source.strip().lower()
@@ -220,6 +224,7 @@ def _validate_source(source: Any) -> str:
 
 
 def _validate_ref(ref: Any, source: str) -> str | None:
+    """Validate a remote source's immutable commit SHA, when required."""
     if ref is None or ref == "":
         if source == "local":
             return None
@@ -236,6 +241,7 @@ def _validate_ref(ref: Any, source: str) -> str | None:
 
 
 def _validate_focus(focus: Any) -> str | None:
+    """Validate and normalize an optional allowlisted review focus."""
     if focus is None or focus == "":
         return None
     if not isinstance(focus, str):
@@ -249,6 +255,7 @@ def _validate_focus(focus: Any) -> str | None:
 
 
 def _validate_target(target: Any) -> int | None:
+    """Validate an optional positive issue or pull-request number."""
     if target is None or target == "":
         return None
     if isinstance(target, int) and not isinstance(target, bool):
@@ -268,6 +275,7 @@ def _validate_target(target: Any) -> int | None:
 
 
 def _validate_request_label(label: Any) -> str | None:
+    """Validate an optional request label using the profile identifier grammar."""
     if label is None or label == "":
         return None
     if not isinstance(label, str):
@@ -281,6 +289,7 @@ def _validate_request_label(label: Any) -> str | None:
 
 
 def _validate_workflow(workflow: Any) -> str:
+    """Validate and normalize a supported workflow identifier."""
     if not isinstance(workflow, str):
         raise InvocationError("workflow must be a string")
     normalized = workflow.strip().lower()
@@ -406,6 +415,7 @@ def resolve_from_env(env: dict[str, str]) -> ResolvedInvocation:
 
 
 def _require_env(env: dict[str, str], key: str) -> str:
+    """Return a required environment value or raise :class:`InvocationError`."""
     value = env.get(key)
     if not value:
         raise InvocationError(f"{key} environment variable is required")
@@ -474,6 +484,7 @@ def write_job_summary(resolved: ResolvedInvocation, summary_path: Path) -> None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Build the command-line parser for invocation resolution."""
     parser = argparse.ArgumentParser(
         description="Normalize and validate reusable-workflow invocation inputs."
     )
@@ -509,6 +520,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Iterable[str] | None = None) -> int:
+    """Resolve CLI inputs, emit normalized metadata, and return an exit status."""
     parser = _build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 

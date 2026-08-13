@@ -65,6 +65,7 @@ def _load_resolver() -> Any:
 
 
 def _load_json(path: Path, *, label: str) -> dict[str, Any]:
+    """Load one required JSON object from disk with a labelled error."""
     if not path.is_file():
         raise FileNotFoundError(f"{label} not found: {path}")
     try:
@@ -82,6 +83,7 @@ def _declared_content_files(manifest: dict[str, Any]) -> list[str]:
     seen: set[str] = set()
 
     def _add(value: Any) -> None:
+        """Normalize and add one manifest-declared content path."""
         if isinstance(value, str) and value and value not in seen:
             paths.append(value)
             seen.add(value)
@@ -183,6 +185,7 @@ def discover_bundles(bundle_root: Path) -> list[Path]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Update requested bundle hashes and return a process exit status."""
     parser = argparse.ArgumentParser(
         description="Update hashes.json for agentic configuration bundles."
     )

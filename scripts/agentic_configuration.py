@@ -439,6 +439,7 @@ class ResolvedBundle:
     additional_agent_names: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable representation of the resolved bundle."""
         return {
             "source_alias": self.source_alias,
             "repository": self.repository,
@@ -464,6 +465,7 @@ class ResolvedBundle:
         }
 
     def to_json(self) -> str:
+        """Serialize the resolved bundle as deterministic, pretty JSON."""
         return json.dumps(self.to_dict(), sort_keys=True, indent=2)
 
 
@@ -501,6 +503,7 @@ def _read_bounded(path: Path, *, max_bytes: int, label: str) -> bytes:
 
 
 def _load_hashes(bundle_root: Path) -> dict[str, str]:
+    """Load and validate declared SHA-256 hashes for a local bundle."""
     hashes_path = bundle_root / "hashes.json"
     if not hashes_path.is_file():
         raise ConfigurationError("bundle must contain hashes.json")
@@ -686,11 +689,15 @@ class RemoteFetchClient(Protocol):
 
     def fetch_manifest(
         self, *, repository: str, root: str, profile: str, sha: str
-    ) -> tuple[bytes, str]: ...
+    ) -> tuple[bytes, str]:
+        """Fetch a profile manifest and report the resolved immutable SHA."""
+        ...
 
     def fetch_content(
         self, *, repository: str, root: str, path: str, sha: str
-    ) -> bytes: ...
+    ) -> bytes:
+        """Fetch one declared content file for an approved immutable source."""
+        ...
 
 
 class GitHubContentsClient:
@@ -716,6 +723,7 @@ class GitHubContentsClient:
         max_retries: int = FETCH_MAX_RETRIES,
         max_response_bytes: int = FETCH_RESPONSE_BYTES,
     ) -> None:
+        """Initialize bounded, authenticated GitHub Contents API access."""
         if not token:
             raise ConfigurationError(
                 "a GitHub token is required for remote bundle fetch"
@@ -726,6 +734,7 @@ class GitHubContentsClient:
         self._max_response_bytes = max_response_bytes
 
     def _contents_url(self, repository: str, path: str, sha: str) -> str:
+        """Build the Contents API URL for a repository path at a pinned SHA."""
         return f"https://api.github.com/repos/{repository}/contents/{path}?ref={sha}"
 
     def _get(self, url: str) -> bytes:
@@ -801,16 +810,19 @@ class GitHubContentsClient:
     def fetch_manifest(
         self, *, repository: str, root: str, profile: str, sha: str
     ) -> tuple[bytes, str]:
+        """Fetch a profile manifest and return it with its pinned SHA."""
         path = f"{root}/{profile}/bundle.json"
         return self._get(self._contents_url(repository, path, sha)), sha
 
     def fetch_content(
         self, *, repository: str, root: str, path: str, sha: str
     ) -> bytes:
+        """Fetch one declared bundle file from an approved pinned source."""
         return self._get(self._contents_url(repository, path, sha))
 
 
 def _remote_cache_dir() -> Path:
+    """Return the per-run directory used for immutable remote bundle caching."""
     base = os.environ.get("RUNNER_TEMP") or tempfile.gettempdir()
     cache = Path(base) / "agentic-bundle-cache"
     cache.mkdir(parents=True, exist_ok=True)
@@ -818,6 +830,7 @@ def _remote_cache_dir() -> Path:
 
 
 def _cache_key(repository: str, sha: str, profile: str) -> str:
+    """Return a stable filesystem-safe cache key for a remote bundle."""
     return f"{repository.replace('/', '_')}_{sha}_{profile}"
 
 
@@ -1266,6 +1279,7 @@ def redacted_failure_record(
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Build the configuration resolver command-line parser."""
     parser = argparse.ArgumentParser(
         description="Resolve and validate an agentic configuration bundle."
     )
@@ -1288,6 +1302,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Iterable[str] | None = None) -> int:
+    """Resolve one configuration bundle and write requested result files."""
     parser = _build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     try:
@@ -1324,6 +1339,7 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 
 def write_job_summary(resolved: ResolvedBundle, summary_path: Path) -> None:
+    """Append a redacted resolved-bundle summary to a GitHub step summary."""
     lines = [
         "### Resolved agentic configuration",
         "",

@@ -40,6 +40,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 
 
 def _load_sibling(name: str):
+    """Load a dependency-free sibling module by filename."""
     spec = importlib.util.spec_from_file_location(name, _SCRIPTS_DIR / f"{name}.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -71,6 +72,7 @@ class OpenCodeTransportError(ValueError):
     """Raised when OpenCode's JSONL event stream has no usable final response."""
 
     def __init__(self, message: str, diagnostics: dict[str, object]) -> None:
+        """Initialize the error with safe structural event diagnostics."""
         super().__init__(message)
         self.diagnostics = diagnostics
 
@@ -322,18 +324,27 @@ def changed_lines_by_path(diff: str) -> dict[str, set[int]]:
 
 
 class DiffFile:
+    """Parsed metadata for one path in a unified pull-request diff."""
+
     def __init__(self, path: str, old_path: str | None, status: str, added_lines: frozenset[int]) -> None:
+        """Store path identity, diff status, rename source, and added lines."""
         self.path, self.old_path, self.status, self.added_lines = path, old_path, status, added_lines
 
 
 class ContextLimits:
+    """Bounded limits governing model-requested pull-request context."""
+
     def __init__(self, max_rounds: int = 3, max_files: int = 20, max_file_bytes: int = 200 * 1024, max_total_bytes: int = 1024 * 1024, max_manifest_entries: int = 5000) -> None:
+        """Store maximum rounds, files, per-file bytes, total bytes, and manifest entries."""
         self.max_rounds, self.max_files, self.max_file_bytes = max_rounds, max_files, max_file_bytes
         self.max_total_bytes, self.max_manifest_entries = max_total_bytes, max_manifest_entries
 
 
 class ContextAudit:
+    """Accumulate redacted accounting data for supplied additional context."""
+
     def __init__(self) -> None:
+        """Initialize an empty context-round audit trail."""
         self.rounds = 0
         self.supplied_paths: list[str] = []
         self.denied_paths: list[str] = []
@@ -350,6 +361,7 @@ def parse_diff_files(diff: str) -> dict[str, DiffFile]:
     added: set[int] = set()
     new_line: int | None = None
     def finish() -> None:
+        """Store metadata collected for the current diff file, if any."""
         if path:
             files[path] = DiffFile(path, old_path, status, frozenset(added))
     for line in diff.splitlines():
@@ -381,10 +393,12 @@ def parse_diff_files(diff: str) -> dict[str, DiffFile]:
 
 
 def _safe_context_path(path: str, denied_patterns: tuple[str, ...]) -> bool:
+    """Return whether a requested repository path passes containment and deny rules."""
     return bool(path) and not path.startswith("/") and "\\" not in path and all(part not in {"", ".", ".."} for part in path.split("/")) and not any(re.search(pattern, path) for pattern in denied_patterns)
 
 
 def _git_blob(ref: str, path: str, max_bytes: int) -> bytes | None:
+    """Read a bounded UTF-8 Git blob or return ``None`` when unsafe or absent."""
     result = subprocess.run(["git", "show", f"{ref}:{path}"], capture_output=True, check=False)
     if result.returncode or b"\x00" in result.stdout or len(result.stdout) > max_bytes:
         return None
@@ -1017,6 +1031,7 @@ def _initial_pr_untrusted(diff: str, metadata: dict[str, object]) -> str:
 
 
 def _context_limits(policy: dict, args: argparse.Namespace) -> ContextLimits:
+    """Derive effective context limits, allowing CLI values to narrow policy only."""
     values = dict(policy.get("context") or {})
     limits = ContextLimits(max_rounds=int(values.get("max_context_rounds", 3)), max_files=int(values.get("max_context_files", 20)), max_file_bytes=int(values.get("max_context_file_bytes", 200 * 1024)), max_total_bytes=int(values.get("max_context_total_bytes", 1024 * 1024)), max_manifest_entries=int(values.get("max_manifest_entries", 5000)))
     for attr, override in (("max_rounds", args.max_context_rounds), ("max_files", args.max_context_files), ("max_total_bytes", args.max_context_bytes)):
@@ -1028,6 +1043,7 @@ def _context_limits(policy: dict, args: argparse.Namespace) -> ContextLimits:
 
 
 def _requested_context(request: dict, *, diff_files: dict[str, DiffFile], manifest: set[str] | None, base_ref: str, head_ref: str, policy: dict, limits: ContextLimits, audit: ContextAudit) -> tuple[str, set[str] | None]:
+    """Authorize and render a bounded response to one model context request."""
     context_policy = policy.get("context") or {}; denied = tuple(context_policy.get("deny_path_patterns", policy.get("deny_path_patterns", ())))
     blocks: list[str] = []; req = request["request"]
     if req["manifest"]:
