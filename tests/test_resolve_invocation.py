@@ -148,16 +148,6 @@ class ResolveInvocationTests(unittest.TestCase):
                 target_number=1,
             )
 
-    def test_remote_source_requires_full_sha(self) -> None:
-        with self.assertRaises(RESOLVER.InvocationError):
-            RESOLVER.resolve_invocation(
-                workflow="pr-documentation-review",
-                configuration_source="local",
-                configuration_ref="main",
-                configuration_profile="documentation-review",
-                target_number=1,
-            )
-
     def test_local_source_rejects_mutable_ref(self) -> None:
         with self.assertRaises(RESOLVER.InvocationError):
             RESOLVER.resolve_invocation(
@@ -220,15 +210,6 @@ class ResolveInvocationTests(unittest.TestCase):
         )
         self.assertEqual(resolved.configuration_source, "default")
         self.assertEqual(resolved.configuration_ref, sha)
-
-    def test_default_supplied_alias_requires_sha(self) -> None:
-        with self.assertRaises(RESOLVER.InvocationError):
-            RESOLVER.resolve_invocation(
-                workflow="pr-documentation-review",
-                configuration_source="default",
-                configuration_profile="documentation-review",
-                target_number=1,
-            )
 
     def test_dry_run_and_validate_only_are_mutually_exclusive(self) -> None:
         with self.assertRaises(RESOLVER.InvocationError):

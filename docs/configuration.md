@@ -4,6 +4,9 @@ This guide configures the reusable PR-review and issue-feedback workflows.
 Choose exactly one configuration source: `default`, `local`, or `central`.
 Start every new configuration with `validate_only: true`, then `dry_run: true`.
 
+For field-by-field definitions and complete bundle-file examples, see the
+[configuration reference](configuration-reference.md).
+
 ## Prerequisites
 
 1. Pin the reusable workflow in `uses:` to a reviewed commit SHA (or an
@@ -28,7 +31,7 @@ must be a lowercase 40-character commit SHA.
 ```yaml
 jobs:
   review:
-    uses: organization/generic-agentic-workflows/.github/workflows/opencode-review.yml@<reviewed-workflow-sha>
+    uses: organization/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
     permissions:
       contents: read
       pull-requests: write
@@ -55,7 +58,7 @@ checkout. Local configuration does **not** use `configuration_ref`.
 ```yaml
 jobs:
   review:
-    uses: organization/generic-agentic-workflows/.github/workflows/opencode-review.yml@<reviewed-workflow-sha>
+    uses: organization/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
     permissions:
       contents: read
       pull-requests: write
@@ -101,7 +104,7 @@ the workflow release. Pin the remote bundle with a full commit SHA.
 ```yaml
 jobs:
   review:
-    uses: organization/generic-agentic-workflows/.github/workflows/opencode-review.yml@<reviewed-workflow-sha>
+    uses: organization/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
     permissions:
       contents: read
       pull-requests: write
@@ -118,7 +121,10 @@ jobs:
       central_config_token: ${{ secrets.CENTRAL_CONFIG_TOKEN }}
 ```
 
-See the [central configuration example](examples/central-configuration/README.md)
+The current `central` alias resolves approved bundles in
+`SecondSkoll/generic-agentic-workflows` under `.opencode/configuration`.
+See the copy-ready [central example](examples/configuration-sources/central/)
+and the [central configuration guide](examples/central-configuration/README.md)
 for its repository layout and release process.
 
 ## Common rules

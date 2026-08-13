@@ -2,13 +2,13 @@ name: Verify reusable workflows
 
 # Verifies that the reusable workflows remain valid YAML, that the resolver
 # module and feedback script pass their unit tests, and that the consumer
-# wrapper examples parse. It also exercises the resolver in validate_only mode
-# for each supported workflow to confirm input normalization and rejection
-# work without requiring a provider secret or GitHub write access. It then
-# validates every local configuration bundle, hash, output contract, and
-# model profile, and exercises policy/prompt/provenance behaviour including
-# policy escalation rejection, prompt-injection delimiter behaviour, and
-# provenance redaction.
+# configuration-source examples parse and have the expected reusable-workflow
+# wiring. It also exercises the resolver in validate_only mode for each
+# supported workflow to confirm input normalization and rejection work without
+# requiring a provider secret or GitHub write access. It then validates every
+# local configuration bundle, hash, output contract, and model profile, and
+# exercises policy/prompt/provenance behaviour including policy escalation
+# rejection, prompt-injection delimiter behaviour, and provenance redaction.
 on:
   pull_request:
     paths:
@@ -48,15 +48,31 @@ jobs:
           uv run python - <<'PY'
           import sys
           from pathlib import Path
+          import re
           import yaml
+
           files = [
               ".github/workflows/opencode-documentation-review.yml",
               ".github/workflows/opencode-issue-feedback.yml",
               ".github/workflows/opencode-issue-implementation.yml",
               ".github/workflows/verify-reusable-workflows.yml",
-              "docs/examples/opencode-documentation-review.yml",
-              "docs/examples/opencode-issue-feedback.yml",
           ]
+          examples_root = Path("docs/examples/configuration-sources")
+          expected_sources = {"default", "local", "central"}
+          expected_examples = {
+            "documentation-review.yml": (
+                "review",
+                "opencode-documentation-review.yml",
+                "pr-documentation-review",
+                "documentation-review",
+            ),
+            "issue-feedback.yml": (
+                "feedback",
+                "opencode-issue-feedback.yml",
+                "issue-feedback",
+                "issue-feedback",
+            ),
+          }
           failures = []
           for path in files:
               try:
@@ -65,6 +81,32 @@ jobs:
               except Exception as error:
                   failures.append(f"{path}: {error}")
                   print(f"FAIL: {path}: {error}")
+          for source in expected_sources:
+              for filename, (job_name, reusable_workflow, _, remote_profile) in expected_examples.items():
+                  path = examples_root / source / ".github/workflows" / filename
+                  try:
+                      data = yaml.safe_load(path.read_text(encoding="utf-8"))
+                      job = data["jobs"][job_name]
+                      inputs = job["with"]
+                      assert inputs["configuration_source"] == source
+                      assert inputs["validate_only"] is True
+                      prefix = (
+                          "SecondSkoll/generic-agentic-workflows/.github/workflows/"
+                          f"{reusable_workflow}@"
+                      )
+                      assert job["uses"].startswith(prefix)
+                      workflow_sha = job["uses"].removeprefix(prefix)
+                      assert re.fullmatch(r"[0-9a-f]{40}", workflow_sha)
+                      if source == "local":
+                          assert "configuration_ref" not in inputs
+                          assert inputs["configuration_profile"] == f"local-{remote_profile}"
+                      else:
+                          assert inputs["configuration_profile"] == remote_profile
+                          assert inputs["configuration_ref"] == workflow_sha
+                      print(f"OK example: {path}")
+                  except Exception as error:
+                      failures.append(f"{path}: {error}")
+                      print(f"FAIL example: {path}: {error}")
           if failures:
               sys.exit(1)
           PY
@@ -90,6 +132,8 @@ jobs:
         run: |
           set -euo pipefail
           uv run scripts/update_hashes.py --dry-run
+          uv run scripts/update_hashes.py --dry-run \
+            --bundle-root docs/examples/configuration-sources/local/.opencode/configuration
 
       - name: Exercise resolver in validate_only mode
         run: |
@@ -153,18 +197,28 @@ jobs:
           )
           cfg = importlib.util.module_from_spec(spec); sys.modules[spec.name] = cfg; spec.loader.exec_module(cfg)
           bundles = [
-              ("documentation-review", "pr-documentation-review"),
-              ("issue-feedback", "issue-feedback"),
-              ("default-implementation", "issue-implementation"),
+              (Path(".opencode/configuration"), "documentation-review", "pr-documentation-review"),
+              (Path(".opencode/configuration"), "issue-feedback", "issue-feedback"),
+              (Path(".opencode/configuration"), "default-implementation", "issue-implementation"),
+              (
+                Path("docs/examples/configuration-sources/local/.opencode/configuration"),
+                "local-documentation-review",
+                "pr-documentation-review",
+              ),
+              (
+                Path("docs/examples/configuration-sources/local/.opencode/configuration"),
+                "local-issue-feedback",
+                "issue-feedback",
+              ),
           ]
-          for profile, workflow in bundles:
+          for bundle_root, profile, workflow in bundles:
               resolved = cfg.resolve_local_bundle(
-                  bundle_root=Path(".opencode/configuration"),
+                  bundle_root=bundle_root,
                   profile=profile,
                   workflow=workflow,
               )
               data = resolved.to_dict()
-              print(f"OK bundle: {profile} -> {resolved.manifest.output_contract}")
+              print(f"OK bundle: {bundle_root}/{profile} -> {resolved.manifest.output_contract}")
               assert resolved.manifest.manifest_sha256
               assert resolved.prompt_template_sha256
               # Required change #3: serialization carries template text + limits.

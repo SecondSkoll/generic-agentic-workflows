@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "profile_name": "local-documentation-review",
+  "allowed_workflows": ["pr-documentation-review"],
+  "agent_file": "agent.md",
+  "skill_files": ["skills/documentation/SKILL.md"],
+  "prompt_template": "prompts/review.md",
+  "model_profile": "review-readonly",
+  "output_contract": "pr-review-json-v1",
+  "limits": {"max_comments": 5}
+}

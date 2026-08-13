@@ -29,10 +29,23 @@ A caller may grant *fewer* permissions than the callee requests (for example,
 to run `validate_only` with read-only access), but never more than the callee
 declares.
 
-## Available wrappers
+## Ready-to-copy configuration-source examples
 
-- [`opencode-review.yml`](./opencode-review.yml) — pull-request documentation review.
-- [`opencode-issue-feedback.yml`](./opencode-issue-feedback.yml) — issue feedback.
+For complete pull-request documentation-review and issue-feedback workflows
+for each supported configuration source, copy one of the directories in
+[`configuration-sources/`](configuration-sources/). These examples use this
+repository as the reusable workflow source and contain real full commit-SHA
+pins:
+
+- [`default/`](configuration-sources/default/) — supplied configuration;
+   no additional bundle files.
+- [`local/`](configuration-sources/local/) — repository-owned configuration,
+  including valid placeholder documentation-review and issue-feedback bundles.
+- [`central/`](configuration-sources/central/) — centrally hosted profile;
+   the current central alias resolves this repository's approved bundles.
+
+Each starts with `validate_only: true`. Follow the rollout instructions in the
+example README before enabling model invocation or publication.
 
 ## Typed inputs exposed to callers
 

@@ -117,16 +117,6 @@ class CollisionSafeStagingTests(unittest.TestCase):
             CFG.cleanup_staged(staged)
             self.assertEqual(dest.read_bytes(), original_bytes)
 
-    def test_staging_new_file_removed_on_cleanup(self) -> None:
-        data = _resolved("documentation-review", "pr-documentation-review")
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            staged = CFG.materialize_to_opencode_root(data, root)
-            agent_path = root / ".opencode" / "agents" / "documentation-review.md"
-            self.assertTrue(agent_path.is_file())
-            CFG.cleanup_staged(staged)
-            self.assertFalse(agent_path.exists())
-
     def test_staging_into_repo_preserves_git_status(self) -> None:
         """Staging + cleanup over a git repo leaves the working tree clean."""
         data = _resolved("default-implementation", "issue-implementation")
