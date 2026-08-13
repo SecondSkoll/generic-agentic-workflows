@@ -61,7 +61,35 @@ OPENCODE_PROMPT_MESSAGE = (
 )
 
 
-def _opencode_json_text_output(output: str) -> str:
+class OpenCodeTransportError(ValueError):
+    """Raised when OpenCode's JSONL event stream has no usable final response."""
+
+    def __init__(self, message: str, diagnostics: dict[str, object]) -> None:
+        super().__init__(message)
+        self.diagnostics = diagnostics
+
+
+def _safe_opencode_error(error: object) -> dict[str, str]:
+    """Return operational error fields without preserving arbitrary provider data."""
+    if not isinstance(error, dict):
+        return {"name": type(error).__name__}
+    name = error.get("name")
+    data = error.get("data")
+    message = data.get("message") if isinstance(data, dict) else None
+    result = {"name": str(name)[:128] if name else "unknown"}
+    if isinstance(message, str) and message:
+        # Provider error messages are useful operational diagnostics. Keep them
+        # bounded and redact common credential-bearing forms before logging.
+        safe_message = re.sub(
+            r"(?i)(bearer\s+|api[_-]?key\s*[=:]\s*|sk-)[^\s,;]+",
+            r"\1[REDACTED]",
+            message,
+        )
+        result["message"] = safe_message.replace("\n", " ")[:512]
+    return result
+
+
+def _opencode_json_text_output(output: str) -> tuple[str, dict[str, object]]:
     """Return concatenated final assistant text from OpenCode JSONL events.
 
     ``opencode run --format json`` emits one event object per line.  Selecting
@@ -69,27 +97,62 @@ def _opencode_json_text_output(output: str) -> str:
     review response, while retaining the exact model text for contract parsing.
     """
     text_parts: list[str] = []
+    event_types: dict[str, int] = {}
+    incomplete_text_count = 0
+    errors: list[dict[str, str]] = []
     for line in output.splitlines():
         if not line.strip():
             continue
         try:
             event = json.loads(line)
         except json.JSONDecodeError as error:
-            raise ValueError("OpenCode emitted malformed JSONL output") from error
+            raise OpenCodeTransportError(
+                "OpenCode emitted malformed JSONL output",
+                {"event_types": event_types, "errors": errors},
+            ) from error
         if not isinstance(event, dict):
-            raise ValueError("OpenCode emitted a non-object JSONL event")
-        if event.get("type") != "text":
+            raise OpenCodeTransportError(
+                "OpenCode emitted a non-object JSONL event",
+                {"event_types": event_types, "errors": errors},
+            )
+        event_type = event.get("type")
+        event_types[str(event_type)] = event_types.get(str(event_type), 0) + 1
+        if event_type == "error":
+            errors.append(_safe_opencode_error(event.get("error")))
+            continue
+        if event_type != "text":
             continue
         part = event.get("part")
         if not isinstance(part, dict) or part.get("type") != "text":
-            raise ValueError("OpenCode text event did not contain a text part")
+            raise OpenCodeTransportError(
+                "OpenCode text event did not contain a text part",
+                {"event_types": event_types, "errors": errors},
+            )
         if not isinstance(part.get("time"), dict) or part["time"].get("end") is None:
+            incomplete_text_count += 1
             continue
         text = part.get("text")
         if not isinstance(text, str):
-            raise ValueError("OpenCode text event did not contain string text")
+            raise OpenCodeTransportError(
+                "OpenCode text event did not contain string text",
+                {"event_types": event_types, "errors": errors},
+            )
         text_parts.append(text)
-    return "\n".join(text_parts)
+    diagnostics: dict[str, object] = {
+        "event_types": event_types,
+        "completed_text_count": len(text_parts),
+        "incomplete_text_count": incomplete_text_count,
+        "errors": errors,
+    }
+    if errors:
+        details = "; ".join(
+            f"{item['name']}: {item.get('message', 'no provider message')}"
+            for item in errors
+        )
+        raise OpenCodeTransportError(
+            f"OpenCode emitted error event(s): {details}", diagnostics
+        )
+    return "\n".join(text_parts), diagnostics
 
 
 def front_matter_name(path: Path) -> str:
@@ -877,10 +940,11 @@ def _run_opencode_integrated(
         stdout = result.stdout or ""
         stderr = result.stderr or ""
         try:
-            output = _opencode_json_text_output(stdout)
-        except ValueError as error:
+            output, event_diagnostics = _opencode_json_text_output(stdout)
+        except OpenCodeTransportError as error:
             print(
-                f"::error::OpenCode response transport was invalid: {error}.",
+                "::error::OpenCode response transport failed: "
+                f"{error}; event_diagnostics={json.dumps(error.diagnostics, sort_keys=True)}.",
                 file=sys.stderr,
             )
             return 1, ""
@@ -891,6 +955,7 @@ def _run_opencode_integrated(
             f"stdout_sha256={hashlib.sha256(stdout.encode('utf-8')).hexdigest()[:12]}; "
             f"response_bytes={len(output.encode('utf-8'))}; "
             f"response_sha256={hashlib.sha256(output.encode('utf-8')).hexdigest()[:12]}; "
+            f"event_diagnostics={json.dumps(event_diagnostics, sort_keys=True)}; "
             f"stderr_bytes={len(stderr.encode('utf-8'))}; "
             f"stderr_sha256={hashlib.sha256(stderr.encode('utf-8')).hexdigest()[:12]}",
             file=sys.stderr,
