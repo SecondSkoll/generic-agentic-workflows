@@ -21,9 +21,11 @@ workflow and can never be replaced, reordered, or removed.
 from __future__ import annotations
 
 import json
+import hashlib
 import re
-from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from dataclasses import dataclass
+from typing import Any
+from collections.abc import Mapping
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +337,9 @@ def _pr_review_suffix() -> str:
         "overall review comment.\n"
         "- Add a `comments` item only for a changed new-file line visible in "
         "the supplied diff and listed in the allowed locations.\n"
+        "- Copy the `path` and `line` for each comment exactly from one listed "
+        "allowed location; never infer a location from displayed, prompt, or "
+        "file line numbers.\n"
         "- For a one-line finding, omit `start_line`.\n"
         "- Use `suggestion` only when you can provide an exact replacement; "
         "it becomes an apply-able GitHub suggested change. It must not "
@@ -521,11 +526,71 @@ MAX_CONTEXT_REASON_BYTES = 2048
 MAX_CONTEXT_PATHS = 100
 
 
+def json_response_diagnostics(output: str) -> dict[str, object]:
+    """Return safe structural diagnostics for an untrusted model response.
+
+    The response text is deliberately not included: it can repeat untrusted
+    pull-request content. The digest lets a maintainer correlate the action
+    log with a response captured by a provider, without exposing that content
+    in GitHub Actions logs or provenance.
+    """
+    stripped = output.strip()
+    fence_count = len(re.findall(r"```(?:json)?\s*", output, re.IGNORECASE))
+    object_count = 0
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", output):
+        try:
+            payload, _ = decoder.raw_decode(output[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            object_count += 1
+    return {
+        "bytes": len(output.encode("utf-8")),
+        "sha256": hashlib.sha256(output.encode("utf-8")).hexdigest(),
+        "non_whitespace": bool(stripped),
+        "first_non_whitespace": stripped[:1],
+        "json_fence_count": fence_count,
+        "json_object_candidate_count": object_count,
+    }
+
+
+def extract_json_object(output: str, *, contract: str) -> str:
+    """Extract the final JSON object from a model response.
+
+    OpenCode providers occasionally add a short prose preamble despite the
+    contract instruction. The runner already accepts fenced JSON; accepting a
+    complete final object after such a preamble is equally safe because the
+    versioned schema validation remains authoritative. Choosing the final
+    object also avoids an echoed example schema preceding the actual result.
+    """
+    fenced = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", output, re.DOTALL)
+    candidates = fenced or []
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", output):
+        try:
+            payload, end = decoder.raw_decode(output[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        # A complete object must run to the end of the response. This accepts
+        # a provider preamble while avoiding nested comment/request objects.
+        if isinstance(payload, dict) and not output[match.start() + end :].strip():
+            candidates.append(output[match.start() : match.start() + end])
+    if not candidates:
+        diagnostic = json_response_diagnostics(output)
+        raise ContractError(
+            f"{contract} did not contain a JSON object "
+            f"(bytes={diagnostic['bytes']}, sha256={diagnostic['sha256'][:12]})"
+        )
+    return candidates[-1]
+
+
 def parse_pr_review_output(
     output: str,
     changed_lines: dict[str, set[int]] | None = None,
     *,
     max_comments: int | None = None,
+    location_diagnostics: list[dict[str, object]] | None = None,
 ) -> tuple[str, list[dict[str, object]]]:
     """Parse and validate a `pr-review-json-v1` response.
 
@@ -535,13 +600,13 @@ def parse_pr_review_output(
     the summary when safe.
     """
     changed_lines = changed_lines or {}
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", output, re.DOTALL)
-    raw_json = match.group(1) if match else output.strip()
+    raw_json = extract_json_object(output, contract="pr-review-json-v1")
     try:
         payload = json.loads(raw_json)
     except json.JSONDecodeError as error:
         raise ContractError(
-            "OpenCode did not return the required JSON review format"
+            "OpenCode did not return the required JSON review format "
+            f"(sha256={hashlib.sha256(output.encode('utf-8')).hexdigest()[:12]})"
         ) from error
     if not isinstance(payload, dict):
         raise ContractError("pr-review-json-v1 output must be a JSON object")
@@ -639,13 +704,35 @@ def parse_pr_review_output(
             if has_suggestion:
                 comment["body"] = suggestion_body(body.strip(), suggestion.strip())
             comments.append(comment)
-        else:
-            location = (
-                f"`{path}:{line}`"
-                if isinstance(path, str) and isinstance(line, int)
-                else "an unavailable location"
+            _record_location_diagnostic(
+                location_diagnostics,
+                path=path,
+                line=line,
+                changed_lines=changed_lines,
+                outcome="inline",
+                reason="valid" if has_valid_range else "invalid_range_dropped",
             )
-            unlocated.append(f"- **Additional feedback ({location}):** {body.strip()}")
+        else:
+            # Do not repeat a model-supplied invalid coordinate in published
+            # feedback: it can look authoritative even though it was never a
+            # valid line in the reviewed diff.
+            unlocated.append(
+                f"- **Additional feedback (no valid inline location):** {body.strip()}"
+            )
+            if not has_valid_location:
+                reason = "invalid_location"
+            elif not has_valid_range:
+                reason = "invalid_range"
+            else:
+                reason = "invalid_comment"
+            _record_location_diagnostic(
+                location_diagnostics,
+                path=path,
+                line=line,
+                changed_lines=changed_lines,
+                outcome="summary",
+                reason=reason,
+            )
 
     if max_comments is not None and len(comments) > max_comments:
         comments = comments[:max_comments]
@@ -654,15 +741,48 @@ def parse_pr_review_output(
     return summary, comments
 
 
+def _record_location_diagnostic(
+    diagnostics: list[dict[str, object]] | None,
+    *,
+    path: object,
+    line: object,
+    changed_lines: dict[str, set[int]],
+    outcome: str,
+    reason: str,
+) -> None:
+    """Record safe location-validation metadata without model text or paths."""
+    if diagnostics is None:
+        return
+    allowed = changed_lines.get(path, set()) if isinstance(path, str) else set()
+    entry: dict[str, object] = {
+        "outcome": outcome,
+        "reason": reason,
+        "path_sha256": (
+            hashlib.sha256(path.encode("utf-8")).hexdigest()
+            if isinstance(path, str)
+            else None
+        ),
+        "path_type": type(path).__name__,
+        "line": line if isinstance(line, int) and not isinstance(line, bool) else None,
+        "line_type": type(line).__name__,
+        "allowed_line_count": len(allowed),
+    }
+    if allowed:
+        entry["allowed_line_min"] = min(allowed)
+        entry["allowed_line_max"] = max(allowed)
+    diagnostics.append(entry)
+
+
 def parse_pr_review_context_request(output: str) -> dict[str, Any]:
     """Validate the intermediate PR context-request contract.
 
     Authorization of paths and sequencing is deliberately left to the runner,
     which alone has access to the trusted git objects and effective policy.
     """
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", output, re.DOTALL)
     try:
-        payload = json.loads(match.group(1) if match else output.strip())
+        payload = json.loads(
+            extract_json_object(output, contract="pr-review-context-request-v1")
+        )
     except json.JSONDecodeError as error:
         raise ContractError("context request must be valid JSON") from error
     if not isinstance(payload, dict) or set(payload) != {"needs_context", "reason", "request"}:
@@ -697,7 +817,7 @@ def parse_pr_review_response(output: str, *, changed_lines: dict[str, set[int]],
         try:
             return "context", parse_pr_review_context_request(output)
         except ContractError:
-            raise final_error
+            raise final_error from None
 
 
 def suggestion_body(feedback: str, suggestion: str) -> str:

@@ -68,7 +68,7 @@ jobs:
       validate_only: ${{ steps.resolve.outputs.validate_only }}
     steps:
       # The resolver is stored in the caller repository checkout.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
@@ -169,7 +169,7 @@ jobs:
 
       - name: Upload resolved invocation artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: resolved-invocation-issue-implementation
           path: ${{ runner.temp }}/resolved-invocation.json
@@ -190,12 +190,12 @@ jobs:
       ISSUE: ${{ needs.select-issue.outputs.issue }}
       DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: true
           fetch-depth: 0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
 
@@ -664,7 +664,7 @@ jobs:
 
       - name: Upload provenance artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: resolved-configuration-issue-implementation
           path: |

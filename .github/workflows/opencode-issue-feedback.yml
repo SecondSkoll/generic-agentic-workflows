@@ -68,7 +68,7 @@ jobs:
     steps:
       # Check out before running repository-owned helper scripts. This is the
       # trusted workflow revision for issue and reusable-workflow runs.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
@@ -136,7 +136,7 @@ jobs:
           PY
           echo "::notice::Resolved configuration written to job summary and artifact."
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         if: steps.resolve.outputs.validate_only != 'true'
         with:
           python-version: '3.12'
@@ -321,7 +321,7 @@ jobs:
 
       - name: Upload resolved invocation artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: resolved-invocation-issue-feedback
           path: |

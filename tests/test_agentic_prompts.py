@@ -17,13 +17,13 @@ SPEC.loader.exec_module(PROMPTS)
 
 
 def _compose(**overrides):
-    base = dict(
-        feedback_kind="pr-documentation-review",
-        output_contract="pr-review-json-v1",
-        profile_template="Review {{feedback_kind}} for {{repository}} by @{{author_login}}.",
-        repository="owner/repo",
-        author_login="octocat",
-    )
+    base = {
+        "feedback_kind": "pr-documentation-review",
+        "output_contract": "pr-review-json-v1",
+        "profile_template": "Review {{feedback_kind}} for {{repository}} by @{{author_login}}.",
+        "repository": "owner/repo",
+        "author_login": "octocat",
+    }
     base.update(overrides)
     return PROMPTS.compose_prompt(**base)
 
@@ -201,6 +201,19 @@ class UntrustedContentTests(unittest.TestCase):
 
 
 class OutputContractTests(unittest.TestCase):
+    def test_pr_review_accepts_json_after_provider_preamble(self):
+        output = "Here is the requested review:\n" + json.dumps(
+            {"summary": "Looks good.", "comments": []}
+        )
+        summary, comments = PROMPTS.parse_pr_review_output(output)
+        self.assertEqual(summary, "Looks good.")
+        self.assertEqual(comments, [])
+
+    def test_response_diagnostics_do_not_include_response_content(self):
+        diagnostics = PROMPTS.json_response_diagnostics('{"summary":"secret text"}')
+        self.assertNotIn("secret text", json.dumps(diagnostics))
+        self.assertEqual(diagnostics["json_object_candidate_count"], 1)
+
     def test_context_request_valid(self):
         request = PROMPTS.parse_pr_review_context_request(json.dumps({
             "needs_context": True, "reason": "Need surrounding section.",
@@ -261,6 +274,26 @@ class OutputContractTests(unittest.TestCase):
         summary, comments = PROMPTS.parse_pr_review_output(output, {"a.py": {10}})
         self.assertEqual(comments, [])
         self.assertIn("Additional feedback", summary)
+
+    def test_pr_review_invalid_location_is_logged_without_public_coordinate(self):
+        diagnostics: list[dict[str, object]] = []
+        summary, comments = PROMPTS.parse_pr_review_output(
+            json.dumps(
+                {
+                    "summary": "s",
+                    "comments": [{"path": "a.py", "line": 999, "body": "out of range"}],
+                }
+            ),
+            {"a.py": {10, 12}},
+            location_diagnostics=diagnostics,
+        )
+        self.assertEqual(comments, [])
+        self.assertNotIn("a.py:999", summary)
+        self.assertEqual(diagnostics[0]["outcome"], "summary")
+        self.assertEqual(diagnostics[0]["reason"], "invalid_location")
+        self.assertEqual(diagnostics[0]["line"], 999)
+        self.assertEqual(diagnostics[0]["allowed_line_count"], 2)
+        self.assertNotIn("path", diagnostics[0])
 
     def test_pr_review_clamps_max_comments(self):
         items = [{"path": "a.py", "line": 10, "body": f"c{i}"} for i in range(5)]

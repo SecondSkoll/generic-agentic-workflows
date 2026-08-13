@@ -19,12 +19,10 @@ import argparse
 import importlib.util
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Iterable
 
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent

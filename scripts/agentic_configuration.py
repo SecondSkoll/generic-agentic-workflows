@@ -31,9 +31,10 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Protocol
+from typing import Any, Protocol
+from collections.abc import Iterable, Mapping
 
 
 # ---------------------------------------------------------------------------
@@ -352,7 +353,7 @@ def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
     if not isinstance(raw_skills, list):
         raise ConfigurationError("skill_files must be a list")
     skill_files = tuple(normalize_bundle_path(s) for s in raw_skills)
-    if len(skill_files) != len({s for s in skill_files}):
+    if len(skill_files) != len(set(skill_files)):
         raise ConfigurationError("skill_files must be unique")
     raw_additional_agents = payload.get("additional_agent_files", [])
     if not isinstance(raw_additional_agents, list):
@@ -360,7 +361,7 @@ def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
     additional_agent_files = tuple(
         normalize_bundle_path(s) for s in raw_additional_agents
     )
-    if len(additional_agent_files) != len({s for s in additional_agent_files}):
+    if len(additional_agent_files) != len(set(additional_agent_files)):
         raise ConfigurationError("additional_agent_files must be unique")
     if agent_file in additional_agent_files:
         raise ConfigurationError("additional_agent_files must not duplicate agent_file")

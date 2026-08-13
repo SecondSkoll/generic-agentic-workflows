@@ -572,7 +572,7 @@ class RemoteResolutionTests(unittest.TestCase):
 
 class LegacyCompatTests(unittest.TestCase):
     def test_legacy_bundle_builds_with_warning(self):
-        agent = REPO_ROOT / ".opencode" / "agents" / "example-agent.md"
+        agent = REPO_ROOT / ".opencode" / "agents" / "default-agent.md"
         skill = REPO_ROOT / ".opencode" / "skills" / "basic-review" / "SKILL.md"
         resolved = CFG.resolve_legacy_bundle(
             agent_file=str(agent.relative_to(REPO_ROOT)),
