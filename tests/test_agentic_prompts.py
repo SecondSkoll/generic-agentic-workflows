@@ -275,6 +275,26 @@ class OutputContractTests(unittest.TestCase):
         self.assertEqual(comments, [])
         self.assertIn("Additional feedback", summary)
 
+    def test_pr_review_invalid_location_is_logged_without_public_coordinate(self):
+        diagnostics: list[dict[str, object]] = []
+        summary, comments = PROMPTS.parse_pr_review_output(
+            json.dumps(
+                {
+                    "summary": "s",
+                    "comments": [{"path": "a.py", "line": 999, "body": "out of range"}],
+                }
+            ),
+            {"a.py": {10, 12}},
+            location_diagnostics=diagnostics,
+        )
+        self.assertEqual(comments, [])
+        self.assertNotIn("a.py:999", summary)
+        self.assertEqual(diagnostics[0]["outcome"], "summary")
+        self.assertEqual(diagnostics[0]["reason"], "invalid_location")
+        self.assertEqual(diagnostics[0]["line"], 999)
+        self.assertEqual(diagnostics[0]["allowed_line_count"], 2)
+        self.assertNotIn("path", diagnostics[0])
+
     def test_pr_review_clamps_max_comments(self):
         items = [{"path": "a.py", "line": 10, "body": f"c{i}"} for i in range(5)]
         output = json.dumps({"summary": "s", "comments": items})

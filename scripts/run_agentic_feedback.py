@@ -396,12 +396,11 @@ def parse_review_output(
                     file=sys.stderr,
                 )
         elif isinstance(body, str) and body.strip():
-            location = (
-                f"`{path}:{line}`"
-                if isinstance(path, str) and isinstance(line, int)
-                else "an unavailable location"
+            # A rejected coordinate is not trustworthy. Do not publish it as
+            # though it were a real file location.
+            unlocated.append(
+                f"- **Additional feedback (no valid inline location):** {body.strip()}"
             )
-            unlocated.append(f"- **Additional feedback ({location}):** {body.strip()}")
             if not has_valid_location:
                 reason = "the path and line are not an added line in the diff"
             elif not has_valid_range:
@@ -774,6 +773,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return rc
     output = (output or "").strip()
+    diagnostics: dict[str, object] | None = None
     if args.response_diagnostics:
         diagnostics = PROMPTS.json_response_diagnostics(output)
         args.response_diagnostics.write_text(
@@ -800,12 +800,15 @@ def main(argv: list[str] | None = None) -> int:
     if reviews_url:
         try:
             if resolved_bundle is not None and output_contract:
-                summary, comments = PROMPTS.parse_output(
-                    output_contract,
+                location_diagnostics: list[dict[str, object]] = []
+                summary, comments = PROMPTS.parse_pr_review_output(
                     output,
                     changed_lines=changed_lines,
                     max_comments=effective_max_comments,
+                    location_diagnostics=location_diagnostics,
                 )
+                if diagnostics is not None:
+                    diagnostics["location_validation"] = location_diagnostics
             else:
                 summary, comments = parse_review_output(output, changed_lines)
                 clamp = (
@@ -830,6 +833,21 @@ def main(argv: list[str] | None = None) -> int:
                 "failed", audit,
             )
             return 1
+        if diagnostics is not None:
+            args.response_diagnostics.write_text(
+                json.dumps(diagnostics, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            rejected_locations = sum(
+                item["outcome"] == "summary"
+                for item in diagnostics.get("location_validation", [])
+            )
+            print(
+                "OpenCode response diagnostics: "
+                + json.dumps(diagnostics, sort_keys=True)
+                + f"; rejected_location_count={rejected_locations}",
+                file=sys.stderr,
+            )
         if args.dry_run:
             print(
                 f"Dry run: would post agentic review with {len(comments)} inline comment(s).\n"

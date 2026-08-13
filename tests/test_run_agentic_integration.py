@@ -216,6 +216,45 @@ class IntegratedRunTests(unittest.TestCase):
             self.assertNotIn("secret value", diagnostics_path.read_text(encoding="utf-8"))
             self.assertEqual(json.loads(diagnostics_path.read_text())["json_object_candidate_count"], 0)
 
+    def test_invalid_location_is_omitted_from_feedback_and_logged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
+            diagnostics_path = tmp_path / "response-diagnostics.json"
+            output = json.dumps(
+                {
+                    "summary": "Review complete.",
+                    "comments": [
+                        {
+                            "path": "test-script.py",
+                            "line": 287,
+                            "body": "Location was inferred incorrectly.",
+                        }
+                    ],
+                }
+            )
+            with (
+                mock.patch.object(RUNNER.subprocess, "run", return_value=FakeSubprocessResult(output)),
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+            ):
+                rc = RUNNER.main([
+                    "--input", str(diff_path),
+                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
+                    "--repository", "o/r", "--pull-number", "1", "--head-sha", "abc123",
+                    "--feedback-kind", "pr-documentation-review", "--author", "octocat",
+                    "--resolved-config", str(bundle_path), "--effective-policy", str(policy_path),
+                    "--response-diagnostics", str(diagnostics_path),
+                ])
+            self.assertEqual(rc, 0)
+            published = mock_gh.call_args.kwargs["body"]
+            self.assertEqual(published["comments"], [])
+            self.assertIn("no valid inline location", published["body"])
+            self.assertNotIn("test-script.py:287", published["body"])
+            diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+            self.assertEqual(diagnostics["location_validation"][0]["reason"], "invalid_location")
+            self.assertEqual(diagnostics["location_validation"][0]["line"], 287)
+
     def test_existing_v2_marker_suppresses_duplicate(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

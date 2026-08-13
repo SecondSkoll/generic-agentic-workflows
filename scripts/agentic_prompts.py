@@ -337,6 +337,9 @@ def _pr_review_suffix() -> str:
         "overall review comment.\n"
         "- Add a `comments` item only for a changed new-file line visible in "
         "the supplied diff and listed in the allowed locations.\n"
+        "- Copy the `path` and `line` for each comment exactly from one listed "
+        "allowed location; never infer a location from displayed, prompt, or "
+        "file line numbers.\n"
         "- For a one-line finding, omit `start_line`.\n"
         "- Use `suggestion` only when you can provide an exact replacement; "
         "it becomes an apply-able GitHub suggested change. It must not "
@@ -587,6 +590,7 @@ def parse_pr_review_output(
     changed_lines: dict[str, set[int]] | None = None,
     *,
     max_comments: int | None = None,
+    location_diagnostics: list[dict[str, object]] | None = None,
 ) -> tuple[str, list[dict[str, object]]]:
     """Parse and validate a `pr-review-json-v1` response.
 
@@ -700,19 +704,73 @@ def parse_pr_review_output(
             if has_suggestion:
                 comment["body"] = suggestion_body(body.strip(), suggestion.strip())
             comments.append(comment)
-        else:
-            location = (
-                f"`{path}:{line}`"
-                if isinstance(path, str) and isinstance(line, int)
-                else "an unavailable location"
+            _record_location_diagnostic(
+                location_diagnostics,
+                path=path,
+                line=line,
+                changed_lines=changed_lines,
+                outcome="inline",
+                reason="valid" if has_valid_range else "invalid_range_dropped",
             )
-            unlocated.append(f"- **Additional feedback ({location}):** {body.strip()}")
+        else:
+            # Do not repeat a model-supplied invalid coordinate in published
+            # feedback: it can look authoritative even though it was never a
+            # valid line in the reviewed diff.
+            unlocated.append(
+                f"- **Additional feedback (no valid inline location):** {body.strip()}"
+            )
+            if not has_valid_location:
+                reason = "invalid_location"
+            elif not has_valid_range:
+                reason = "invalid_range"
+            else:
+                reason = "invalid_comment"
+            _record_location_diagnostic(
+                location_diagnostics,
+                path=path,
+                line=line,
+                changed_lines=changed_lines,
+                outcome="summary",
+                reason=reason,
+            )
 
     if max_comments is not None and len(comments) > max_comments:
         comments = comments[:max_comments]
     if unlocated:
         summary = f"{summary}\n\n" + "\n".join(unlocated)
     return summary, comments
+
+
+def _record_location_diagnostic(
+    diagnostics: list[dict[str, object]] | None,
+    *,
+    path: object,
+    line: object,
+    changed_lines: dict[str, set[int]],
+    outcome: str,
+    reason: str,
+) -> None:
+    """Record safe location-validation metadata without model text or paths."""
+    if diagnostics is None:
+        return
+    allowed = changed_lines.get(path, set()) if isinstance(path, str) else set()
+    entry: dict[str, object] = {
+        "outcome": outcome,
+        "reason": reason,
+        "path_sha256": (
+            hashlib.sha256(path.encode("utf-8")).hexdigest()
+            if isinstance(path, str)
+            else None
+        ),
+        "path_type": type(path).__name__,
+        "line": line if isinstance(line, int) and not isinstance(line, bool) else None,
+        "line_type": type(line).__name__,
+        "allowed_line_count": len(allowed),
+    }
+    if allowed:
+        entry["allowed_line_min"] = min(allowed)
+        entry["allowed_line_max"] = max(allowed)
+    diagnostics.append(entry)
 
 
 def parse_pr_review_context_request(output: str) -> dict[str, Any]:

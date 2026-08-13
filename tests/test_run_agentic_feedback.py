@@ -78,8 +78,9 @@ class ParseReviewOutputTests(unittest.TestCase):
 
         self.assertEqual(comments, [])
         self.assertIn(
-            "Additional feedback (`test-script.py:9`):** Review note.", summary
+            "Additional feedback (no valid inline location):** Review note.", summary
         )
+        self.assertNotIn("test-script.py:9", summary)
 
     def test_rejects_invalid_suggestion_range(self) -> None:
         summary, comments = self.parse(
@@ -96,8 +97,9 @@ class ParseReviewOutputTests(unittest.TestCase):
 
         self.assertEqual(comments, [])
         self.assertIn(
-            "Additional feedback (`test-script.py:10`):** Review note.", summary
+            "Additional feedback (no valid inline location):** Review note.", summary
         )
+        self.assertNotIn("test-script.py:10", summary)
 
     def test_formats_allowed_locations(self) -> None:
         self.assertEqual(
