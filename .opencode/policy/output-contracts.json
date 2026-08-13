@@ -27,6 +27,37 @@
       },
       "max_blocker_bytes": 4096,
       "publication": "issue status comment; PR creation only when decision is IMPLEMENT"
+    },
+    "release-project-issue-v1": {
+      "kind": "json",
+      "allowed_shapes": [
+        {"decision": "NO_ISSUE", "required": ["summary"]},
+        {
+          "decision": "CREATE_ISSUE",
+          "required": ["title", "body", "labels"]
+        }
+      ],
+      "max_summary_bytes": 16384,
+      "max_title_bytes": 512,
+      "max_body_bytes": 32768,
+      "allowed_labels": ["release-readiness"],
+      "forbidden_fields": [
+        "repository",
+        "repo",
+        "owner",
+        "endpoint",
+        "url",
+        "assignee",
+        "assignees",
+        "milestone",
+        "number",
+        "issue_url",
+        "labels_url",
+        "token",
+        "credentials"
+      ],
+      "forbidden_findings": ["code-only findings", "empty evidence"],
+      "publication": "at most one release-readiness issue in the canonical target repository; workflow owns destination, marker, labels, and publication"
     }
   }
 }

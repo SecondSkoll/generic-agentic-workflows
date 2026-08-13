@@ -53,6 +53,55 @@ def configuration_digest(parts: Mapping[str, Any]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def release_idempotency_key(
+    *,
+    target_repository: str,
+    release_id: int,
+    target_commit_sha: str,
+    config_digest: str,
+    workflow_version: str,
+) -> str:
+    """Return a deterministic idempotency digest for a release review.
+
+    The key is derived from the canonical target repository, the GitHub
+    release ID, the immutable target commit SHA, the configuration digest,
+    and the workflow version. The release runner uses it as the marker
+    digest so the same (target, release, commit, config, version) tuple
+    produces at most one issue, while any change in any of those fields
+    produces a fresh marker.
+    """
+    if not isinstance(target_repository, str) or "/" not in target_repository:
+        raise ProvenanceError(
+            "release idempotency key requires a canonical 'owner/repo' target_repository"
+        )
+    if not isinstance(release_id, int) or release_id <= 0:
+        raise ProvenanceError("release idempotency key requires a positive release_id")
+    if not isinstance(target_commit_sha, str) or not re.match(
+        r"^[0-9a-f]{40}$", target_commit_sha
+    ):
+        raise ProvenanceError(
+            "release idempotency key requires a 40-char target_commit_sha"
+        )
+    if not isinstance(config_digest, str) or not re.match(r"^[0-9a-f]{64}$", config_digest):
+        raise ProvenanceError(
+            "release idempotency key requires a 64-char configuration digest"
+        )
+    if not isinstance(workflow_version, str) or not workflow_version:
+        raise ProvenanceError("release idempotency key requires a workflow_version")
+    payload = json.dumps(
+        {
+            "target_repository": target_repository,
+            "release_id": release_id,
+            "target_commit_sha": target_commit_sha,
+            "config_digest": config_digest,
+            "workflow_version": workflow_version,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # Provenance record
 # ---------------------------------------------------------------------------
@@ -93,18 +142,25 @@ class ProvenanceRecord:
     configuration_digest: str | None
     error: str | None = None
     error_message: str | None = None
+    target_repository: str | None = None
+    target_tag: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return the redacted record as a JSON-serialisable mapping."""
+        target: dict[str, Any] = {
+            "kind": self.target_kind,
+            "number": self.target_number,
+            "head_sha": self.target_head_sha,
+        }
+        if self.target_repository is not None:
+            target["repository"] = self.target_repository
+        if self.target_tag is not None:
+            target["tag"] = self.target_tag
         return {
             "workflow_version": self.workflow_version,
             "workflow_name": self.workflow_name,
             "caller_repository": self.caller_repository,
-            "target": {
-                "kind": self.target_kind,
-                "number": self.target_number,
-                "head_sha": self.target_head_sha,
-            },
+            "target": target,
             "bundle": {
                 "source_alias": self.bundle_source_alias,
                 "repository": self.bundle_repository,
@@ -143,11 +199,16 @@ def build_provenance(
     effective_policy_sha256: str | None,
     mode: str,
     result: str,
+    target_repository: str | None = None,
+    target_tag: str | None = None,
 ) -> ProvenanceRecord:
     """Build a complete, redacted provenance record.
 
     Never includes provider credentials, token values, full model prompts,
-    complete issue text, unredacted diffs, or raw model responses.
+    complete issue text, unredacted diffs, raw model responses, or release
+    bodies/notes. For release runs, ``target_repository``, ``target_tag``,
+    ``target_number`` (release ID), and ``target_head_sha`` (target commit
+    SHA) record the canonical release target without its body.
     """
     if mode not in ALLOWED_MODES:
         raise ProvenanceError(
@@ -190,6 +251,8 @@ def build_provenance(
         mode=mode,
         result=result,
         configuration_digest=digest,
+        target_repository=target_repository,
+        target_tag=target_tag,
     )
 
 
@@ -201,6 +264,11 @@ def failure_record(
     mode: str,
     error: Exception,
     bundle: Mapping[str, Any] | None = None,
+    target_repository: str | None = None,
+    target_tag: str | None = None,
+    target_kind: str | None = None,
+    target_number: int | None = None,
+    target_head_sha: str | None = None,
 ) -> ProvenanceRecord:
     """Build a minimal redacted attempted-resolution record for a failure.
 
@@ -214,9 +282,9 @@ def failure_record(
         workflow_version=workflow_version,
         workflow_name=workflow_name,
         caller_repository=caller_repository,
-        target_kind=None,
-        target_number=None,
-        target_head_sha=None,
+        target_kind=target_kind,
+        target_number=target_number,
+        target_head_sha=target_head_sha,
         bundle_source_alias=bundle.get("source_alias"),
         bundle_repository=bundle.get("repository"),
         bundle_resolved_sha=bundle.get("resolved_sha"),
@@ -231,6 +299,8 @@ def failure_record(
         configuration_digest=None,
         error=type(error).__name__,
         error_message=str(error),
+        target_repository=target_repository,
+        target_tag=target_tag,
     )
 
 
@@ -267,6 +337,10 @@ def job_summary(record: ProvenanceRecord) -> str:
         lines.append(
             f"- Target: `{record.target_kind or 'target'}#{record.target_number}`"
         )
+    if record.target_repository:
+        lines.append(f"- Target repository: `{record.target_repository}`")
+    if record.target_tag:
+        lines.append(f"- Target tag: `{record.target_tag}`")
     return "\n".join(lines) + "\n"
 
 

@@ -1,0 +1,89 @@
+name: Release project review (supplied default configuration)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      target_repository:
+        description: Canonical owner/repo of the release to review
+        type: string
+        required: false
+        default: ${{ github.repository }}
+      release_id:
+        description: Positive GitHub release ID (exactly one of release_id/release_tag)
+        type: number
+        required: false
+        default: 0
+      release_tag:
+        description: Conservative release tag selector (exactly one of release_id/release_tag)
+        type: string
+        required: false
+        default: ''
+      configuration_source:
+        description: default (supplied profile), local (caller repository), or an approved central alias
+        type: string
+        required: false
+        default: default
+      configuration_ref:
+        description: Full 40-character commit SHA for a remote bundle
+        type: string
+        required: false
+        default: ''
+      configuration_profile:
+        description: Bundle profile name
+        type: string
+        required: false
+        default: release-project-review
+      focus:
+        description: Allowlisted release-management focus
+        type: string
+        required: false
+        default: ''
+      dry_run:
+        description: Resolve, validate, and generate output without publishing
+        type: boolean
+        required: false
+        default: false
+      validate_only:
+        description: Resolve and validate configuration only
+        type: boolean
+        required: false
+        default: true
+    secrets:
+      OPENROUTER_API_KEY:
+        required: true
+      release_target_token:
+        description: Optional target-scoped token for cross-repository release review; falls back to github.token for same-repo runs.
+        required: false
+      central_config_token:
+        description: Optional read token for a private central configuration repository; falls back to github.token.
+        required: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  release-review:
+    # The pin below must point to a reviewed release commit that contains both
+    # the reusable workflow and the supplied release-project-review profile.
+    # The placeholder SHA shown predates the release project-review work and is
+    # a format placeholder only; replace it before enabling this workflow.
+    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-release-project-review.yml@61ed1bbd34a878f3ae270b1e4ff027cf786b730b
+    permissions:
+      contents: read
+      issues: write
+    with:
+      target_repository: ${{ inputs.target_repository }}
+      release_id: ${{ inputs.release_id }}
+      release_tag: ${{ inputs.release_tag }}
+      configuration_source: default
+      # configuration_ref must be the same reviewed commit SHA as `uses:` above.
+      configuration_ref: 61ed1bbd34a878f3ae270b1e4ff027cf786b730b
+      configuration_profile: release-project-review
+      focus: ${{ inputs.focus }}
+      validate_only: true
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      release_target_token: ${{ secrets.release_target_token }}
+      central_config_token: ${{ secrets.central_config_token }}

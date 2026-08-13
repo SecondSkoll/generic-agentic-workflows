@@ -55,6 +55,7 @@ jobs:
               ".github/workflows/opencode-documentation-review.yml",
               ".github/workflows/opencode-issue-feedback.yml",
               ".github/workflows/opencode-issue-implementation.yml",
+              ".github/workflows/opencode-release-project-review.yml",
               ".github/workflows/verify-reusable-workflows.yml",
           ]
           examples_root = Path("docs/examples/configuration-sources")
@@ -71,6 +72,12 @@ jobs:
                 "opencode-issue-feedback.yml",
                 "issue-feedback",
                 "issue-feedback",
+            ),
+            "release-project-review.yml": (
+                "release-review",
+                "opencode-release-project-review.yml",
+                "release-project-review",
+                "release-project-review",
             ),
           }
           failures = []
@@ -155,6 +162,32 @@ jobs:
             --target-number 1 \
             --validate-only true \
             --result "$RUNNER_TEMP/issue-implementation.json"
+          uv run python scripts/resolve_invocation.py \
+            --workflow release-project-review \
+            --configuration-profile release-project-review \
+            --target-repository SecondSkoll/generic-agentic-workflows \
+            --release-id 1 \
+            --validate-only true \
+            --result "$RUNNER_TEMP/release-project-review.json"
+          uv run python scripts/resolve_invocation.py \
+            --workflow release-project-review \
+            --configuration-profile release-project-review \
+            --target-repository SecondSkoll/generic-agentic-workflows \
+            --release-tag v1.0.0 \
+            --validate-only true \
+            --result "$RUNNER_TEMP/release-project-review-tag.json"
+          # Direct-dispatch equivalent: the workflow YAML maps
+          # `configuration_source == 'default' && event_name == 'workflow_dispatch'`
+          # to `local`, so a direct no-override dispatch resolves the supplied
+          # profile from the trusted checkout without a remote ref.
+          uv run python scripts/resolve_invocation.py \
+            --workflow release-project-review \
+            --configuration-source local \
+            --configuration-profile release-project-review \
+            --target-repository SecondSkoll/generic-agentic-workflows \
+            --release-id 1 \
+            --validate-only true \
+            --result "$RUNNER_TEMP/release-project-review-direct.json"
 
       - name: Confirm resolver rejects invalid inputs
         run: |
@@ -185,6 +218,23 @@ jobs:
           fi
           echo "Resolver correctly rejected mutable ref (exit $rc)."
 
+      - name: Confirm release runner rejects external run without forwarded token
+        run: |
+          set +e
+          uv run python scripts/run_agentic_release_project_review.py resolve-only \
+            --target-repository evil/target \
+            --caller-repository SecondSkoll/generic-agentic-workflows \
+            --release-id 1 \
+            --target-token t \
+            --target-token-forwarded false \
+            --release-metadata "$RUNNER_TEMP/should-not-exist.json"
+          rc=$?
+          if [[ $rc -eq 0 ]]; then
+            echo "Release runner accepted an external run without a forwarded token; expected failure." >&2
+            exit 1
+          fi
+          echo "Release runner correctly rejected external run without forwarded token (exit $rc)."
+
       - name: Resolve and validate every local bundle
         run: |
           set -euo pipefail
@@ -200,6 +250,7 @@ jobs:
               (Path(".opencode/configuration"), "documentation-review", "pr-documentation-review"),
               (Path(".opencode/configuration"), "issue-feedback", "issue-feedback"),
               (Path(".opencode/configuration"), "default-implementation", "issue-implementation"),
+              (Path(".opencode/configuration"), "release-project-review", "release-project-review"),
               (
                 Path("docs/examples/configuration-sources/local/.opencode/configuration"),
                 "local-documentation-review",
@@ -209,6 +260,11 @@ jobs:
                 Path("docs/examples/configuration-sources/local/.opencode/configuration"),
                 "local-issue-feedback",
                 "issue-feedback",
+              ),
+              (
+                Path("docs/examples/configuration-sources/local/.opencode/configuration"),
+                "local-release-project-review",
+                "release-project-review",
               ),
           ]
           for bundle_root, profile, workflow in bundles:
@@ -286,6 +342,7 @@ jobs:
               ("review-readonly", "pr-documentation-review"),
               ("issue-feedback-readonly", "issue-feedback"),
               ("implementation-planner", "issue-implementation"),
+              ("release-project-review-readonly", "release-project-review"),
           ]:
               p = pol.merge_policy(workflow=workflow, model_profile=name)
               print(f"OK policy: {name} -> {p.sha256[:12]}")
@@ -301,6 +358,25 @@ jobs:
           else:
               print("FAIL: policy escalation was not rejected")
               sys.exit(1)
+          # Release policy: shell/delegation/network/write escalation rejected.
+          for axis, value in [
+              ("shell", "allow"),
+              ("delegation", "allow"),
+              ("network", "allow"),
+              ("github_write", "allow"),
+          ]:
+              try:
+                  pol.merge_policy(
+                      workflow="release-project-review",
+                      model_profile="release-project-review-readonly",
+                      bundle_policy={"capabilities": {axis: value}},
+                  )
+              except pol.PolicyError:
+                  pass
+              else:
+                  print(f"FAIL: release policy escalation for {axis}={value!r} was not rejected")
+                  sys.exit(1)
+          print("OK: release policy escalation rejected")
           PY
 
       - name: Validate prompt composition and injection delimiter behaviour
@@ -336,6 +412,25 @@ jobs:
               pr.parse_output("pr-review-json-v1", '{"comments": []}')
           except pr.ContractError:
               print("OK: malformed contract output rejected")
+          else:
+              sys.exit(1)
+          # Release contract: accept both valid shapes and reject destination fields.
+          import json as _json
+          no_issue = _json.dumps({"decision": "NO_ISSUE", "summary": "Release is ready; rollout plan documented."})
+          parsed = pr.parse_output("release-project-issue-v1", no_issue)
+          assert parsed["decision"] == "NO_ISSUE", parsed
+          create = _json.dumps({
+              "decision": "CREATE_ISSUE",
+              "title": "Release-readiness gap: missing rollback plan",
+              "body": "Evidence: no rollback section in RELEASE_NOTES.md. Impact: cannot safely react to a bad rollout. Owner/action: release manager must document a rollback path. Priority: high.",
+              "labels": ["release-readiness"],
+          })
+          parsed = pr.parse_output("release-project-issue-v1", create)
+          assert parsed["decision"] == "CREATE_ISSUE", parsed
+          try:
+              pr.parse_output("release-project-issue-v1", _json.dumps({"decision": "CREATE_ISSUE", "title": "x", "body": "y", "labels": ["release-readiness"], "endpoint": "https://api.github.com/repos/evil/x"}))
+          except pr.ContractError:
+              print("OK: release destination field rejected")
           else:
               sys.exit(1)
           PY
@@ -412,5 +507,8 @@ jobs:
             ${{ runner.temp }}/pr-review.json
             ${{ runner.temp }}/issue-feedback.json
             ${{ runner.temp }}/issue-implementation.json
+            ${{ runner.temp }}/release-project-review.json
+            ${{ runner.temp }}/release-project-review-tag.json
+            ${{ runner.temp }}/release-project-review-direct.json
           retention-days: 7
           if-no-files-found: ignore

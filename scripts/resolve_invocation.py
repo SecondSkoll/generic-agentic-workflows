@@ -35,6 +35,7 @@ SUPPORTED_WORKFLOWS: frozenset[str] = frozenset(
         "pr-documentation-review",
         "issue-feedback",
         "issue-implementation",
+        "release-project-review",
     }
 )
 
@@ -74,6 +75,34 @@ ALLOWED_FOCUS: frozenset[str] = frozenset(
     }
 )
 
+#: Release-management focus values a release-project-review caller may select.
+#: These describe release-readiness concerns only; arbitrary prompt text is
+#: rejected. Profiles may narrow this set, but callers cannot introduce new
+#: values.
+ALLOWED_RELEASE_FOCUS: frozenset[str] = frozenset(
+    {
+        "release-notes",
+        "rollout",
+        "rollback",
+        "acceptance",
+        "dependencies",
+        "owners",
+        "risk",
+        "operational-readiness",
+        "general",
+    }
+)
+
+#: Strict canonical GitHub ``owner/repo`` grammar. Rejects URLs, owner/repo ref
+#: syntax (``owner/repo@ref`` or ``owner/repo:ref``), paths, and expressions.
+#: Each segment allows alphanumerics, ``.``, ``-``, and ``_`` only.
+REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+
+#: Conservative release tag grammar. Resolved through the GitHub REST API and
+#: never used as a Git ref directly, so this bound exists only to reject
+#: injection-shaped values (URLs, refs, expressions, paths, whitespace).
+RELEASE_TAG_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
 #: Profile identifier pattern. Conservative on purpose: lowercase ASCII letters,
 #: digits, and hyphens, starting with an alphanumeric, length 1..63.
 PROFILE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -81,7 +110,7 @@ PROFILE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 #: Full 40-character Git commit SHA. Required for any remote source.
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
-#: Positive integer target (PR or issue number).
+#: Positive integer target (PR, issue, or release ID).
 TARGET_PATTERN = re.compile(r"^[1-9][0-9]*$")
 
 #: Bounds for ``max_comments``.
@@ -113,6 +142,9 @@ class ResolvedInvocation:
     validate_only: bool
     target_number: int | None
     request_label: str | None
+    target_repository: str | None = None
+    release_id: int | None = None
+    release_tag: str | None = None
 
     def to_json(self) -> str:
         """Serialize the resolved invocation as deterministic JSON."""
@@ -132,6 +164,9 @@ class ResolvedInvocation:
             "validate_only": self.validate_only,
             "target_number": self.target_number,
             "request_label": self.request_label,
+            "target_repository": self.target_repository,
+            "release_id": self.release_id,
+            "release_tag": self.release_tag,
         }
 
 
@@ -254,6 +289,99 @@ def _validate_focus(focus: Any) -> str | None:
     return normalized
 
 
+def _validate_release_focus(focus: Any) -> str | None:
+    """Validate and normalize an optional allowlisted release-management focus.
+
+    Release focus is a distinct allowlist from PR-review focus: it must describe
+    a release-readiness concern and never accept arbitrary prompt text.
+    """
+    if focus is None or focus == "":
+        return None
+    if not isinstance(focus, str):
+        raise InvocationError("focus must be a string")
+    normalized = focus.strip().lower()
+    if normalized not in ALLOWED_RELEASE_FOCUS:
+        raise InvocationError(
+            f"focus must be one of {sorted(ALLOWED_RELEASE_FOCUS)}; got {focus!r}"
+        )
+    return normalized
+
+
+def _validate_target_repository(repository: Any) -> str:
+    """Validate a strict canonical ``owner/repo`` target repository.
+
+    Rejects URLs (``://``), owner/repo ref syntax (``@`` or ``:``), paths,
+    expressions, and any value that is not exactly two segments matching the
+    conservative grammar. The value is never used as a Git ref directly.
+    """
+    if repository is None or repository == "":
+        raise InvocationError("target_repository is required")
+    if not isinstance(repository, str):
+        raise InvocationError("target_repository must be a string")
+    normalized = repository.strip()
+    if "://" in normalized or "@" in normalized or normalized.startswith("/"):
+        raise InvocationError(
+            f"target_repository must be a canonical owner/repo, got a URL or path: {repository!r}"
+        )
+    # Reject owner/repo:ref and owner/repo@ref injection shapes that the grammar
+    # would otherwise allow when the segments contain ':'.
+    if not REPOSITORY_PATTERN.match(normalized):
+        raise InvocationError(
+            "target_repository must be a canonical 'owner/repo' string "
+            f"(alphanumerics, '.', '-', '_' in each segment); got {repository!r}"
+        )
+    return normalized
+
+
+def _validate_release_id(release_id: Any) -> int | None:
+    """Validate an optional positive numeric GitHub release ID."""
+    if release_id is None or release_id == "":
+        return None
+    if isinstance(release_id, int) and not isinstance(release_id, bool):
+        candidate = release_id
+    elif isinstance(release_id, str):
+        text = release_id.strip()
+        if not text:
+            return None
+        if not TARGET_PATTERN.match(text):
+            raise InvocationError(
+                f"release_id must be a positive integer, got {release_id!r}"
+            )
+        candidate = int(text)
+    else:
+        raise InvocationError(f"release_id must be a positive integer, got {release_id!r}")
+    if candidate <= 0:
+        raise InvocationError(f"release_id must be a positive integer, got {release_id!r}")
+    return candidate
+
+
+def _validate_release_tag(tag: Any) -> str | None:
+    """Validate an optional conservative release tag selector.
+
+    The tag is resolved through the GitHub REST API and never used as a Git
+    ref directly, so this bound exists only to reject injection-shaped values
+    such as URLs, refs, expressions, paths, and whitespace.
+    """
+    if tag is None or tag == "":
+        return None
+    if not isinstance(tag, str):
+        raise InvocationError("release_tag must be a string")
+    normalized = tag.strip()
+    if "://" in normalized or normalized.startswith("/") or "@" in normalized:
+        raise InvocationError(
+            f"release_tag must not be a URL, ref, or path: {tag!r}"
+        )
+    if ".." in normalized:
+        raise InvocationError(
+            f"release_tag must not contain '..' (Git ref range): {tag!r}"
+        )
+    if not RELEASE_TAG_PATTERN.match(normalized):
+        raise InvocationError(
+            "release_tag must match [A-Za-z0-9._-]{1,128}; got " f"{tag!r}"
+        )
+    return normalized
+
+
 def _validate_target(target: Any) -> int | None:
     """Validate an optional positive issue or pull-request number."""
     if target is None or target == "":
@@ -318,6 +446,9 @@ def resolve_invocation(
     validate_only: bool | str = False,
     target_number: int | str | None = None,
     request_label: str | None = None,
+    target_repository: str | None = None,
+    release_id: int | str | None = None,
+    release_tag: str | None = None,
 ) -> ResolvedInvocation:
     """Validate and normalize all invocation inputs.
 
@@ -330,17 +461,57 @@ def resolve_invocation(
     resolved_source = _validate_source(configuration_source)
     resolved_ref = _validate_ref(configuration_ref, resolved_source)
     resolved_profile = _validate_profile(configuration_profile)
-    resolved_focus = _validate_focus(focus)
-    resolved_max_comments = _optional_int(
-        max_comments, "max_comments", MAX_COMMENTS_MIN, MAX_COMMENTS_MAX
-    )
-    resolved_max_issues = _optional_int(
-        max_issues, "max_issues", MAX_ISSUES_MIN, MAX_ISSUES_MAX
-    )
     resolved_dry_run = _coerce_bool(dry_run, "dry_run")
     resolved_validate_only = _coerce_bool(validate_only, "validate_only")
-    resolved_target = _validate_target(target_number)
-    resolved_label = _validate_request_label(request_label)
+
+    # Workflow-specific input validation. The release workflow has its own
+    # release-management focus allowlist and release selector; the other
+    # workflows use the PR/issue focus allowlist and target_number.
+    if resolved_workflow == "release-project-review":
+        resolved_focus = _validate_release_focus(focus)
+        resolved_max_comments = _optional_int(
+            max_comments, "max_comments", MAX_COMMENTS_MIN, MAX_COMMENTS_MAX
+        )
+        resolved_target_repository = _validate_target_repository(target_repository)
+        resolved_release_id = _validate_release_id(release_id)
+        resolved_release_tag = _validate_release_tag(release_tag)
+        if (resolved_release_id is None) == (resolved_release_tag is None):
+            raise InvocationError(
+                "release-project-review requires exactly one of release_id or release_tag"
+            )
+        # Release review does not use PR/issue target_number, batch counts,
+        # request_label, or max_issues; reject them to keep the surface narrow.
+        if target_number is not None and target_number != "":
+            raise InvocationError("target_number is not supported for release-project-review")
+        if max_issues is not None and max_issues != "":
+            raise InvocationError("max_issues is not supported for release-project-review")
+        if request_label is not None and request_label != "":
+            raise InvocationError("request_label is not supported for release-project-review")
+        resolved_target = None
+        resolved_label = None
+        resolved_max_issues = None
+    else:
+        resolved_focus = _validate_focus(focus)
+        resolved_max_comments = _optional_int(
+            max_comments, "max_comments", MAX_COMMENTS_MIN, MAX_COMMENTS_MAX
+        )
+        resolved_max_issues = _optional_int(
+            max_issues, "max_issues", MAX_ISSUES_MIN, MAX_ISSUES_MAX
+        )
+        resolved_target = _validate_target(target_number)
+        resolved_label = _validate_request_label(request_label)
+        resolved_target_repository = None
+        resolved_release_id = None
+        resolved_release_tag = None
+        # Release selectors belong only to the release workflow.
+        if release_id is not None and release_id != "":
+            raise InvocationError("release_id is only supported for release-project-review")
+        if release_tag is not None and release_tag != "":
+            raise InvocationError("release_tag is only supported for release-project-review")
+        if target_repository is not None and target_repository != "":
+            raise InvocationError(
+                "target_repository is only supported for release-project-review"
+            )
 
     if resolved_dry_run and resolved_validate_only:
         raise InvocationError("dry_run and validate_only are mutually exclusive")
@@ -389,6 +560,9 @@ def resolve_invocation(
         validate_only=resolved_validate_only,
         target_number=resolved_target,
         request_label=resolved_label,
+        target_repository=resolved_target_repository,
+        release_id=resolved_release_id,
+        release_tag=resolved_release_tag,
     )
 
 
@@ -411,6 +585,9 @@ def resolve_from_env(env: dict[str, str]) -> ResolvedInvocation:
         validate_only=env.get("AGENTIC_VALIDATE_ONLY", "false"),
         target_number=env.get("AGENTIC_TARGET_NUMBER") or None,
         request_label=env.get("AGENTIC_REQUEST_LABEL") or None,
+        target_repository=env.get("AGENTIC_TARGET_REPOSITORY") or None,
+        release_id=env.get("AGENTIC_RELEASE_ID") or None,
+        release_tag=env.get("AGENTIC_RELEASE_TAG") or None,
     )
 
 
@@ -439,6 +616,9 @@ def write_github_outputs(resolved: ResolvedInvocation, output_path: Path) -> Non
         f"validate_only={'true' if resolved.validate_only else 'false'}",
         f"target_number={resolved.target_number if resolved.target_number is not None else ''}",
         f"request_label={resolved.request_label or ''}",
+        f"target_repository={resolved.target_repository or ''}",
+        f"release_id={resolved.release_id if resolved.release_id is not None else ''}",
+        f"release_tag={resolved.release_tag or ''}",
     ]
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -464,6 +644,12 @@ def write_job_summary(resolved: ResolvedInvocation, summary_path: Path) -> None:
         lines.append(f"- Target number: `{resolved.target_number}`")
     if resolved.request_label:
         lines.append(f"- Request label: `{resolved.request_label}`")
+    if resolved.target_repository:
+        lines.append(f"- Target repository: `{resolved.target_repository}`")
+    if resolved.release_id is not None:
+        lines.append(f"- Release ID: `{resolved.release_id}`")
+    if resolved.release_tag:
+        lines.append(f"- Release tag: `{resolved.release_tag}`")
     mode = (
         "validate-only"
         if resolved.validate_only
@@ -501,6 +687,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--validate-only", default="false")
     parser.add_argument("--target-number", default=None)
     parser.add_argument("--request-label", default=None)
+    parser.add_argument("--target-repository", default=None)
+    parser.add_argument("--release-id", default=None)
+    parser.add_argument("--release-tag", default=None)
     parser.add_argument(
         "--github-output",
         default=None,
@@ -537,6 +726,9 @@ def main(argv: Iterable[str] | None = None) -> int:
             validate_only=args.validate_only,
             target_number=args.target_number,
             request_label=args.request_label,
+            target_repository=args.target_repository,
+            release_id=args.release_id,
+            release_tag=args.release_tag,
         )
     except InvocationError as error:
         print(f"::error::Invocation validation failed: {error}", file=sys.stderr)

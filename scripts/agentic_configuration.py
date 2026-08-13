@@ -90,6 +90,7 @@ SUPPORTED_OUTPUT_CONTRACTS: frozenset[str] = frozenset(
         "pr-review-json-v1",
         "issue-feedback-markdown-v1",
         "issue-implementation-decision-v1",
+        "release-project-issue-v1",
     }
 )
 
@@ -101,6 +102,7 @@ SUPPORTED_WORKFLOWS: frozenset[str] = frozenset(
         "pr-documentation-review",
         "issue-feedback",
         "issue-implementation",
+        "release-project-review",
     }
 )
 
@@ -284,7 +286,7 @@ def validate_agent_front_matter(text: str, *, workflow: str) -> dict[str, str]:
             f"agent mode must be primary or subagent, got {mode!r}"
         )
     # Review workflows must remain non-code-writing regardless of profile.
-    if workflow in {"pr-documentation-review", "issue-feedback"}:
+    if workflow in {"pr-documentation-review", "issue-feedback", "release-project-review"}:
         body_match = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
         body = body_match.group(1) if body_match else ""
         if re.search(r"(?m)^\s*edit\s*:\s*allow\s*$", body):

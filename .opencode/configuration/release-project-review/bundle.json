@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "profile_name": "release-project-review",
+  "allowed_workflows": ["release-project-review"],
+  "agent_file": "agent.md",
+  "skill_files": ["skills/release-management/SKILL.md"],
+  "prompt_template": "prompts/release-project-review.md",
+  "model_profile": "release-project-review-readonly",
+  "output_contract": "release-project-issue-v1",
+  "limits": {},
+  "policy": {
+    "capabilities": {
+      "filesystem": "read-release-context-only",
+      "github_write": "issue-create-only",
+      "delegation": "deny"
+    }
+  }
+}
