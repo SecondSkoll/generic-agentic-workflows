@@ -75,6 +75,11 @@ jobs:
           set -euo pipefail
           uv run python -m py_compile scripts/*.py
 
+      - name: Set up Node.js 24
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+
       - name: Install OpenCode for schema smoke checks
         run: npm install -g opencode-ai@1.18.16
 

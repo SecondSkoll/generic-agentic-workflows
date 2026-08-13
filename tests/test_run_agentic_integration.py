@@ -539,6 +539,48 @@ class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):
             self.assertIn("OpenCode exited with status 1", stderr.getvalue())
             self.assertIn("Model not found", stderr.getvalue())
 
+    def test_integrated_path_reports_empty_successful_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
+            stderr = io.StringIO()
+            provider_diagnostic = "provider returned an empty completion"
+            with (
+                mock.patch.object(
+                    RUNNER.subprocess,
+                    "run",
+                    return_value=FakeSubprocessResult("", stderr=provider_diagnostic),
+                ),
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+                contextlib.redirect_stderr(stderr),
+            ):
+                rc = RUNNER.main(
+                    [
+                        "--input", str(diff_path),
+                        "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository", "o/r",
+                        "--pull-number", "1",
+                        "--head-sha", "abc123",
+                        "--feedback-kind", "pr-documentation-review",
+                        "--author", "octocat",
+                        "--resolved-config", str(bundle_path),
+                        "--effective-policy", str(policy_path),
+                    ]
+                )
+            log = stderr.getvalue()
+            self.assertEqual(rc, 1)
+            mock_gh.assert_not_called()
+            self.assertIn("OpenCode response transport: exit_code=0", log)
+            self.assertIn("stdout_bytes=0", log)
+            self.assertIn(
+                f"stderr_bytes={len(provider_diagnostic.encode('utf-8'))}", log
+            )
+            self.assertIn("exited successfully but returned no stdout", log)
+            self.assertNotIn("violated the PR review contract", log)
+            self.assertNotIn(provider_diagnostic, log)
+
     def test_untrusted_diff_is_delimited_single_channel(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

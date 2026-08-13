@@ -18,6 +18,7 @@ starts.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -842,14 +843,34 @@ def _run_opencode_integrated(
             prompt=prompt,
             provider_timeout=provider_timeout,
         )
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
+        print(
+            "OpenCode response transport: "
+            f"exit_code={result.returncode}; "
+            f"stdout_bytes={len(stdout.encode('utf-8'))}; "
+            f"stdout_sha256={hashlib.sha256(stdout.encode('utf-8')).hexdigest()[:12]}; "
+            f"stderr_bytes={len(stderr.encode('utf-8'))}; "
+            f"stderr_sha256={hashlib.sha256(stderr.encode('utf-8')).hexdigest()[:12]}",
+            file=sys.stderr,
+        )
         if result.returncode:
-            detail = (result.stderr or result.stdout or "").strip()
+            detail = (stderr or stdout).strip()
             print(
                 f"::error::OpenCode exited with status {result.returncode}. "
                 f"{detail or 'No diagnostic output was returned.'}",
                 file=sys.stderr,
             )
-        return result.returncode, result.stdout
+            return result.returncode, stdout
+        if not stdout.strip():
+            print(
+                "::error::OpenCode exited successfully but returned no stdout. "
+                "The provider or OpenCode diagnostic stream is represented by the "
+                "safe response-transport metadata above; no PR review contract was parsed.",
+                file=sys.stderr,
+            )
+            return 1, stdout
+        return 0, stdout
     finally:
         import shutil
 

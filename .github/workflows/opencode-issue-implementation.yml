@@ -302,6 +302,11 @@ jobs:
           print(f"OK base ref: {ref}")
           PY
 
+      - name: Set up Node.js 24
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+
       - name: Install OpenCode
         run: npm install -g opencode-ai@1.18.16
 
