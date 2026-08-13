@@ -61,15 +61,15 @@ jobs:
           expected_sources = {"default", "local", "central"}
           expected_examples = {
             "documentation-review.yml": (
-              "review",
-              "opencode-documentation-review.yml",
-              "pr-documentation-review",
+                "review",
+                "opencode-documentation-review.yml",
+                "pr-documentation-review",
                 "documentation-review",
             ),
             "issue-feedback.yml": (
-              "feedback",
-              "opencode-issue-feedback.yml",
-              "issue-feedback",
+                "feedback",
+                "opencode-issue-feedback.yml",
+                "issue-feedback",
                 "issue-feedback",
             ),
           }
@@ -81,30 +81,30 @@ jobs:
               except Exception as error:
                   failures.append(f"{path}: {error}")
                   print(f"FAIL: {path}: {error}")
-                for source in expected_sources:
-                    for filename, (job_name, reusable_workflow, _, remote_profile) in expected_examples.items():
-                    path = examples_root / source / ".github/workflows" / filename
-                    try:
+          for source in expected_sources:
+              for filename, (job_name, reusable_workflow, _, remote_profile) in expected_examples.items():
+                  path = examples_root / source / ".github/workflows" / filename
+                  try:
                       data = yaml.safe_load(path.read_text(encoding="utf-8"))
                       job = data["jobs"][job_name]
-                        inputs = job["with"]
-                      assert job["with"]["configuration_source"] == source
-                        assert inputs["validate_only"] is True
-                        prefix = (
+                      inputs = job["with"]
+                      assert inputs["configuration_source"] == source
+                      assert inputs["validate_only"] is True
+                      prefix = (
                           "SecondSkoll/generic-agentic-workflows/.github/workflows/"
                           f"{reusable_workflow}@"
-                        )
-                        assert job["uses"].startswith(prefix)
-                        workflow_sha = job["uses"].removeprefix(prefix)
-                        assert re.fullmatch(r"[0-9a-f]{40}", workflow_sha)
-                        if source == "local":
+                      )
+                      assert job["uses"].startswith(prefix)
+                      workflow_sha = job["uses"].removeprefix(prefix)
+                      assert re.fullmatch(r"[0-9a-f]{40}", workflow_sha)
+                      if source == "local":
                           assert "configuration_ref" not in inputs
                           assert inputs["configuration_profile"] == f"local-{remote_profile}"
-                        else:
+                      else:
                           assert inputs["configuration_profile"] == remote_profile
                           assert inputs["configuration_ref"] == workflow_sha
                       print(f"OK example: {path}")
-                    except Exception as error:
+                  except Exception as error:
                       failures.append(f"{path}: {error}")
                       print(f"FAIL example: {path}: {error}")
           if failures:
@@ -211,9 +211,9 @@ jobs:
                 "issue-feedback",
               ),
           ]
-            for bundle_root, profile, workflow in bundles:
+          for bundle_root, profile, workflow in bundles:
               resolved = cfg.resolve_local_bundle(
-                bundle_root=bundle_root,
+                  bundle_root=bundle_root,
                   profile=profile,
                   workflow=workflow,
               )

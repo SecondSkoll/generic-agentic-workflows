@@ -99,8 +99,8 @@ and symlinks are rejected.
 
 ## `bundle.json` fields
 
-`bundle.json` is a JSON object. The following complete example is a valid
-issue-feedback profile using real supported identifiers:
+`bundle.json` is a JSON object. The following example is a valid
+issue-feedback profile using some fictitious values:
 
 ```json
 {
@@ -166,6 +166,8 @@ actual values after every content edit rather than copying them:
 ```text
 python3 scripts/update_hashes.py --profile product-issue-feedback
 ```
+
+Note: Hashes are needed to call remote files for security, they are not needed when using local opencode configuration.
 
 ## Agent and skill front matter
 

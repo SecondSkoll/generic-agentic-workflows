@@ -25,7 +25,7 @@ issue-to-pull-request implementation path.
 | `local` | Repository-specific instructions | The caller repository's trusted checkout. |
 | `central` | Shared organization profiles | An allowlisted central repository at a full pinned commit SHA. |
 
-Note: `default` and `central` currently point to this repository. `central` should eventually be aimed elswhere to provide a shared, and more agile source or profiles.
+Note: `default` and `central` currently point to this repository. `central` should eventually be aimed elsewhere to provide a shared, and more agile source or profiles.
 
 All configuration is a hash-verified bundle. Callers cannot provide arbitrary
 prompt text, file paths, model identifiers, URLs, branches, or tags. Remote
