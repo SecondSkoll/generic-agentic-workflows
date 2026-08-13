@@ -61,6 +61,37 @@ OPENCODE_PROMPT_MESSAGE = (
 )
 
 
+def _opencode_json_text_output(output: str) -> str:
+    """Return concatenated final assistant text from OpenCode JSONL events.
+
+    ``opencode run --format json`` emits one event object per line.  Selecting
+    completed text parts avoids treating tool, status, or error events as a
+    review response, while retaining the exact model text for contract parsing.
+    """
+    text_parts: list[str] = []
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise ValueError("OpenCode emitted malformed JSONL output") from error
+        if not isinstance(event, dict):
+            raise ValueError("OpenCode emitted a non-object JSONL event")
+        if event.get("type") != "text":
+            continue
+        part = event.get("part")
+        if not isinstance(part, dict) or part.get("type") != "text":
+            raise ValueError("OpenCode text event did not contain a text part")
+        if not isinstance(part.get("time"), dict) or part["time"].get("end") is None:
+            continue
+        text = part.get("text")
+        if not isinstance(text, str):
+            raise ValueError("OpenCode text event did not contain string text")
+        text_parts.append(text)
+    return "\n".join(text_parts)
+
+
 def front_matter_name(path: Path) -> str:
     """Read the required `name` from a Markdown file's YAML front matter.
 
@@ -845,11 +876,21 @@ def _run_opencode_integrated(
         )
         stdout = result.stdout or ""
         stderr = result.stderr or ""
+        try:
+            output = _opencode_json_text_output(stdout)
+        except ValueError as error:
+            print(
+                f"::error::OpenCode response transport was invalid: {error}.",
+                file=sys.stderr,
+            )
+            return 1, ""
         print(
             "OpenCode response transport: "
             f"exit_code={result.returncode}; "
             f"stdout_bytes={len(stdout.encode('utf-8'))}; "
             f"stdout_sha256={hashlib.sha256(stdout.encode('utf-8')).hexdigest()[:12]}; "
+            f"response_bytes={len(output.encode('utf-8'))}; "
+            f"response_sha256={hashlib.sha256(output.encode('utf-8')).hexdigest()[:12]}; "
             f"stderr_bytes={len(stderr.encode('utf-8'))}; "
             f"stderr_sha256={hashlib.sha256(stderr.encode('utf-8')).hexdigest()[:12]}",
             file=sys.stderr,
@@ -861,16 +902,16 @@ def _run_opencode_integrated(
                 f"{detail or 'No diagnostic output was returned.'}",
                 file=sys.stderr,
             )
-            return result.returncode, stdout
-        if not stdout.strip():
+            return result.returncode, output
+        if not output.strip():
             print(
-                "::error::OpenCode exited successfully but returned no stdout. "
-                "The provider or OpenCode diagnostic stream is represented by the "
-                "safe response-transport metadata above; no PR review contract was parsed.",
+                "::error::OpenCode exited successfully but emitted no completed "
+                "assistant text. The safe response-transport metadata above "
+                "identifies the raw event stream; no PR review contract was parsed.",
                 file=sys.stderr,
             )
-            return 1, stdout
-        return 0, stdout
+            return 1, output
+        return 0, output
     finally:
         import shutil
 
@@ -981,7 +1022,15 @@ def _run_opencode_with_prompt_file(
         # before ``--`` and the instruction after it so neither is parsed as
         # an attachment. Without the delimiter, OpenCode exits with
         # ``File not found: Use the attached workflow-prompt.md ...``.
-        cmd = ["opencode", "run", *opencode_args, "--file", str(prompt_path)]
+        cmd = [
+            "opencode",
+            "run",
+            *opencode_args,
+            "--format",
+            "json",
+            "--file",
+            str(prompt_path),
+        ]
         for attachment in attachments:
             cmd.extend(["--file", str(attachment)])
         cmd.extend(["--", OPENCODE_PROMPT_MESSAGE])
