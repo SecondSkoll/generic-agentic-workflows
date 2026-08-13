@@ -78,6 +78,7 @@ def min_int(a: int | None, b: int | None) -> int | None:
 
 
 def intersect_string_sets(a: Iterable[str], b: Iterable[str]) -> frozenset[str]:
+    """Return the restrictive intersection of two string allowlists."""
     return frozenset(a) & frozenset(b)
 
 
@@ -374,6 +375,7 @@ class EffectivePolicy:
     context: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable effective-policy report."""
         return {
             "workflow": self.workflow,
             "model_profile": self.model_profile,
@@ -395,10 +397,12 @@ class EffectivePolicy:
         }
 
     def to_json(self) -> str:
+        """Serialize this policy as deterministic, pretty JSON."""
         return json.dumps(self.to_dict(), sort_keys=True, indent=2)
 
 
 def _layer(name: str, **fields: Any) -> dict[str, Any]:
+    """Build a labelled policy-layer record for diagnostics and hashing."""
     return {"layer": name, **fields}
 
 
@@ -814,6 +818,7 @@ def redacted_policy_report(policy: EffectivePolicy) -> dict[str, Any]:
     # Layers may contain bundle/overlay metadata; redact any secret-shaped
     # strings recursively.
     def _redact(obj: Any) -> Any:
+        """Recursively redact secret-shaped strings from report data."""
         if isinstance(obj, str):
             return redact_secrets(obj)
         if isinstance(obj, list):
@@ -831,6 +836,7 @@ def redacted_policy_report(policy: EffectivePolicy) -> dict[str, Any]:
 
 
 def write_job_summary(policy: EffectivePolicy, summary_path: Path) -> None:
+    """Append a concise effective-policy summary to a GitHub step summary."""
     lines = [
         "### Effective agentic policy",
         "",
@@ -859,6 +865,7 @@ def write_job_summary(policy: EffectivePolicy, summary_path: Path) -> None:
 
 
 def main(argv: Iterable[str] | None = None) -> int:
+    """Resolve policy from CLI inputs, emit JSON, and return an exit status."""
     import argparse
     import json
     import sys

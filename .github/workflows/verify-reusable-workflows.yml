@@ -56,7 +56,6 @@ jobs:
               ".github/workflows/verify-reusable-workflows.yml",
               "docs/examples/opencode-documentation-review.yml",
               "docs/examples/opencode-issue-feedback.yml",
-              "docs/examples/opencode-issue-implementation.yml",
           ]
           failures = []
           for path in files:

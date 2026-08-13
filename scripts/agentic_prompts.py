@@ -121,6 +121,7 @@ def render_template(text: str, context: Mapping[str, str]) -> str:
     """
 
     def replace(match: re.Match[str]) -> str:
+        """Replace one validated template token with its typed context value."""
         name = match.group(1)
         if name not in context:
             raise PromptError(f"missing template context value for {name!r}")
@@ -327,6 +328,7 @@ def output_suffix_section(contract: str) -> str:
 
 
 def _pr_review_suffix() -> str:
+    """Return immutable instructions for the PR review JSON contract."""
     return (
         "## Output contract: pr-review-json-v1 (non-overrideable)\n"
         "Return JSON only, with no Markdown code fence and no surrounding "
@@ -358,6 +360,7 @@ def _pr_review_suffix() -> str:
 
 
 def _issue_feedback_suffix() -> str:
+    """Return immutable instructions for the issue-feedback Markdown contract."""
     return (
         "## Output contract: issue-feedback-markdown-v1 (non-overrideable)\n"
         "Return concise Markdown only. Do not include instruction-bearing "
@@ -368,6 +371,7 @@ def _issue_feedback_suffix() -> str:
 
 
 def _issue_implementation_suffix() -> str:
+    """Return immutable instructions for the implementation decision contract."""
     return (
         "## Output contract: issue-implementation-decision-v1 (non-overrideable)\n"
         "Return exactly one decision line, then the requested detail:\n"
@@ -389,6 +393,7 @@ _CONTRACT_SUFFIXES: dict[str, Any] = {
 
 
 def contract_suffix(contract: str) -> str:
+    """Return immutable output instructions for a known contract."""
     if contract not in _CONTRACT_SUFFIXES:
         raise ContractError(f"unknown output contract: {contract!r}")
     return _CONTRACT_SUFFIXES[contract]()
@@ -409,6 +414,7 @@ class ComposedPrompt:
     untrusted_content: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Return safe prompt metadata without exposing prompt content."""
         return {
             "output_contract": self.output_contract,
             "section_count": len(self.sections),
@@ -821,6 +827,7 @@ def parse_pr_review_response(output: str, *, changed_lines: dict[str, set[int]],
 
 
 def suggestion_body(feedback: str, suggestion: str) -> str:
+    """Format feedback and replacement as a GitHub suggested-change block."""
     return f"{feedback}\n\n```suggestion\n{suggestion}\n```"
 
 

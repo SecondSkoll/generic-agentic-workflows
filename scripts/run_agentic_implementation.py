@@ -29,6 +29,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 
 
 def _load_sibling(name: str):
+    """Load a dependency-free sibling module by filename."""
     spec = importlib.util.spec_from_file_location(name, _SCRIPTS_DIR / f"{name}.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -51,6 +52,7 @@ OPENCODE_PROMPT_MESSAGE = (
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the implementation workflow and return its process exit status."""
     parser = argparse.ArgumentParser(
         description="Run the issue-implementation planner under the Plan 3 prompt model."
     )
@@ -251,6 +253,7 @@ def _write_provenance(
     effective_policy: dict,
     result: str,
 ) -> None:
+    """Write a redacted implementation provenance record when requested."""
     if not args.provenance:
         return
     record = PROV.build_provenance(

@@ -95,6 +95,7 @@ class ProvenanceRecord:
     error_message: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the redacted record as a JSON-serialisable mapping."""
         return {
             "workflow_version": self.workflow_version,
             "workflow_name": self.workflow_name,
@@ -123,6 +124,7 @@ class ProvenanceRecord:
         }
 
     def to_json(self) -> str:
+        """Serialize the record as deterministic, pretty JSON."""
         return json.dumps(self.to_dict(), sort_keys=True, indent=2)
 
 
@@ -269,6 +271,7 @@ def job_summary(record: ProvenanceRecord) -> str:
 
 
 def write_job_summary(record: ProvenanceRecord, summary_path: Path) -> None:
+    """Append a provenance summary to a GitHub step-summary file."""
     existing = ""
     if summary_path.exists():
         existing = summary_path.read_text(encoding="utf-8")
@@ -349,6 +352,7 @@ def matches_current_config(
 
 
 def main(argv: Iterable[str] | None = None) -> int:
+    """Build provenance from CLI inputs, write requested files, and exit."""
     import argparse
 
     parser = argparse.ArgumentParser(

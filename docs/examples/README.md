@@ -33,7 +33,6 @@ declares.
 
 - [`opencode-review.yml`](./opencode-review.yml) — pull-request documentation review.
 - [`opencode-issue-feedback.yml`](./opencode-issue-feedback.yml) — issue feedback.
-- [`opencode-issue-implementation.yml`](./opencode-issue-implementation.yml) — issue implementation.
 
 ## Typed inputs exposed to callers
 
@@ -45,7 +44,6 @@ declares.
 | `focus` | string | no | Allowlisted review focus; no arbitrary prompt text. |
 | `max_comments` | number | no | Bounded feedback count, `0`–`20` (PR review only). |
 | `max_issues` | number | no | Bounded issue count, `1`–`100` (issue feedback only). |
-| `request_label` | string | no | Validated label/marker for issue selection (implementation only). |
 | `dry_run` | boolean | no | Resolve, validate, and generate output without publishing. |
 | `validate_only` | boolean | no | Resolve and validate configuration only. |
 | `pull_number` / `issue_number` | number | no | Target number when event context is unavailable. |
@@ -56,9 +54,9 @@ supply them is rejected before checkout or model invocation.
 
 ## Migration from direct triggers
 
-Existing direct triggers (`pull_request_target`, `issues`, `workflow_dispatch`)
-continue to work unchanged. To migrate a consumer repository to the reusable
-form:
+The pull-request review and issue-feedback workflows support reusable calls;
+issue implementation is manual-dispatch-only and has no reusable wrapper. To
+migrate a consumer repository to the reusable form:
 
 1. Pin this repository to a reviewed commit SHA in your wrapper's `uses:` line.
 2. Copy the relevant wrapper example into `.github/workflows/` in your repository.

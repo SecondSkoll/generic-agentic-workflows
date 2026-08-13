@@ -4,51 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       issue_number:
-        description: Open issue number to implement (optional; otherwise process one requested issue)
-        required: false
-        type: string
-  workflow_call:
-    inputs:
-      configuration_source:
-        description: default (supplied profile), local (caller repository), or an approved central alias
-        type: string
-        required: false
-        default: default
-      configuration_ref:
-        description: Full 40-character commit SHA for a remote bundle
-        type: string
-        required: false
-        default: ''
-      configuration_profile:
-        description: Bundle profile name
-        type: string
+        description: Open issue number to implement
         required: true
-      request_label:
-        description: Validated label or comment marker used to select an eligible issue
         type: string
-        required: false
-        default: ai-implementation-requested
-      dry_run:
-        description: Resolve, validate, and generate output without publishing
-        type: boolean
-        required: false
-        default: false
-      validate_only:
-        description: Resolve and validate configuration only
-        type: boolean
-        required: false
-        default: false
-      issue_number:
-        description: Open issue number to implement when event context is unavailable
-        type: number
-        required: false
-        default: 0
-    secrets:
-      OPENROUTER_API_KEY:
-        required: true
-      central_config_token:
-        description: Optional read token for a private central configuration repository; falls back to github.token.
-        required: false
 
 permissions:
   contents: read
@@ -64,8 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       issue: ${{ steps.select.outputs.issue }}
-      dry_run: ${{ steps.resolve.outputs.dry_run }}
-      validate_only: ${{ steps.resolve.outputs.validate_only }}
     steps:
       # The resolver is stored in the caller repository checkout.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -76,13 +32,12 @@ jobs:
         id: resolve
         env:
           AGENTIC_WORKFLOW: issue-implementation
-          AGENTIC_CONFIGURATION_SOURCE: ${{ github.event_name == 'workflow_call' && inputs.configuration_source || 'local' }}
-          AGENTIC_CONFIGURATION_REF: ${{ github.event_name == 'workflow_call' && inputs.configuration_ref || '' }}
-          AGENTIC_CONFIGURATION_PROFILE: ${{ github.event_name == 'workflow_call' && inputs.configuration_profile || 'default-implementation' }}
-          AGENTIC_DRY_RUN: ${{ github.event_name == 'workflow_call' && inputs.dry_run || false }}
-          AGENTIC_VALIDATE_ONLY: ${{ github.event_name == 'workflow_call' && inputs.validate_only || false }}
-          AGENTIC_TARGET_NUMBER: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || github.event_name == 'workflow_call' && inputs.issue_number || '' }}
-          AGENTIC_REQUEST_LABEL: ${{ github.event_name == 'workflow_call' && inputs.request_label || 'ai-implementation-requested' }}
+          AGENTIC_CONFIGURATION_SOURCE: local
+          AGENTIC_CONFIGURATION_REF: ''
+          AGENTIC_CONFIGURATION_PROFILE: default-implementation
+          AGENTIC_DRY_RUN: false
+          AGENTIC_VALIDATE_ONLY: false
+          AGENTIC_TARGET_NUMBER: ${{ inputs.issue_number }}
         run: |
           set -euo pipefail
           python3 scripts/resolve_invocation.py \
@@ -93,79 +48,29 @@ jobs:
             --dry-run "$AGENTIC_DRY_RUN" \
             --validate-only "$AGENTIC_VALIDATE_ONLY" \
             --target-number "$AGENTIC_TARGET_NUMBER" \
-            --request-label "$AGENTIC_REQUEST_LABEL" \
             --github-output "$GITHUB_OUTPUT" \
             --github-step-summary "$GITHUB_STEP_SUMMARY" \
             --result "$RUNNER_TEMP/resolved-invocation.json"
 
-      - name: Stop after validation-only
-        if: steps.resolve.outputs.validate_only == 'true'
-        run: |
-          echo "validate_only selected; no issue selection, checkout, or model invocation performed."
-          echo "::notice::Resolved configuration written to job summary and artifact."
-
-      - name: Select an eligible open issue
-        if: steps.resolve.outputs.validate_only != 'true'
+      - name: Select the manually requested open issue
         id: select
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          REQUEST_LABEL: ${{ steps.resolve.outputs.request_label }}
           ISSUE_NUMBER: ${{ steps.resolve.outputs.target_number }}
         run: |
           set -euo pipefail
 
-          comment_has_request() {
-            jq -e \
-              'any(.[]; (.body // "" | test("(?i)\\[\\[ai implementation requested\\]\\]")))' \
-              > /dev/null
-          }
-
-          action_has_replied_to_request() {
-            jq -e \
-              '([.[] | select((.body // "" | test("(?i)\\[\\[ai implementation requested\\]\\]"))) | .created_at] | max) as $requested_at | if $requested_at == null then any(.[]; (.user.login // "") == "github-actions[bot]" and ((.body // "" | contains("<!-- agentic-workflow:issue-implementation:")) or (.body // "" | contains("<!-- agentic-workflow:issue-implementation-status:")))) else any(.[]; (.user.login // "") == "github-actions[bot]" and (.created_at > $requested_at) and ((.body // "" | contains("<!-- agentic-workflow:issue-implementation:")) or (.body // "" | contains("<!-- agentic-workflow:issue-implementation-status:")))) end' \
-              > /dev/null
-          }
-
-          issue_json=''
-          if [[ -n "$ISSUE_NUMBER" ]]; then
-            if ! [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
-              echo "The issue_number input must be a positive integer." >&2
-              exit 1
-            fi
-            issue_json=$(gh api "/repos/$REPOSITORY/issues/$ISSUE_NUMBER")
-            if [[ $(jq -r '.state' <<< "$issue_json") != 'open' ]] || jq -e 'has("pull_request")' <<< "$issue_json" > /dev/null; then
-              echo "Issue #$ISSUE_NUMBER must be an open issue, not a pull request." >&2
-              exit 1
-            fi
-            candidates=$(jq -cn --argjson issue "$issue_json" '[$issue]')
-          else
-            candidates=$(gh api --paginate "/repos/$REPOSITORY/issues?state=open&per_page=100" | jq -sc 'add | map(select(has("pull_request") | not)) | sort_by(.updated_at)')
+          if ! [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "The issue_number input must be a positive integer." >&2
+            exit 1
           fi
-
-          selected=''
-          while IFS= read -r issue; do
-            number=$(jq -r '.number' <<< "$issue")
-            comments=$(gh api --paginate "/repos/$REPOSITORY/issues/$number/comments?per_page=100" | jq -sc 'add')
-            has_label=$(jq -e --arg label "$REQUEST_LABEL" 'any(.labels[]?; .name == $label)' <<< "$issue" > /dev/null && echo true || echo false)
-            is_manual_target=$([[ -n "$ISSUE_NUMBER" ]] && echo true || echo false)
-            if [[ "$is_manual_target" == true || $(comment_has_request <<< "$comments" && echo true || echo false) == true || "$has_label" == true ]] && { [[ "$is_manual_target" == true ]] || ! action_has_replied_to_request <<< "$comments"; }; then
-              selected=$issue
-              break
-            fi
-          done < <(jq -c '.[]' <<< "$candidates")
-
-          if [[ -z "$selected" ]]; then
-            echo 'issue=' >> "$GITHUB_OUTPUT"
-            if [[ -n "$ISSUE_NUMBER" ]]; then
-              echo "Issue #$ISSUE_NUMBER could not be selected." >&2
-              exit 1
-            fi
-            echo 'No open issue has a pending AI implementation request.'
-            exit 0
+          issue_json=$(gh api "/repos/$REPOSITORY/issues/$ISSUE_NUMBER")
+          if [[ $(jq -r '.state' <<< "$issue_json") != 'open' ]] || jq -e 'has("pull_request")' <<< "$issue_json" > /dev/null; then
+            echo "Issue #$ISSUE_NUMBER must be an open issue, not a pull request." >&2
+            exit 1
           fi
-
-          echo "issue=$(jq -c . <<< "$selected")" >> "$GITHUB_OUTPUT"
+          echo "issue=$(jq -c . <<< "$issue_json")" >> "$GITHUB_OUTPUT"
 
       - name: Upload resolved invocation artifact
         if: always()
@@ -178,7 +83,7 @@ jobs:
 
   implement:
     needs: select-issue
-    if: needs.select-issue.outputs.issue != '' && needs.select-issue.outputs.validate_only != 'true'
+    if: needs.select-issue.outputs.issue != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -186,7 +91,7 @@ jobs:
       pull-requests: write
     env:
       ISSUE: ${{ needs.select-issue.outputs.issue }}
-      DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
+      DRY_RUN: false
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -201,10 +106,10 @@ jobs:
         id: config
         env:
           AGENTIC_WORKFLOW: issue-implementation
-          AGENTIC_CONFIGURATION_SOURCE: ${{ github.event_name == 'workflow_call' && inputs.configuration_source || 'local' }}
-          AGENTIC_CONFIGURATION_REF: ${{ github.event_name == 'workflow_call' && inputs.configuration_ref || '' }}
-          AGENTIC_CONFIGURATION_PROFILE: ${{ github.event_name == 'workflow_call' && inputs.configuration_profile || 'default-implementation' }}
-          GITHUB_TOKEN: ${{ secrets.central_config_token || github.token }}
+          AGENTIC_CONFIGURATION_SOURCE: local
+          AGENTIC_CONFIGURATION_REF: ''
+          AGENTIC_CONFIGURATION_PROFILE: default-implementation
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python3 scripts/agentic_configuration.py \
@@ -217,7 +122,7 @@ jobs:
       - name: Resolve effective policy
         id: policy
         env:
-          DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
+          DRY_RUN: false
         run: |
           set -euo pipefail
           model_profile=$(jq -r '.model_profile' "$RUNNER_TEMP/resolved-agentic-configuration.json")
@@ -437,7 +342,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           BRANCH: ${{ steps.context.outputs.branch }}
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
-          DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
+          DRY_RUN: false
         run: |
           set -euo pipefail
           # Recheck changed paths immediately before push, using the same
@@ -532,7 +437,7 @@ jobs:
           AGENTIC_WORKFLOW_VERSION: ${{ github.sha }}
           IMPLEMENTATION_OUTCOME: ${{ steps.implement.outcome }}
           IMPLEMENTATION_DECISION: ${{ steps.implement.outputs.decision }}
-          DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
+          DRY_RUN: false
         run: |
           python3 - <<'PY'
           import json, os, sys
@@ -615,7 +520,7 @@ jobs:
           IMPLEMENTATION_OUTCOME: ${{ steps.implement.outcome }}
           IMPLEMENTATION_DECISION: ${{ steps.implement.outputs.decision }}
           IMPLEMENTATION_BLOCKER: ${{ steps.implement.outputs.blocker }}
-          DRY_RUN: ${{ needs.select-issue.outputs.dry_run }}
+          DRY_RUN: false
         run: |
           set -euo pipefail
           marker='<!-- agentic-workflow:issue-implementation-status:v1 -->'
