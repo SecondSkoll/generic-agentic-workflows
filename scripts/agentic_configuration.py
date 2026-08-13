@@ -1075,8 +1075,8 @@ def materialize_to_opencode_root(
     Fails closed if any hash mismatches; no fallback to unverified copies.
 
     **Collision-safe**: when a destination file already exists (for example a
-    tracked ``.opencode/agents/executor.md`` in the repository checkout), its
-    bytes are backed up to a temporary file and restored verbatim by
+    caller-provided ``.opencode/agents/executor.md`` in the repository
+    checkout), its bytes are backed up to a temporary file and restored verbatim by
     :func:`cleanup_staged`. This prevents data loss and prevents the staged
     file from appearing as a changed path in diff enforcement.
 
