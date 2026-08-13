@@ -4,6 +4,9 @@ This guide configures the reusable PR-review and issue-feedback workflows.
 Choose exactly one configuration source: `default`, `local`, or `central`.
 Start every new configuration with `validate_only: true`, then `dry_run: true`.
 
+For field-by-field definitions and complete bundle-file examples, see the
+[configuration reference](configuration-reference.md).
+
 ## Prerequisites
 
 1. Pin the reusable workflow in `uses:` to a reviewed commit SHA (or an

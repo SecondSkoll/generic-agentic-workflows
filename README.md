@@ -57,6 +57,8 @@ model, validates output, publishes feedback, and uploads redacted provenance.
 
 - [Configuration guide](docs/configuration.md) — setup, all pathways, bundle
   layout, and operational safeguards.
+- [Configuration reference](docs/configuration-reference.md) — every caller
+  input and bundle field, with examples.
 - [Consumer examples](docs/examples/README.md) — ready-to-copy wrappers.
 - [Central configuration example](docs/examples/central-configuration/README.md)
   — remote bundle layout and release process.
