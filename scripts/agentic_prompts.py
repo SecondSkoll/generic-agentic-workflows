@@ -21,6 +21,7 @@ workflow and can never be replaced, reordered, or removed.
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -522,6 +523,65 @@ MAX_CONTEXT_REASON_BYTES = 2048
 MAX_CONTEXT_PATHS = 100
 
 
+def json_response_diagnostics(output: str) -> dict[str, object]:
+    """Return safe structural diagnostics for an untrusted model response.
+
+    The response text is deliberately not included: it can repeat untrusted
+    pull-request content. The digest lets a maintainer correlate the action
+    log with a response captured by a provider, without exposing that content
+    in GitHub Actions logs or provenance.
+    """
+    stripped = output.strip()
+    fence_count = len(re.findall(r"```(?:json)?\s*", output, re.IGNORECASE))
+    object_count = 0
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", output):
+        try:
+            payload, _ = decoder.raw_decode(output[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            object_count += 1
+    return {
+        "bytes": len(output.encode("utf-8")),
+        "sha256": hashlib.sha256(output.encode("utf-8")).hexdigest(),
+        "non_whitespace": bool(stripped),
+        "first_non_whitespace": stripped[:1],
+        "json_fence_count": fence_count,
+        "json_object_candidate_count": object_count,
+    }
+
+
+def extract_json_object(output: str, *, contract: str) -> str:
+    """Extract the final JSON object from a model response.
+
+    OpenCode providers occasionally add a short prose preamble despite the
+    contract instruction. The runner already accepts fenced JSON; accepting a
+    complete final object after such a preamble is equally safe because the
+    versioned schema validation remains authoritative. Choosing the final
+    object also avoids an echoed example schema preceding the actual result.
+    """
+    fenced = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", output, re.DOTALL)
+    candidates = fenced or []
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", output):
+        try:
+            payload, end = decoder.raw_decode(output[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        # A complete object must run to the end of the response. This accepts
+        # a provider preamble while avoiding nested comment/request objects.
+        if isinstance(payload, dict) and not output[match.start() + end :].strip():
+            candidates.append(output[match.start() : match.start() + end])
+    if not candidates:
+        diagnostic = json_response_diagnostics(output)
+        raise ContractError(
+            f"{contract} did not contain a JSON object "
+            f"(bytes={diagnostic['bytes']}, sha256={diagnostic['sha256'][:12]})"
+        )
+    return candidates[-1]
+
+
 def parse_pr_review_output(
     output: str,
     changed_lines: dict[str, set[int]] | None = None,
@@ -536,13 +596,13 @@ def parse_pr_review_output(
     the summary when safe.
     """
     changed_lines = changed_lines or {}
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", output, re.DOTALL)
-    raw_json = match.group(1) if match else output.strip()
+    raw_json = extract_json_object(output, contract="pr-review-json-v1")
     try:
         payload = json.loads(raw_json)
     except json.JSONDecodeError as error:
         raise ContractError(
-            "OpenCode did not return the required JSON review format"
+            "OpenCode did not return the required JSON review format "
+            f"(sha256={hashlib.sha256(output.encode('utf-8')).hexdigest()[:12]})"
         ) from error
     if not isinstance(payload, dict):
         raise ContractError("pr-review-json-v1 output must be a JSON object")
@@ -661,9 +721,10 @@ def parse_pr_review_context_request(output: str) -> dict[str, Any]:
     Authorization of paths and sequencing is deliberately left to the runner,
     which alone has access to the trusted git objects and effective policy.
     """
-    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", output, re.DOTALL)
     try:
-        payload = json.loads(match.group(1) if match else output.strip())
+        payload = json.loads(
+            extract_json_object(output, contract="pr-review-context-request-v1")
+        )
     except json.JSONDecodeError as error:
         raise ContractError("context request must be valid JSON") from error
     if not isinstance(payload, dict) or set(payload) != {"needs_context", "reason", "request"}:

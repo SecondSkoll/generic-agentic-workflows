@@ -522,6 +522,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Path to write a redacted provenance record to",
     )
+    parser.add_argument(
+        "--response-diagnostics",
+        type=Path,
+        default=None,
+        help="Path to write safe structural diagnostics for the model response",
+    )
     parser.add_argument("--pr-metadata", type=Path, help="Verified PR metadata JSON")
     parser.add_argument("--base-ref", help="Trusted base SHA/ref used for context blobs")
     parser.add_argument("--head-ref", help="Fetched untrusted PR-head ref used for context blobs")
@@ -768,6 +774,17 @@ def main(argv: list[str] | None = None) -> int:
         )
         return rc
     output = (output or "").strip()
+    if args.response_diagnostics:
+        diagnostics = PROMPTS.json_response_diagnostics(output)
+        args.response_diagnostics.write_text(
+            json.dumps(diagnostics, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(
+            "OpenCode response diagnostics: "
+            + json.dumps(diagnostics, sort_keys=True),
+            file=sys.stderr,
+        )
     if not output:
         print("OpenCode returned no feedback.", file=sys.stderr)
         _maybe_write_provenance(
@@ -803,7 +820,7 @@ def main(argv: list[str] | None = None) -> int:
                         file=sys.stderr,
                     )
         except (OSError, ValueError, PROMPTS.ContractError) as error:
-            print(str(error), file=sys.stderr)
+            print(f"::error::OpenCode response violated the PR review contract: {error}", file=sys.stderr)
             _maybe_write_provenance(
                 args,
                 resolved_bundle,

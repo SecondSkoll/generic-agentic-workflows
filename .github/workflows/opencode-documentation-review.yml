@@ -346,6 +346,7 @@ jobs:
             --resolved-config "$RUNNER_TEMP/resolved-agentic-configuration.json"
             --effective-policy "$RUNNER_TEMP/effective-policy.json"
             --provenance "$RUNNER_TEMP/resolved-agentic-provenance.json"
+            --response-diagnostics "$RUNNER_TEMP/opencode-response-diagnostics.json"
           )
           if [[ "$FAIL_IF_REVIEWED" == "true" ]]; then
             review_args+=(--fail-if-reviewed)
@@ -391,5 +392,6 @@ jobs:
             ${{ runner.temp }}/resolved-agentic-configuration.json
             ${{ runner.temp }}/effective-policy.json
             ${{ runner.temp }}/resolved-agentic-provenance.json
+            ${{ runner.temp }}/opencode-response-diagnostics.json
           retention-days: 14
           if-no-files-found: ignore

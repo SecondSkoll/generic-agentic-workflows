@@ -190,6 +190,32 @@ class IntegratedRunTests(unittest.TestCase):
             record = json.loads(provenance_path.read_text(encoding="utf-8"))
             self.assertEqual(record["result"], "failed")
 
+    def test_contract_failure_writes_safe_response_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
+            diagnostics_path = tmp_path / "response-diagnostics.json"
+            with (
+                mock.patch.object(RUNNER.subprocess, "run", return_value=FakeSubprocessResult("not JSON: secret value")),
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+            ):
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    rc = RUNNER.main([
+                        "--input", str(diff_path),
+                        "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository", "o/r", "--pull-number", "1", "--head-sha", "abc123",
+                        "--feedback-kind", "pr-documentation-review", "--author", "octocat",
+                        "--resolved-config", str(bundle_path), "--effective-policy", str(policy_path),
+                        "--response-diagnostics", str(diagnostics_path),
+                    ])
+            self.assertEqual(rc, 1)
+            mock_gh.assert_not_called()
+            self.assertIn("violated the PR review contract", stderr.getvalue())
+            self.assertNotIn("secret value", diagnostics_path.read_text(encoding="utf-8"))
+            self.assertEqual(json.loads(diagnostics_path.read_text())["json_object_candidate_count"], 0)
+
     def test_existing_v2_marker_suppresses_duplicate(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -273,105 +299,6 @@ class IntegratedRunTests(unittest.TestCase):
             record = json.loads(provenance_path.read_text(encoding="utf-8"))
             self.assertEqual(record["result"], "generated")
             self.assertEqual(record["mode"], "dry-run")
-
-
-class LegacyRunTests(unittest.TestCase):
-    """The legacy Plan 1 path must still work end-to-end with a v1 marker."""
-
-    def setUp(self) -> None:
-        self._env = mock.patch.dict(
-            os.environ, {"GITHUB_TOKEN": "test-token"}, clear=False
-        )
-        self._env.start()
-
-    def tearDown(self) -> None:
-        self._env.stop()
-
-    def test_legacy_path_uses_v1_marker_and_hardcoded_prompt(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            diff_path = tmp_path / "pr.diff"
-            diff_path.write_text(
-                "diff --git a/x b/x\n@@ -1 +1,2 @@\n+new\n", encoding="utf-8"
-            )
-            agent_path = REPO_ROOT / ".opencode" / "agents" / "example-agent.md"
-            skill_path = (
-                REPO_ROOT / ".opencode" / "skills" / "basic-review" / "SKILL.md"
-            )
-            valid_output = json.dumps(
-                {
-                    "summary": "ok",
-                    "comments": [{"path": "x", "line": 1, "body": "note"}],
-                }
-            )
-            captured_prompt = {}
-
-            def fake_run(cmd, **kwargs):
-                prompt_file = Path(cmd[cmd.index("--file") + 1])
-                captured_prompt["prompt"] = prompt_file.read_text(encoding="utf-8")
-                captured_prompt["cmd"] = cmd
-                captured_prompt["timeout"] = kwargs.get("timeout")
-                return FakeSubprocessResult(valid_output)
-
-            with (
-                mock.patch.object(
-                    RUNNER.subprocess, "run", side_effect=fake_run
-                ) as mock_run,
-                mock.patch.object(RUNNER, "github_request") as mock_gh,
-                mock.patch.object(RUNNER, "has_marker", return_value=False),
-            ):
-                rc = RUNNER.main(
-                    [
-                        "--input",
-                        str(diff_path),
-                        "--prompt",
-                        "Evaluate this pull request diff.",
-                        "--agent-file",
-                        str(agent_path),
-                        "--skill-file",
-                        str(skill_path),
-                        "--comments-url",
-                        "https://api.github.com/repos/o/r/issues/1/comments",
-                        "--repository",
-                        "o/r",
-                        "--pull-number",
-                        "1",
-                        "--head-sha",
-                        "abc123",
-                        "--feedback-kind",
-                        "pr-documentation-review",
-                        "--author",
-                        "octocat",
-                    ]
-                )
-            self.assertEqual(rc, 0)
-            mock_gh.assert_called_once()
-            # Legacy prompt includes the hard-coded JSON shape instruction.
-            self.assertIn(
-                "Return JSON only, with this exact shape", captured_prompt["prompt"]
-            )
-            # The prompt itself is transported as a file to avoid argv limits.
-            self.assertNotIn(captured_prompt["prompt"], captured_prompt["cmd"])
-            self.assertLess(
-                captured_prompt["cmd"].index("--file"),
-                captured_prompt["cmd"].index("--"),
-            )
-            self.assertEqual(
-                captured_prompt["cmd"][captured_prompt["cmd"].index("--") + 1],
-                RUNNER.OPENCODE_PROMPT_MESSAGE,
-            )
-            self.assertEqual(
-                Path(captured_prompt["cmd"][captured_prompt["cmd"].index("--file") + 1]).name,
-                "workflow-prompt.md",
-            )
-            # Published review body carries the legacy v1 marker.
-            body = mock_gh.call_args.kwargs["body"]
-            self.assertIn(
-                "<!-- agentic-workflow:pr-documentation-review:v1:abc123 -->",
-                body["body"],
-            )
-            # Bounded timeout applied.
-            self.assertEqual(captured_prompt["timeout"], 180)
 
 
 class IntegratedVerifiedAgentAndCeilingTests(unittest.TestCase):

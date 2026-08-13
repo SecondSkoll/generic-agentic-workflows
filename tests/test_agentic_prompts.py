@@ -201,6 +201,19 @@ class UntrustedContentTests(unittest.TestCase):
 
 
 class OutputContractTests(unittest.TestCase):
+    def test_pr_review_accepts_json_after_provider_preamble(self):
+        output = "Here is the requested review:\n" + json.dumps(
+            {"summary": "Looks good.", "comments": []}
+        )
+        summary, comments = PROMPTS.parse_pr_review_output(output)
+        self.assertEqual(summary, "Looks good.")
+        self.assertEqual(comments, [])
+
+    def test_response_diagnostics_do_not_include_response_content(self):
+        diagnostics = PROMPTS.json_response_diagnostics('{"summary":"secret text"}')
+        self.assertNotIn("secret text", json.dumps(diagnostics))
+        self.assertEqual(diagnostics["json_object_candidate_count"], 1)
+
     def test_context_request_valid(self):
         request = PROMPTS.parse_pr_review_context_request(json.dumps({
             "needs_context": True, "reason": "Need surrounding section.",
