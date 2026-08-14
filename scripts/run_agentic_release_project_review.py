@@ -448,14 +448,22 @@ def _follow_annotated_tag(
 
 
 def _canonical_repository(payload: dict, requested: str) -> str:
-    """Return the canonical owner/repo from a release API response."""
-    repo = payload.get("repository") or {}
+    """Validate optional release repository metadata and return its identity.
+
+    GitHub's REST release representation does not guarantee a ``repository``
+    member.  The endpoint itself is scoped to ``/repos/{owner}/{repo}``, and
+    ``_require_token_access`` has already proved that endpoint's canonical
+    repository with a separate repository API request.  Therefore an omitted
+    member is normal, not ambiguous.  If a member is present, it is still
+    validated as defense in depth.
+    """
+    repo = payload.get("repository")
+    if repo is None:
+        return requested
     full = repo.get("full_name") if isinstance(repo, dict) else None
     if not isinstance(full, str) or not REPOSITORY_PATTERN.match(full):
-        raise ReleaseReviewError(
-            f"release response did not carry a canonical repository; expected {requested!r}"
-        )
-    # Reject ambiguity: the canonical repository must match the requested one.
+        raise ReleaseReviewError("release response carried an invalid repository")
+    # Reject ambiguity when optional embedded repository metadata is present.
     if full.lower() != requested.lower():
         raise ReleaseReviewError(
             f"release belongs to {full!r}, not the requested {requested!r}"
@@ -508,7 +516,8 @@ def fetch_release(
         raise ReleaseReviewError("release response must be a JSON object")
     if payload.get("draft") is True:
         raise ReleaseReviewError("draft releases are not reviewed")
-    # Validate the canonical repository matches the request before returning.
+    # Release payloads may omit `repository`; endpoint-scoped access was proven
+    # by _require_token_access before this fetch. Validate it when present.
     _canonical_repository(payload, target_repository)
     tag = payload.get("tag_name")
     if not isinstance(tag, str) or not tag.strip():
