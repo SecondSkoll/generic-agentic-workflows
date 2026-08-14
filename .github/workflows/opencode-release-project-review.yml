@@ -28,7 +28,9 @@ on:
         description: default (supplied profile), local (caller repository), or an approved central alias
         type: string
         required: false
-        default: default
+        # Direct runs already have this repository checked out, so resolve the
+        # supplied profile locally without requiring a redundant remote ref.
+        default: local
       configuration_ref:
         description: Full 40-character commit SHA for a remote bundle
         type: string
@@ -122,24 +124,42 @@ jobs:
     env:
       FEEDBACK_KIND: release-project-review
     steps:
-      # 1. Check out the trusted workflow/caller base revision with credentials
-      #    disabled. Trusted helper scripts are executed only from this
-      #    checkout; the immutable release target is checked out into a separate
-      #    directory later so it can never overwrite or execute trusted scripts.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # Keep caller-local configuration and policy at the workspace root.
+      - name: Check out caller repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+
+      # For reusable calls, fetch helper code from the exact called workflow
+      # revision. Direct/local runs already have those files and skip this.
+      - name: Check out pinned workflow helpers
+        if: job.workflow_repository != github.repository || job.workflow_sha != github.sha
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .agentic-workflow
+          persist-credentials: false
+
+      - name: Select trusted workflow helpers
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [[ "$WORKFLOW_REPOSITORY" == "$GITHUB_REPOSITORY" && "$WORKFLOW_SHA" == "$GITHUB_SHA" ]]; then
+            echo "AGENTIC_WORKFLOW_ROOT=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          else
+            echo "AGENTIC_WORKFLOW_ROOT=$GITHUB_WORKSPACE/.agentic-workflow" >> "$GITHUB_ENV"
+          fi
 
       - name: Resolve invocation
         id: resolve
         env:
           AGENTIC_WORKFLOW: release-project-review
-          # `inputs.*` is available for both workflow_dispatch and workflow_call,
-          # so consume them directly. A direct no-override dispatch defaults to
-          # `local` (the supplied profile resolved from this trusted checkout),
-          # matching the existing feedback workflow convention; a reusable call
-          # selecting `default` fetches the supplied profile remotely.
-          AGENTIC_CONFIGURATION_SOURCE: ${{ inputs.configuration_source == 'default' && github.event_name == 'workflow_dispatch' && 'local' || inputs.configuration_source || 'local' }}
+          # Consume inputs directly. github.event_name retains the caller's
+          # original event during a reusable call and cannot distinguish it
+          # from a direct dispatch.
+          AGENTIC_CONFIGURATION_SOURCE: ${{ inputs.configuration_source || 'local' }}
           AGENTIC_CONFIGURATION_REF: ${{ inputs.configuration_ref || '' }}
           AGENTIC_CONFIGURATION_PROFILE: ${{ inputs.configuration_profile || 'release-project-review' }}
           AGENTIC_FOCUS: ${{ inputs.focus || '' }}
@@ -150,7 +170,7 @@ jobs:
           AGENTIC_RELEASE_TAG: ${{ inputs.release_tag || '' }}
         run: |
           set -euo pipefail
-          python3 scripts/resolve_invocation.py \
+          python3 "$AGENTIC_WORKFLOW_ROOT/scripts/resolve_invocation.py" \
             --workflow release-project-review \
             --configuration-source "$AGENTIC_CONFIGURATION_SOURCE" \
             --configuration-ref "$AGENTIC_CONFIGURATION_REF" \
@@ -168,14 +188,14 @@ jobs:
       - name: Stop after validation-only
         if: steps.resolve.outputs.validate_only == 'true'
         env:
-          AGENTIC_WORKFLOW_VERSION: ${{ github.sha }}
+          AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
         run: |
           echo "validate_only selected; no release fetch, checkout, model invocation, or publication performed."
           python3 - <<'PY'
           import json, os, sys
           from pathlib import Path
           import importlib.util
-          spec = importlib.util.spec_from_file_location("agentic_provenance", "scripts/agentic_provenance.py")
+          spec = importlib.util.spec_from_file_location("agentic_provenance", Path(os.environ["AGENTIC_WORKFLOW_ROOT"]) / "scripts/agentic_provenance.py")
           prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
           record = prov.build_provenance(
               workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
@@ -215,10 +235,10 @@ jobs:
           AGENTIC_CONFIGURATION_REF: ${{ steps.resolve.outputs.configuration_ref }}
           AGENTIC_CONFIGURATION_PROFILE: ${{ steps.resolve.outputs.configuration_profile }}
           GITHUB_TOKEN: ${{ secrets.central_config_token || github.token }}
-          AGENTIC_WORKFLOW_VERSION: ${{ github.sha }}
+          AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
         run: |
           set -euo pipefail
-          if ! python3 scripts/agentic_configuration.py \
+          if ! python3 "$AGENTIC_WORKFLOW_ROOT/scripts/agentic_configuration.py" \
             --workflow release-project-review \
             --configuration-source "$AGENTIC_CONFIGURATION_SOURCE" \
             --configuration-ref "$AGENTIC_CONFIGURATION_REF" \
@@ -228,7 +248,7 @@ jobs:
           import json, os, sys
           from pathlib import Path
           import importlib.util
-          spec = importlib.util.spec_from_file_location("agentic_provenance", "scripts/agentic_provenance.py")
+          spec = importlib.util.spec_from_file_location("agentic_provenance", Path(os.environ["AGENTIC_WORKFLOW_ROOT"]) / "scripts/agentic_provenance.py")
           prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
           record = prov.failure_record(
               workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
@@ -247,7 +267,7 @@ jobs:
         id: policy
         env:
           DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
-          AGENTIC_WORKFLOW_VERSION: ${{ github.sha }}
+          AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
         run: |
           set -euo pipefail
           model_profile=$(jq -r '.model_profile' "$RUNNER_TEMP/resolved-agentic-configuration.json")
@@ -256,7 +276,7 @@ jobs:
           agent_caps=$(python3 - <<'PY'
           import json, sys, os, importlib.util
           from pathlib import Path
-          spec = importlib.util.spec_from_file_location("agentic_policy", "scripts/agentic_policy.py")
+          spec = importlib.util.spec_from_file_location("agentic_policy", Path(os.environ["AGENTIC_WORKFLOW_ROOT"]) / "scripts/agentic_policy.py")
           pol = importlib.util.module_from_spec(spec); sys.modules[spec.name] = pol; spec.loader.exec_module(pol)
           data = json.loads(Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-configuration.json").read_text())
           agent_text = (Path(data["bundle_root"]) / data["agent_file"]).read_text(encoding="utf-8")
@@ -267,7 +287,7 @@ jobs:
           if [[ -f .github/agentic-policy-overlay.json ]]; then
             overlay_arg="--overlay .github/agentic-policy-overlay.json"
           fi
-          python3 scripts/agentic_policy.py \
+          python3 "$AGENTIC_WORKFLOW_ROOT/scripts/agentic_policy.py" \
             --workflow release-project-review \
             --model-profile "$model_profile" \
             --resolved-config "$RUNNER_TEMP/resolved-agentic-configuration.json" \
@@ -281,7 +301,7 @@ jobs:
           import json, os, sys
           from pathlib import Path
           import importlib.util
-          spec = importlib.util.spec_from_file_location("agentic_provenance", "scripts/agentic_provenance.py")
+          spec = importlib.util.spec_from_file_location("agentic_provenance", Path(os.environ["AGENTIC_WORKFLOW_ROOT"]) / "scripts/agentic_provenance.py")
           prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
           bundle = json.loads(Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-configuration.json").read_text())
           record = prov.failure_record(
@@ -323,11 +343,11 @@ jobs:
           RELEASE_ID: ${{ steps.resolve.outputs.release_id }}
           RELEASE_TAG: ${{ steps.resolve.outputs.release_tag }}
           CALLER_REPOSITORY: ${{ github.repository }}
-          AGENTIC_WORKFLOW_VERSION: ${{ github.sha }}
+          AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
           GITHUB_WORKSPACE: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          python3 scripts/run_agentic_release_project_review.py resolve-only \
+          python3 "$AGENTIC_WORKFLOW_ROOT/scripts/run_agentic_release_project_review.py" resolve-only \
             --target-repository "$TARGET_REPOSITORY" \
             --caller-repository "$CALLER_REPOSITORY" \
             --release-id "$RELEASE_ID" \
@@ -379,7 +399,7 @@ jobs:
           DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
           FOCUS: ${{ steps.resolve.outputs.focus }}
           CALLER_REPOSITORY: ${{ github.repository }}
-          AGENTIC_WORKFLOW_VERSION: ${{ github.sha }}
+          AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
         run: |
           set -euo pipefail
           args=(
@@ -403,7 +423,7 @@ jobs:
           if [[ -n "$FOCUS" ]]; then
             args+=(--focus "$FOCUS")
           fi
-          python3 scripts/run_agentic_release_project_review.py "${args[@]}"
+          python3 "$AGENTIC_WORKFLOW_ROOT/scripts/run_agentic_release_project_review.py" "${args[@]}"
 
       - name: Upload resolved invocation artifact
         if: always()

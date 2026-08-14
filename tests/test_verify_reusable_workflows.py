@@ -20,6 +20,11 @@ REPO_ROOT = Path(__file__).parents[1]
 CENTRAL_REF = "9b35f1fc2860a1d6b8f1abaa9b467dc4eb42aec8"
 WORKFLOW_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 REUSABLE_WORKFLOW_PREFIX = "SecondSkoll/generic-agentic-workflows/.github/workflows/"
+REMOTE_HELPER_WORKFLOWS = (
+    "opencode-documentation-review.yml",
+    "opencode-issue-feedback.yml",
+    "opencode-release-project-review.yml",
+)
 
 WORKFLOWS = (
     "opencode-documentation-review.yml",
@@ -92,6 +97,51 @@ class ReusableWorkflowVerificationTests(unittest.TestCase):
                         self.assertEqual(configuration_ref, workflow_sha)
                     else:
                         self.assertEqual(configuration_ref, CENTRAL_REF)
+
+    def test_reusable_workflows_checkout_and_use_pinned_helpers(self) -> None:
+        """Called workflows execute helpers from their own immutable revision."""
+        workflows_root = REPO_ROOT / ".github/workflows"
+        for filename in REMOTE_HELPER_WORKFLOWS:
+            with self.subTest(filename=filename):
+                text = (workflows_root / filename).read_text(encoding="utf-8")
+                self.assertIn("repository: ${{ job.workflow_repository }}", text)
+                self.assertIn("ref: ${{ job.workflow_sha }}", text)
+                self.assertIn("path: .agentic-workflow", text)
+                self.assertIn(
+                    "if: job.workflow_repository != github.repository || job.workflow_sha != github.sha",
+                    text,
+                )
+                self.assertIn("AGENTIC_WORKFLOW_ROOT", text)
+                self.assertNotRegex(text, r"python3 scripts/(?:resolve_|agentic_|run_)")
+                self.assertNotRegex(
+                    text,
+                    r'spec_from_file_location\([^\n]*,\s*"scripts/agentic_',
+                )
+
+    def test_reusable_inputs_are_not_gated_by_event_name(self) -> None:
+        """A called workflow honors ``with`` for every caller event type."""
+        workflows_root = REPO_ROOT / ".github/workflows"
+        for filename in REMOTE_HELPER_WORKFLOWS:
+            with self.subTest(filename=filename):
+                text = (workflows_root / filename).read_text(encoding="utf-8")
+                self.assertNotRegex(
+                    text,
+                    r"github\.event_name\s*==\s*['\"]workflow_call['\"]\s*&&\s*inputs\.",
+                )
+
+    def test_release_dispatch_and_call_have_independent_source_defaults(self) -> None:
+        """Direct release runs use local config while calls default remotely."""
+        path = REPO_ROOT / ".github/workflows/opencode-release-project-review.yml"
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        triggers = data[True]
+        self.assertEqual(
+            triggers["workflow_dispatch"]["inputs"]["configuration_source"]["default"],
+            "local",
+        )
+        self.assertEqual(
+            triggers["workflow_call"]["inputs"]["configuration_source"]["default"],
+            "default",
+        )
 
     def test_central_examples_match_approved_policy_source(self) -> None:
         """The central-source pin agrees with the checked-in organization policy."""

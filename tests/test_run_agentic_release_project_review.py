@@ -215,13 +215,11 @@ class ReleaseResolverTests(unittest.TestCase):
         self.assertEqual(resolved.release_id, 5)
 
     def test_direct_dispatch_default_source_maps_to_local(self) -> None:
-        """A direct dispatch selecting `default` resolves to the supplied local
-        profile (mirrors the workflow YAML `default -> local` mapping), so direct
-        runs use the supplied profile without a remote fetch/ref requirement.
+        """The direct-dispatch input defaults to the supplied local profile.
+
+        The separate ``workflow_call`` declaration defaults to ``default``;
+        no event-name expression is needed to distinguish the invocation modes.
         """
-        # The workflow YAML maps `configuration_source == 'default' &&
-        # event_name == 'workflow_dispatch'` to `'local'`; the resolver then
-        # accepts `local` without a configuration_ref.
         resolved = RESOLVER.resolve_invocation(
             workflow="release-project-review",
             configuration_source="local",
@@ -1577,7 +1575,15 @@ class WorkflowYamlTests(unittest.TestCase):
         # Direct dispatch consumes inputs.* (not event-name-guarded away) and
         # defaults to the local supplied profile.
         self.assertIn("inputs.configuration_source", text)
-        self.assertIn("github.event_name == 'workflow_dispatch'", text)
+        self.assertNotIn("github.event_name == 'workflow_dispatch'", text)
+        self.assertEqual(
+            triggers["workflow_dispatch"]["inputs"]["configuration_source"]["default"],
+            "local",
+        )
+        self.assertEqual(
+            triggers["workflow_call"]["inputs"]["configuration_source"]["default"],
+            "default",
+        )
         # validate_only exits before resolve-only fetch and both checkouts.
         self.assertIn("steps.resolve.outputs.validate_only != 'true'", text)
         self.assertIn("steps.resolve.outputs.validate_only == 'true'", text)
