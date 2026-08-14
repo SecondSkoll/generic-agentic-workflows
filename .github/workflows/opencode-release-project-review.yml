@@ -197,49 +197,15 @@ jobs:
             --github-step-summary "$GITHUB_STEP_SUMMARY" \
             --result "$RUNNER_TEMP/resolved-invocation.json"
 
-      - name: Stop after validation-only
-        if: steps.resolve.outputs.validate_only == 'true'
-        env:
-          AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
-        run: |
-          echo "validate_only selected; no release fetch, checkout, model invocation, or publication performed."
-          python3 - <<'PY'
-          import json, os, sys
-          from pathlib import Path
-          import importlib.util
-          spec = importlib.util.spec_from_file_location("agentic_provenance", Path(os.environ["AGENTIC_WORKFLOW_ROOT"]) / "scripts/agentic_provenance.py")
-          prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
-          record = prov.build_provenance(
-              workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
-              workflow_name="release-project-review",
-              caller_repository=os.environ.get("GITHUB_REPOSITORY", ""),
-              target_kind="release",
-              target_number=None,
-              target_head_sha=None,
-              bundle=None,
-              prompt_template_sha256=None,
-              output_contract=None,
-              model_profile=None,
-              effective_policy_sha256=None,
-              mode="validate-only",
-              result="validated",
-          )
-          Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-provenance.json").write_text(record.to_json() + "\n")
-          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
-          existing = summary.read_text() if summary.exists() else ""
-          if existing and not existing.endswith("\n"):
-              existing += "\n"
-          summary.write_text(existing + prov.job_summary(record), encoding="utf-8")
-          PY
-          echo "::notice::Resolved configuration written to job summary and artifact."
-
+      # Configuration and policy are resolved before the validation-only stop
+      # so an invalid command configuration (unknown midflight ID, disallowed
+      # phase, count/overlap violation) is caught without a release fetch,
+      # checkout, command execution, or model invocation.
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        if: steps.resolve.outputs.validate_only != 'true'
         with:
           python-version: '3.12'
 
       - name: Resolve agentic configuration
-        if: steps.resolve.outputs.validate_only != 'true'
         id: config
         env:
           AGENTIC_WORKFLOW: release-project-review
@@ -248,6 +214,7 @@ jobs:
           AGENTIC_CONFIGURATION_PROFILE: ${{ steps.resolve.outputs.configuration_profile }}
           GITHUB_TOKEN: ${{ secrets.central_config_token || github.token }}
           AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
+          AGENTIC_DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
         run: |
           set -euo pipefail
           if ! python3 "$AGENTIC_WORKFLOW_ROOT/scripts/agentic_configuration.py" \
@@ -262,11 +229,12 @@ jobs:
           import importlib.util
           spec = importlib.util.spec_from_file_location("agentic_provenance", Path(os.environ["AGENTIC_WORKFLOW_ROOT"]) / "scripts/agentic_provenance.py")
           prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
+          mode = "dry-run" if os.environ.get("AGENTIC_DRY_RUN") == "true" else "publish"
           record = prov.failure_record(
               workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
               workflow_name="release-project-review",
               caller_repository=os.environ.get("GITHUB_REPOSITORY", ""),
-              mode="publish",
+              mode=mode,
               error=RuntimeError("configuration resolution failed"),
           )
           Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-provenance.json").write_text(record.to_json() + "\n")
@@ -275,7 +243,6 @@ jobs:
           fi
 
       - name: Resolve effective policy
-        if: steps.resolve.outputs.validate_only != 'true'
         id: policy
         env:
           DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
@@ -316,11 +283,12 @@ jobs:
           spec = importlib.util.spec_from_file_location("agentic_provenance", Path(os.environ["AGENTIC_WORKFLOW_ROOT"]) / "scripts/agentic_provenance.py")
           prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
           bundle = json.loads(Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-configuration.json").read_text())
+          mode = "dry-run" if os.environ.get("DRY_RUN") == "true" else "publish"
           record = prov.failure_record(
               workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
               workflow_name="release-project-review",
               caller_repository=os.environ.get("GITHUB_REPOSITORY", ""),
-              mode="publish",
+              mode=mode,
               error=RuntimeError("policy resolution failed"),
               bundle=bundle,
           )
@@ -328,6 +296,44 @@ jobs:
           PY
             exit 1
           }
+
+      - name: Stop after validation-only
+        if: steps.resolve.outputs.validate_only == 'true'
+        env:
+          AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
+        run: |
+          echo "validate_only selected; configuration and policy resolved. No release fetch, checkout, command execution, model invocation, or publication performed."
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          import importlib.util
+          spec = importlib.util.spec_from_file_location("agentic_provenance", Path(os.environ["AGENTIC_WORKFLOW_ROOT"]) / "scripts/agentic_provenance.py")
+          prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
+          bundle = json.loads(Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-configuration.json").read_text())
+          policy = json.loads(Path(os.environ["RUNNER_TEMP"] + "/effective-policy.json").read_text())
+          record = prov.build_provenance(
+              workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
+              workflow_name="release-project-review",
+              caller_repository=os.environ.get("GITHUB_REPOSITORY", ""),
+              target_kind="release",
+              target_number=None,
+              target_head_sha=None,
+              bundle=bundle,
+              prompt_template_sha256=bundle.get("prompt_template_sha256"),
+              output_contract=bundle.get("output_contract"),
+              model_profile=bundle.get("model_profile"),
+              effective_policy_sha256=policy.get("sha256"),
+              mode="validate-only",
+              result="validated",
+          )
+          Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-provenance.json").write_text(record.to_json() + "\n")
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          existing = summary.read_text() if summary.exists() else ""
+          if existing and not existing.endswith("\n"):
+              existing += "\n"
+          summary.write_text(existing + prov.job_summary(record), encoding="utf-8")
+          PY
+          echo "::notice::Resolved configuration and policy written to job summary and artifact."
 
       - name: Set up Node.js 24
         if: steps.resolve.outputs.validate_only != 'true'
@@ -399,6 +405,15 @@ jobs:
       - name: Review release and publish release-readiness issue
         if: steps.resolve.outputs.validate_only != 'true'
         id: review
+        # The runner, not the workflow YAML, constructs the command execution
+        # environment from a fixed credential-free allowlist. No workflow secret
+        # (OPENROUTER_API_KEY, release_target_token, GITHUB_TOKEN) is forwarded
+        # into the midflight command environment: the registry executor drops
+        # provider/GitHub/OIDC/SSH/proxy variables and uses a disposable HOME.
+        # Network isolation posture: only network-disabled registry commands
+        # are approved for midflight, and the executor refuses to run any
+        # command requesting network; enforceable OS-level denial (netns /
+        # locked-down container) is the hosted runner's responsibility.
         env:
           GITHUB_TOKEN: ${{ github.token }}
           RELEASE_TARGET_TOKEN_FORWARDED: ${{ secrets.release_target_token != '' }}

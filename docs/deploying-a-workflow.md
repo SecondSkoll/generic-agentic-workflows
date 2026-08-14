@@ -150,17 +150,25 @@ interface intentionally accepts only typed, bounded selectors.
 
 Promote the wrapper through these stages:
 
-1. Commit it with `validate_only: true`. This validates the invocation and
-  its typed configuration selection without calling a model, resolving bundle
-  content, or writing to GitHub.
+1. Commit it with `validate_only: true`. This resolves the invocation, bundle,
+   and effective policy and validates them—including any `midflight_commands`
+   IDs, counts, phases, and overlap—without calling a model, fetching a
+   release, checking out a target, running commands, or writing to GitHub.
 2. Review the run summary and redacted configuration/provenance artifacts.
 3. Replace `validate_only: true` with `dry_run: true`. This can invoke the
-   model and validate its output, but it does not publish feedback.
+   model (both phases when `midflight_commands` is configured), run the
+   configured commands, and validate its output, but it does not publish
+   feedback.
 4. Inspect the generated result and artifacts.
 5. Remove `dry_run` to allow publication.
 
 `validate_only` and `dry_run` are mutually exclusive. At any stage, return to
-a known-good workflow or remote-bundle SHA to roll back explicitly.
+a known-good workflow or remote-bundle SHA to roll back explicitly. For
+release review, `midflight_commands` ships disabled; opt in a single low-risk
+command only after dry-run evaluation, and roll back by emptying
+`midflight_commands` or pinning the last known-good bundle SHA. Never fall back
+automatically to an unisolated executor or a one-stage model decision after a
+midflight failure.
 
 ## 6. Verify ongoing operation
 

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -41,8 +42,13 @@ from collections.abc import Iterable, Mapping
 # Constants and allowlists
 # ---------------------------------------------------------------------------
 
-#: Bundle manifest schema versions this resolver understands.
-SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1,)
+#: Bundle manifest schema versions this resolver understands. Schema 1 is
+#: preserved for existing bundles and reads legacy preflight command strings
+#: through compatibility aliases. Schema 2 is ID-based and is the only schema
+#: that may declare ``midflight_commands``. Unknown manifest keys are rejected
+#: in every schema so an older resolver cannot silently accept and ignore a
+#: newer field such as ``midflight_commands``.
+SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1, 2)
 
 #: Profile identifier pattern. Same conservative rule used by the invocation
 #: resolver so a profile name cannot carry shell/path metacharacters.
@@ -119,6 +125,36 @@ class ConfigurationError(ValueError):
 # ---------------------------------------------------------------------------
 # Path safety
 # ---------------------------------------------------------------------------
+
+
+def _load_commands_registry():
+    """Load :mod:`agentic_commands` from ``scripts/`` without a package import.
+
+    The configuration resolver needs the registry to validate command IDs and
+    phases. It never executes commands. Loading the registry is required: if
+    it cannot be loaded, midflight command IDs cannot be validated and the
+    resolver fails closed rather than silently accepting unvalidated command
+    configuration.
+    """
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "agentic_commands", Path(__file__).resolve().parent / "agentic_commands.py"
+        )
+        if spec is None or spec.loader is None:
+            raise ConfigurationError("could not locate the command registry module")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["agentic_commands"] = module
+        spec.loader.exec_module(module)
+        return module
+    except ConfigurationError:
+        raise
+    except Exception as error:  # pragma: no cover - registry must load
+        raise ConfigurationError(
+            f"could not load the command registry module: {error}"
+        ) from error
+
+
+COMMANDS = _load_commands_registry()
 
 
 def normalize_bundle_path(value: Any) -> str:
@@ -327,10 +363,43 @@ class BundleManifest:
     bundle_policy: dict[str, Any] = field(default_factory=dict)
     context_policy: str | None = None
     preflight_commands: tuple[str, ...] = ()
+    midflight_commands: tuple[str, ...] = ()
+
+
+#: Manifest keys accepted by each schema. Unknown keys are rejected so an
+#: older resolver cannot silently accept and ignore a newer field such as
+#: ``midflight_commands``.
+_SCHEMA1_KEYS: frozenset[str] = frozenset(
+    {
+        "schema_version",
+        "profile_name",
+        "allowed_workflows",
+        "agent_file",
+        "skill_files",
+        "prompt_template",
+        "model_profile",
+        "output_contract",
+        "limits",
+        "policy",
+        "context_policy",
+        "additional_agent_files",
+        "preflight_commands",
+    }
+)
+_SCHEMA2_KEYS: frozenset[str] = _SCHEMA1_KEYS | frozenset({"midflight_commands"})
 
 
 def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
-    """Parse and validate a bundle manifest dictionary."""
+    """Parse and validate a bundle manifest dictionary.
+
+    Rejects unknown manifest keys in every schema, validates the schema version
+    against :data:`SUPPORTED_SCHEMA_VERSIONS`, and enforces the
+    ``midflight_commands`` rules from the authoritative plan: the field is
+    optional and defaults to an empty list, only valid for
+    ``release-project-review``, must contain one to three unique command IDs,
+    preserves declaration order, and every ID must exist in the pinned registry
+    and permit the ``midflight`` phase.
+    """
     if not isinstance(payload, dict):
         raise ConfigurationError("bundle manifest must be a JSON object")
     schema_version = payload.get("schema_version")
@@ -340,6 +409,18 @@ def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
     ):
         raise ConfigurationError(
             f"schema_version must be one of {SUPPORTED_SCHEMA_VERSIONS}; got {schema_version!r}"
+        )
+    # Reject unknown manifest keys so an older resolver cannot silently accept
+    # and ignore a newer field such as ``midflight_commands``.
+    allowed_keys = _SCHEMA2_KEYS if schema_version == 2 else _SCHEMA1_KEYS
+    unknown = set(payload) - allowed_keys
+    if unknown:
+        raise ConfigurationError(
+            f"bundle manifest rejects unknown keys: {sorted(unknown)}"
+        )
+    if "midflight_commands" in payload and schema_version == 1:
+        raise ConfigurationError(
+            "midflight_commands is only supported by schema_version 2"
         )
     profile_name = payload.get("profile_name")
     if not isinstance(profile_name, str) or not PROFILE_PATTERN.match(profile_name):
@@ -408,6 +489,69 @@ def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
         )
     if len(raw_preflight_commands) > 3:
         raise ConfigurationError("preflight_commands may contain at most 3 commands")
+    # Schema 2 migrates preflight_commands to the same ID-based registry. The
+    # values may be registry IDs (schema 2) or legacy shell strings (schema 1,
+    # resolved through compatibility aliases at execution time). Either way
+    # they are validated as non-empty strings here; the runner and registry
+    # enforce ID/phase validity before execution.
+    if schema_version == 2 and raw_preflight_commands:
+        for command in raw_preflight_commands:
+            if not isinstance(command, str) or not command.strip():
+                raise ConfigurationError("preflight_commands must be non-empty strings")
+    raw_midflight_commands = payload.get("midflight_commands", [])
+    if raw_midflight_commands and workflow != "release-project-review":
+        raise ConfigurationError(
+            "midflight_commands are only supported for release-project-review"
+        )
+    if not isinstance(raw_midflight_commands, list) or not all(
+        isinstance(item, str) and item.strip() for item in raw_midflight_commands
+    ):
+        raise ConfigurationError("midflight_commands must be a list of command IDs")
+    if len(raw_midflight_commands) > 3:
+        raise ConfigurationError("midflight_commands may contain at most 3 command IDs")
+    if len(set(raw_midflight_commands)) != len(raw_midflight_commands):
+        raise ConfigurationError("midflight_commands must be unique")
+    midflight_commands = tuple(raw_midflight_commands)
+    # Validate every midflight command ID against the pinned registry and the
+    # midflight phase. This catches invalid configuration early, including in
+    # validate-only mode, before any release fetch or command execution. The
+    # registry is required to load (see _load_commands_registry); fail closed
+    # if it is unavailable rather than accepting unvalidated command IDs.
+    if midflight_commands:
+        for command_id in midflight_commands:
+            try:
+                spec = COMMANDS.get_command(command_id)
+            except COMMANDS.CommandError as error:  # type: ignore[attr-defined]
+                raise ConfigurationError(str(error)) from error
+            if spec.workflow != "release-project-review":
+                raise ConfigurationError(
+                    f"midflight command {command_id!r} is not approved for "
+                    "release-project-review"
+                )
+            if not COMMANDS.command_allowed_for_phase(spec, "midflight"):  # type: ignore[attr-defined]
+                raise ConfigurationError(
+                    f"midflight command {command_id!r} is not approved for the "
+                    "midflight phase"
+                )
+        # A command may not appear in both preflight and midflight unless its
+        # registry definition explicitly allows repeated execution.
+        preflight_ids = set()
+        for command in raw_preflight_commands:
+            try:
+                preflight_ids.add(COMMANDS.resolve_command_id(command))
+            except COMMANDS.CommandError:  # type: ignore[attr-defined]
+                # An unapproved preflight string is rejected at execution; do
+                # not fail the midflight overlap check on it here.
+                continue
+        overlap = preflight_ids & set(midflight_commands)
+        for command_id in sorted(overlap):
+            spec = COMMANDS.get_command(command_id)
+            if not spec.allow_repeat:
+                raise ConfigurationError(
+                    f"command {command_id!r} may not appear in both preflight "
+                    "and midflight unless its registry definition allows "
+                    "repeated execution"
+                )
     manifest_sha256 = sha256_json(payload)
     return BundleManifest(
         schema_version=schema_version,
@@ -424,6 +568,7 @@ def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
         bundle_policy=dict(bundle_policy),
         context_policy=context_policy,
         preflight_commands=tuple(raw_preflight_commands),
+        midflight_commands=midflight_commands,
     )
 
 
@@ -478,6 +623,8 @@ class ResolvedBundle:
             "bundle_policy": dict(self.manifest.bundle_policy),
             "context_policy": self.manifest.context_policy,
             "preflight_commands": list(self.manifest.preflight_commands),
+            "midflight_commands": list(self.manifest.midflight_commands),
+            "schema_version": self.manifest.schema_version,
         }
 
     def to_json(self) -> str:

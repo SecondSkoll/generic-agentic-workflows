@@ -162,7 +162,8 @@ uv run python scripts/agentic_configuration.py \
 
 Use the matching workflow identifier for every other profile. The resolver
 checks schema version, profile/workflow compatibility, path safety, required
-front matter, known output contract, and each declared content hash.
+front matter, known output contract, each declared content hash, and rejects
+unknown manifest keys so a newer field cannot be silently ignored.
 
 Then run the relevant project tests and inspect the generated resolution JSON.
 Do not work around a supplied hash mismatch or policy failure by weakening

@@ -58,6 +58,38 @@
       ],
       "forbidden_findings": ["code-only findings", "empty evidence"],
       "publication": "at most one release-readiness issue in the canonical target repository; workflow owns destination, marker, labels, and publication"
+    },
+    "release-project-analysis-handoff-v1": {
+      "kind": "json",
+      "required_top_level_fields": ["assessment", "validation_questions", "relevant_evidence"],
+      "optional_top_level_fields": [],
+      "max_assessment_bytes": 8192,
+      "max_validation_questions": 20,
+      "max_question_bytes": 1024,
+      "max_relevant_evidence_items": 20,
+      "max_evidence_bytes": 1024,
+      "forbidden_fields": [
+        "command",
+        "commands",
+        "args",
+        "argv",
+        "shell",
+        "environment",
+        "env",
+        "working_directory",
+        "cwd",
+        "url",
+        "repository",
+        "repo",
+        "endpoint",
+        "credentials",
+        "token",
+        "decision",
+        "title",
+        "body",
+        "labels"
+      ],
+      "publication": "non-publication intermediate contract; phase 1 of the two-stage release-project-review. The handoff is validated by the workflow, inserted into the phase-2 prompt as delimited untrusted data, and never published or appended to system instructions. The model cannot select a command, endpoint, repository, or credentials."
     }
   }
 }

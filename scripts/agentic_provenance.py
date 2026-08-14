@@ -144,6 +144,16 @@ class ProvenanceRecord:
     error_message: str | None = None
     target_repository: str | None = None
     target_tag: str | None = None
+    #: Midflight-commands extension (Plan: safe midflight commands). These
+    #: fields record which reviewed commands and phases ran without retaining
+    #: raw prompts, model responses, command output, release bodies, or
+    #: secrets.
+    bundle_schema_version: int | None = None
+    registry_version: int | None = None
+    command_list_sha256: str | None = None
+    model_phase_count: int | None = None
+    isolation_profile: str | None = None
+    phases: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Return the redacted record as a JSON-serialisable mapping."""
@@ -156,18 +166,21 @@ class ProvenanceRecord:
             target["repository"] = self.target_repository
         if self.target_tag is not None:
             target["tag"] = self.target_tag
-        return {
+        bundle: dict[str, Any] = {
+            "source_alias": self.bundle_source_alias,
+            "repository": self.bundle_repository,
+            "resolved_sha": self.bundle_resolved_sha,
+            "profile": self.bundle_profile,
+            "manifest_sha256": self.bundle_manifest_sha256,
+        }
+        if self.bundle_schema_version is not None:
+            bundle["schema_version"] = self.bundle_schema_version
+        record: dict[str, Any] = {
             "workflow_version": self.workflow_version,
             "workflow_name": self.workflow_name,
             "caller_repository": self.caller_repository,
             "target": target,
-            "bundle": {
-                "source_alias": self.bundle_source_alias,
-                "repository": self.bundle_repository,
-                "resolved_sha": self.bundle_resolved_sha,
-                "profile": self.bundle_profile,
-                "manifest_sha256": self.bundle_manifest_sha256,
-            },
+            "bundle": bundle,
             "prompt_template_sha256": self.prompt_template_sha256,
             "output_contract": self.output_contract,
             "model_profile": self.model_profile,
@@ -175,9 +188,22 @@ class ProvenanceRecord:
             "mode": self.mode,
             "result": self.result,
             "configuration_digest": self.configuration_digest,
-            **({"error": self.error} if self.error else {}),
-            **({"error_message": self.error_message} if self.error_message else {}),
         }
+        if self.registry_version is not None:
+            record["registry_version"] = self.registry_version
+        if self.command_list_sha256 is not None:
+            record["command_list_sha256"] = self.command_list_sha256
+        if self.model_phase_count is not None:
+            record["model_phase_count"] = self.model_phase_count
+        if self.isolation_profile is not None:
+            record["isolation_profile"] = self.isolation_profile
+        if self.phases:
+            record["phases"] = [dict(p) for p in self.phases]
+        if self.error:
+            record["error"] = self.error
+        if self.error_message:
+            record["error_message"] = self.error_message
+        return record
 
     def to_json(self) -> str:
         """Serialize the record as deterministic, pretty JSON."""
@@ -201,14 +227,25 @@ def build_provenance(
     result: str,
     target_repository: str | None = None,
     target_tag: str | None = None,
+    registry_version: int | None = None,
+    command_list_sha256: str | None = None,
+    model_phase_count: int | None = None,
+    isolation_profile: str | None = None,
+    phases: tuple[dict[str, Any], ...] = (),
 ) -> ProvenanceRecord:
     """Build a complete, redacted provenance record.
 
     Never includes provider credentials, token values, full model prompts,
-    complete issue text, unredacted diffs, raw model responses, or release
-    bodies/notes. For release runs, ``target_repository``, ``target_tag``,
-    ``target_number`` (release ID), and ``target_head_sha`` (target commit
-    SHA) record the canonical release target without its body.
+    complete issue text, unredacted diffs, raw model responses, command
+    output, or release bodies/notes. For release runs, ``target_repository``,
+    ``target_tag``, ``target_number`` (release ID), and ``target_head_sha``
+    (target commit SHA) record the canonical release target without its body.
+
+    The midflight extension records the bundle schema version, registry
+    version, the deterministic hash of the configured command ID list, the
+    number of model phases, the required isolation profile, and a per-phase
+    status/result-hash summary — enough to establish which reviewed commands
+    and phases ran without retaining raw evidence.
     """
     if mode not in ALLOWED_MODES:
         raise ProvenanceError(
@@ -253,6 +290,12 @@ def build_provenance(
         configuration_digest=digest,
         target_repository=target_repository,
         target_tag=target_tag,
+        bundle_schema_version=bundle.get("schema_version"),
+        registry_version=registry_version,
+        command_list_sha256=command_list_sha256,
+        model_phase_count=model_phase_count,
+        isolation_profile=isolation_profile,
+        phases=phases,
     )
 
 
@@ -269,11 +312,20 @@ def failure_record(
     target_kind: str | None = None,
     target_number: int | None = None,
     target_head_sha: str | None = None,
+    registry_version: int | None = None,
+    command_list_sha256: str | None = None,
+    model_phase_count: int | None = None,
+    isolation_profile: str | None = None,
+    phases: tuple[dict[str, Any], ...] = (),
 ) -> ProvenanceRecord:
     """Build a minimal redacted attempted-resolution record for a failure.
 
     The error message is included verbatim because resolver/policy/contract
-    errors are constructed from non-secret templates only.
+    errors are constructed from non-secret templates only. The midflight
+    extension fields (registry version, command-list hash, model phase count,
+    isolation profile, per-phase statuses) are retained on failure so a
+    failure mid-run can still establish which reviewed commands and phases
+    ran, without retaining raw evidence.
     """
     if mode not in ALLOWED_MODES:
         mode = "publish"
@@ -301,6 +353,12 @@ def failure_record(
         error_message=str(error),
         target_repository=target_repository,
         target_tag=target_tag,
+        bundle_schema_version=bundle.get("schema_version"),
+        registry_version=registry_version,
+        command_list_sha256=command_list_sha256,
+        model_phase_count=model_phase_count,
+        isolation_profile=isolation_profile,
+        phases=phases,
     )
 
 

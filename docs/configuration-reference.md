@@ -130,7 +130,7 @@ issue-feedback profile using some fictitious values:
 
 | Field | Required | Type | Description and example |
 | --- | --- | --- | --- |
-| `schema_version` | Yes | integer | Bundle schema version. The supported value is `1`. |
+| `schema_version` | Yes | integer | Bundle schema version. The supported values are `1` and `2`. Schema 1 is preserved for existing bundles; schema 2 is ID-based and is the only schema that may declare `midflight_commands`. Unknown manifest keys are rejected in every schema. |
 | `profile_name` | Yes | string | Must equal the selected profile directory name and match `[a-z0-9][a-z0-9-]{0,62}`. Example: `product-issue-feedback`. |
 | `allowed_workflows` | Yes | non-empty string array | Workflows that may use the bundle: `pr-documentation-review`, `issue-feedback`, `issue-implementation`, or `release-project-review`. Example: `["issue-feedback"]`. |
 | `agent_file` | Yes | safe relative path | Primary agent Markdown file. Example: `agent.md`. Its YAML front matter must declare a unique `name`. |
@@ -142,6 +142,8 @@ issue-feedback profile using some fictitious values:
 | `context_policy` | No | string | PR-review-only context collection policy. The currently supported value is `pr-review-on-demand-v1`; omit it for issue workflows. |
 | `limits` | No | object | Profile limits. For review profiles, use `{"max_comments": 10}` to cap caller-selected comments at 10. An empty object is valid. |
 | `policy` | No | object | Bundle policy overlay. It can further restrict behavior, for example the `capabilities` object in the preceding example. It must be a JSON object. |
+| `preflight_commands` | No | array of strings | Release-project-review only; at most three commands. Schema 2 lists registry IDs; schema 1 lists legacy shell strings resolved through compatibility aliases. |
+| `midflight_commands` | No | array of command IDs | Schema 2 only, release-project-review only; at most three unique registry command IDs run between two model phases. The model cannot select or override commands. |
 
 The available supplied profiles demonstrate the supported workflow mappings:
 
@@ -242,3 +244,13 @@ destination/endpoint fields (e.g. `repository`, `endpoint`, `url`, `assignees`,
 findings. The runner owns the destination repository, the `release-readiness`
 label allowlist, the idempotency marker, and publication; the model may never
 select an endpoint, repository, labels, or credentials.
+
+When a schema-2 release bundle declares `midflight_commands`, the runner first
+runs a fresh model phase under the non-publishing
+`release-project-analysis-handoff-v1` contract. That contract accepts only
+`assessment`, `validation_questions`, and `relevant_evidence`, rejects
+command/control fields (`command`, `commands`, `args`, `shell`,
+`environment`, `working_directory`, `url`, `repository`, `endpoint`,
+`credentials`, `decision`, `title`, `body`, `labels`), and has no publication
+path. The validated handoff is inserted into the phase-2 prompt as delimited
+untrusted data; it is never appended to system instructions.

@@ -124,6 +124,53 @@ The release output contract allows either `NO_ISSUE` or a constrained
 creation. It rejects output fields that attempt to specify a repository,
 endpoint, URL, assignee, or milestone.
 
+### Midflight commands and the two-stage trust boundary
+
+A schema-2 release-project-review bundle may declare up to three unique
+`midflight_commands`. When present, the runner performs a two-stage
+interaction joined by a workflow-owned, validated handoff:
+
+1. a fresh model invocation under the non-publishing
+   `release-project-analysis-handoff-v1` contract produces a bounded
+   analysis;
+2. the workflow runs each configured command ID through the pinned registry;
+3. a fresh model invocation receives the validated handoff and bounded
+   command evidence as separate untrusted delimiters and produces the final
+   decision.
+
+Security invariants:
+
+- Commands are capabilities, not shell text. Bundles select stable registry
+  IDs; the registry maps each ID to a fixed argument vector and execution
+  policy. No shell, interpolation, chaining, redirects, arbitrary flags, or
+  environment assignments are supported. No bundle, caller, or model input can
+  supply argv, environment, working directory, credentials, or artifact globs.
+- Command execution is credential-free and disposable. The executor constructs
+  the environment from a fixed allowlist that omits provider, GitHub, OIDC,
+  SSH, proxy, and caller-secret variables; uses a disposable `HOME`; attaches
+  stdin to `/dev/null`; starts a separate process group terminated on timeout;
+  applies platform-supported CPU/address-space/file-size/process/open-file
+  resource limits fail-closed; streams output into a bounded ring buffer; and
+  runs in a fresh disposable copy of the resolved commit discarded before
+  either model phase receives filesystem access. Network posture: only
+  `network="disabled"` commands are registered and the executor refuses any
+  command requesting network; enforced OS-level denial (network namespace /
+  locked-down container with no secrets) is the hosted runner's
+  responsibility. Until an enforceable, reviewed isolation mechanism is
+  demonstrated (asserted via the `network_denial_self_check` helper), midflight
+  commands must remain disabled or limited to commands that inspect
+  pre-existing files without executing target-controlled code.
+- Both model outputs are untrusted. The first response is contract-checked,
+  bounded, and inserted into the second prompt as delimited data. It is never
+  appended to system instructions or executed. Only the final response can
+  publish; the first phase has no publication contract.
+- Failures stop closed. Unknown commands, isolation failures, output overflow,
+  invalid handoffs, policy mismatches, or resource-control failures do not
+  fall back to a one-stage review or skip the midflight phase silently.
+- The effective workflow-command policy is restrictive only: an overlay may
+  remove command IDs, lower counts/limits, or disable midflight, but cannot add
+  commands or relax isolation. It is part of the effective policy hash.
+
 ## Idempotency and abuse resistance
 
 Feedback markers include a deterministic configuration digest. PR feedback is

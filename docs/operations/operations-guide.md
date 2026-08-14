@@ -13,8 +13,9 @@ with every release:
 | Artifact | Version source | Current |
 | --- | --- | --- |
 | Reusable workflows | immutable commit pin in consumer `uses:` | per release tag |
-| Bundle manifest schema | `bundle.json` `schema_version` | `1` |
-| Output contracts | contract identifier suffix, e.g. `-v1` | `pr-review-json-v1`, `issue-feedback-markdown-v1`, `issue-implementation-decision-v1`, `release-project-issue-v1` |
+| Bundle manifest schema | `bundle.json` `schema_version` | `1`, `2` |
+| Command registry | `scripts/agentic_commands.py` `REGISTRY_VERSION` | `1` |
+| Output contracts | contract identifier suffix, e.g. `-v1` | `pr-review-json-v1`, `issue-feedback-markdown-v1`, `issue-implementation-decision-v1`, `release-project-issue-v1`, `release-project-analysis-handoff-v1` (non-publishing) |
 | Policy schema | `.opencode/policy/organization-policy.json` `schema_version` | `1` |
 | Feedback marker | marker schema version field | `v2` |
 
@@ -42,18 +43,24 @@ failures. The provenance record contains:
 - `workflow_version`, `workflow_name`, `caller_repository`
 - `target` (`kind`, `number`, `head_sha`)
 - `bundle` (`source_alias`, `repository`, `resolved_sha`, `profile`,
-  `manifest_sha256`)
+  `manifest_sha256`, `schema_version`)
 - `prompt_template_sha256`, `output_contract`, `model_profile`,
   `effective_policy_sha256`
 - `mode` (`publish`|`dry-run`|`validate-only`)
 - `result` (`validated`|`generated`|`published`|`skipped`|`failed`)
 - `configuration_digest` (deterministic SHA-256 over stable config fields)
+- for midflight runs: `registry_version`, `command_list_sha256`,
+  `model_phase_count`, `isolation_profile`, and `phases` (per-phase status and
+  result hash) — enough to establish which reviewed commands and phases ran
+  without retaining raw prompts, model responses, command output, release
+  bodies, or secrets.
 
 It **never** contains provider credentials, token values, full model prompts,
-complete issue text, unredacted diffs, or raw model responses. For resolution
-failures that occur before a complete record exists, the runner emits a minimal
-redacted attempted-resolution record with `result: "failed"` and a non-secret
-error message.
+complete issue text, unredacted diffs, raw model responses, raw command
+output, or release bodies/notes. For resolution failures that occur before a
+complete record exists, the runner emits a minimal redacted
+attempted-resolution record with `result: "failed"` and a non-secret error
+message.
 
 For a feedback-generating `dry_run`, the same short-retention artifact also
 includes `agentic-publication-preview*.json`. This is the validated payload
@@ -111,6 +118,36 @@ dispatch with `fail_if_reviewed` semantics disabled.
    `configuration_digest`.
 
 Automatic, unreviewed rollback is intentionally not supported.
+
+## Concurrency and duplicate-issue prevention
+
+The release project-review runner owns the deterministic idempotency marker
+(canonical target repository, release ID, target commit SHA, configuration
+digest, workflow version) and searches open and closed issues for it before
+creating an issue. Even so, two publication runs that start simultaneously for
+the same release/config can race past the marker search before either creates
+its issue. To prevent duplicate release-readiness issues:
+
+- Wrap consumer dispatch wrappers in a `concurrency` group keyed on the
+  canonical target repository and release selector (release ID or tag), with
+  `cancel-in-progress: false` so a run in flight is not cancelled mid-
+  publication. For example:
+
+  ```yaml
+  concurrency:
+    group: release-review-${{ github.repository }}-${{ inputs.release_id || inputs.release_tag }}
+    cancel-in-progress: false
+  ```
+
+- For scheduled external-target review, include the target repository in the
+  group key so concurrent reviews of different targets are not serialized.
+- The midflight command/model phases do not weaken the existing idempotency
+  identity: the configuration digest includes the command-list hash and
+  effective-policy hash, so a midflight configuration change produces a fresh
+  marker and may legitimately create a new issue. Concurrency control must
+  therefore key on the same release/config identity the marker uses.
+- If a same-repository wrapper cannot use `concurrency`, prefer a single
+  dispatcher job that serializes release-review publication.
 
 ## Operational test matrix
 
@@ -177,14 +214,25 @@ workflow run.
 The supplied release project-review examples run on published releases and
 start in `validate_only` mode. Promote in this order:
 
-1. `validate_only: true` — resolve and validate configuration only; no
-   release fetch, checkout, model invocation, or publication.
+1. `validate_only: true` — resolve and validate configuration and policy only;
+   no release fetch, checkout, command execution, model invocation, or
+   publication. Configuration and policy resolution run before the
+   validate-only stop, so an invalid `midflight_commands` ID, count, phase, or
+   overlap is caught without a release fetch.
 2. `dry_run: true` — fetch the release, check out the immutable target commit,
-   compose the prompt, run OpenCode, and validate the contract decision, but
-   do not search for or create an issue.
+   run the preflight, both model phases, and any midflight commands, validate
+   the contract decision, but do not search for or create an issue.
 3. publish — search for the idempotency marker; create at most one
    `release-readiness` issue in the canonical target repository when the
    decision is `CREATE_ISSUE`.
+
+`midflight_commands` ships disabled (empty) in the supplied schema-2 bundle.
+Opt in a single low-risk command only after dry-run evaluation confirms
+isolation, latency, bounded evidence, phase quality, and redaction. Rollback
+is configuration-first: pin the last known-good workflow/bundle SHA or empty
+`midflight_commands`. Never fall back automatically to mutable refs, an
+unknown schema, an unisolated executor, or a one-stage model decision after a
+midflight failure.
 
 For cross-repository reviews, forward a target-scoped token as
 `release_target_token` (a GitHub App installation token or fine-grained token
