@@ -1587,29 +1587,70 @@ class WorkflowYamlTests(unittest.TestCase):
 
         root = REPO_ROOT / "docs/examples/configuration-sources"
         for source in ("default", "local", "central"):
-            path = root / source / ".github/workflows/release-project-review.yml"
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
-            job = data["jobs"]["release-review"]
-            uses = job["uses"]
-            self.assertIn("opencode-release-project-review.yml@", uses)
-            sha = uses.rsplit("@", 1)[1]
-            self.assertRegex(sha, r"^[0-9a-f]{40}$")
-            self.assertTrue(job["with"]["validate_only"] is True)
+            workflows = root / source / ".github/workflows"
+            self.assertFalse((workflows / "release-project-review.yml").exists())
+
+            self_path = workflows / "release-project-review-self.yml"
+            self_data = yaml.safe_load(self_path.read_text(encoding="utf-8"))
+            self_triggers = self_data.get("on") if "on" in self_data else self_data.get(True)
+            self.assertEqual(self_triggers, {"release": {"types": ["published"]}})
+            self_job = self_data["jobs"]["release-review"]
+            self.assertEqual(self_job["with"]["target_repository"], "${{ github.repository }}")
+            self.assertEqual(self_job["with"]["release_id"], "${{ github.event.release.id }}")
+
+            external_path = workflows / "external-release-project-review.yml"
+            external_data = yaml.safe_load(external_path.read_text(encoding="utf-8"))
+            external_triggers = (
+                external_data.get("on") if "on" in external_data else external_data.get(True)
+            )
+            self.assertEqual(external_triggers["schedule"], [{"cron": "0 0 * * *"}])
+            dispatch_inputs = external_triggers["workflow_dispatch"]["inputs"]
+            self.assertTrue(dispatch_inputs["target_repository"]["required"])
+            self.assertEqual(dispatch_inputs["release_id"]["default"], "")
+            external_text = external_path.read_text(encoding="utf-8")
+            self.assertIn("TARGET_REPOSITORY: OWNER/REPOSITORY", external_text)
+            self.assertIn("hours=24", external_text)
+            self.assertIn("github.event_name == 'schedule'", external_text)
+            self.assertIn("github.event_name == 'workflow_dispatch'", external_text)
+            self.assertIn("/releases/latest", external_text)
+            external_job = external_data["jobs"]["release-review"]
+            self.assertEqual(
+                external_job["needs"], ["find-scheduled-release", "find-dispatch-release"]
+            )
+            self.assertIn("inputs.release_id", external_job["if"])
+            self.assertIn("find-dispatch-release", external_job["if"])
+            self.assertEqual(
+                external_job["with"]["target_repository"],
+                "${{ inputs.target_repository || 'OWNER/REPOSITORY' }}",
+            )
+            self.assertEqual(
+                external_job["with"]["release_id"],
+                "${{ inputs.release_id || needs.find-dispatch-release.outputs.release_id || needs.find-scheduled-release.outputs.release_id }}",
+            )
+
+            for job in (self_job, external_job):
+                uses = job["uses"]
+                self.assertIn("opencode-release-project-review.yml@", uses)
+                sha = uses.rsplit("@", 1)[1]
+                self.assertRegex(sha, r"^[0-9a-f]{40}$")
+                self.assertTrue(job["with"]["validate_only"] is True)
             if source == "local":
-                self.assertEqual(job["with"]["configuration_profile"], "local-release-project-review")
-                self.assertNotIn("configuration_ref", job["with"])
+                for job in (self_job, external_job):
+                    self.assertEqual(job["with"]["configuration_profile"], "local-release-project-review")
+                    self.assertNotIn("configuration_ref", job["with"])
             else:
-                self.assertEqual(job["with"]["configuration_profile"], "release-project-review")
-                configuration_ref = job["with"]["configuration_ref"]
-                self.assertRegex(configuration_ref, r"^[0-9a-f]{40}$")
-                if source == "default":
-                    self.assertEqual(configuration_ref, sha)
-                elif source == "central":
-                    self.assertEqual(
-                        configuration_ref, "9b35f1fc2860a1d6b8f1abaa9b467dc4eb42aec8"
-                    )
-                else:
-                    self.fail(f"unexpected remote source: {source}")
+                for job in (self_job, external_job):
+                    self.assertEqual(job["with"]["configuration_profile"], "release-project-review")
+                    configuration_ref = job["with"]["configuration_ref"]
+                    self.assertRegex(configuration_ref, r"^[0-9a-f]{40}$")
+                    if source == "default":
+                        self.assertEqual(configuration_ref, job["uses"].rsplit("@", 1)[1])
+                    elif source == "central":
+                        self.assertEqual(
+                            configuration_ref, "9b35f1fc2860a1d6b8f1abaa9b467dc4eb42aec8"
+                        )
+                    else:
+                        self.fail(f"unexpected remote source: {source}")
 
 
 # ===========================================================================

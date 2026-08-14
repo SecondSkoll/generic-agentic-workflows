@@ -168,8 +168,8 @@ workflow run.
 
 ## Release project-review rollout
 
-The release project-review workflow is manual/reusable only and starts in
-`validate_only` mode in the supplied examples. Promote in this order:
+The supplied release project-review examples run on published releases and
+start in `validate_only` mode. Promote in this order:
 
 1. `validate_only: true` — resolve and validate configuration only; no
    release fetch, checkout, model invocation, or publication.
@@ -186,3 +186,11 @@ with `contents: read` and `issues: write` on the target repository only). The
 caller's `GITHUB_TOKEN` is never assumed to have access outside its
 repository; read access is verified before checkout and publication, and the
 same target-scoped token is used for issue creation.
+
+The separate `external-release-project-review.yml` example runs daily for a
+cross-repository check. Before enabling it, replace both `OWNER/REPOSITORY`
+placeholders and configure `release_target_token`. The job reviews only the
+newest non-draft target release published during the preceding 24 hours.
+It also supports manual dispatch with a required `target_repository` and an
+optional `release_id`; supplying an ID skips discovery, while omitting it
+reviews the target's latest published release.
