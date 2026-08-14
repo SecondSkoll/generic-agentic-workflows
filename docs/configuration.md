@@ -21,6 +21,12 @@ For field-by-field definitions and complete bundle-file examples, see the
 
 `validate_only` does not invoke a model or write to GitHub. `dry_run` can
 invoke the model but cannot publish. The two modes are mutually exclusive.
+For a dry run that generates feedback, download the workflow's
+short-retention `resolved-invocation-*` artifact. Its
+`agentic-publication-preview*.json` file contains the validated payload that
+would have been posted: the review body and inline comments, an issue comment,
+or a release-readiness issue. No preview file is written for `validate_only`,
+model/contract failures, or a release review that decides `NO_ISSUE`.
 
 ## Pathway 1: supplied `default` profile
 

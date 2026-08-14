@@ -428,6 +428,7 @@ jobs:
             --target-token-forwarded "$RELEASE_TARGET_TOKEN_FORWARDED"
             --repo-root "$GITHUB_WORKSPACE/release-target"
             --provenance "$RUNNER_TEMP/resolved-agentic-provenance.json"
+            --publication-preview "$RUNNER_TEMP/agentic-publication-preview.json"
           )
           if [[ "$DRY_RUN" == "true" ]]; then
             args+=(--dry-run)
@@ -448,5 +449,6 @@ jobs:
             ${{ runner.temp }}/effective-policy.json
             ${{ runner.temp }}/release-metadata.json
             ${{ runner.temp }}/resolved-agentic-provenance.json
+            ${{ runner.temp }}/agentic-publication-preview.json
           retention-days: 14
           if-no-files-found: ignore

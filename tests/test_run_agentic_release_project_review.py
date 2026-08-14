@@ -835,6 +835,7 @@ class ReleaseRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             bundle, policy, metadata = self._write_inputs(tmp_path)
+            preview_path = tmp_path / "preview.json"
             create_output = json.dumps(
                 {
                     "decision": "CREATE_ISSUE",
@@ -910,6 +911,7 @@ class ReleaseRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             bundle, policy, metadata = self._write_inputs(tmp_path)
+            preview_path = tmp_path / "preview.json"
             create_output = json.dumps(
                 {
                     "decision": "CREATE_ISSUE",
@@ -924,7 +926,9 @@ class ReleaseRunnerTests(unittest.TestCase):
                 mock.patch.object(RUNNER, "_search_existing_marker") as m_search,
                 mock.patch.object(RUNNER, "_create_issue") as m_create,
             ):
-                rc = RUNNER.main(self._args(tmp_path, bundle, policy, metadata, dry_run=True))
+                args = self._args(tmp_path, bundle, policy, metadata, dry_run=True)
+                args.extend(["--publication-preview", str(preview_path)])
+                rc = RUNNER.main(args)
             self.assertEqual(rc, 0)
             m_access.assert_not_called()
             m_search.assert_not_called()
@@ -932,6 +936,15 @@ class ReleaseRunnerTests(unittest.TestCase):
             prov = json.loads((tmp_path / "prov.json").read_text())
             self.assertEqual(prov["mode"], "dry-run")
             self.assertEqual(prov["result"], "generated")
+            self.assertEqual(
+                json.loads(preview_path.read_text()),
+                {
+                    "body": mock.ANY,
+                    "kind": "issue",
+                    "labels": ["release-readiness"],
+                    "title": "Missing rollback",
+                },
+            )
 
     def test_contract_violation_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1171,6 +1171,21 @@ def _cmd_review(args: argparse.Namespace) -> int:
 
     # CREATE_ISSUE: search for the idempotency marker before creating.
     if args.dry_run:
+        if args.publication_preview:
+            args.publication_preview.write_text(
+                json.dumps(
+                    {
+                        "kind": "issue",
+                        "title": decision["title"],
+                        "body": f"{marker}\n{decision['body']}",
+                        "labels": decision["labels"],
+                    },
+                    sort_keys=True,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
         print(
             f"Dry run: would create one release-readiness issue in {target_repository}.\n"
             f"{marker}\ntitle: {decision['title']}"
@@ -1329,6 +1344,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     review.add_argument("--focus", default=None)
     review.add_argument("--dry-run", action="store_true")
+    review.add_argument(
+        "--publication-preview",
+        type=Path,
+        default=None,
+        help="Path to write the validated issue payload during a dry run.",
+    )
     review.add_argument("--provenance", type=Path, default=None)
     return parser
 
