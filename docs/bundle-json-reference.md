@@ -124,6 +124,9 @@ minimal environment and bounded output, and treats results as untrusted
 evidence. A failed preflight supports a finding only if the output explains a
 concrete release-management consequence and owner/action.
 
+See [Run commands from a configuration bundle](running_commands.md) for the
+approved command, rollout procedure, execution behavior, and troubleshooting.
+
 ## Relationship to `hashes.json`
 
 `hashes.json` must map every declared content path—and only those paths—to a

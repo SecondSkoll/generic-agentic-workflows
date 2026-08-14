@@ -102,9 +102,13 @@ MAX_RELEASE_CONTEXT_FILES = 8
 # only in the immutable release checkout.
 ALLOWED_RELEASE_PREFLIGHT_COMMANDS: dict[str, tuple[str, ...]] = {
     "python3 -m pytest": ("python3", "-m", "pytest"),
+    "make -C docs html": ("make", "-C", "docs", "html"),
+}
+PREFLIGHT_OUTPUT_ARTIFACTS: dict[str, tuple[str, ...]] = {
+    "make -C docs html": ("docs/_build/index.html",),
 }
 MAX_PREFLIGHT_OUTPUT_BYTES = 16 * 1024
-PREFLIGHT_TIMEOUT_SECONDS = 120
+PREFLIGHT_TIMEOUT_SECONDS = 300
 
 #: Per-release-fetch bounds.
 RELEASE_FETCH_TIMEOUT = 30
@@ -137,11 +141,11 @@ def run_release_preflight(
         raise ReleaseReviewError(f"release checkout is unavailable: {repo_root}")
 
     python = shutil.which("python3")
-    if not python:
-        raise ReleaseReviewError("python3 is required for approved release preflight")
+    path_entries = [os.path.dirname(python)] if python else []
+    path_entries.append(os.defpath)
     safe_environment = {
         "HOME": tempfile.gettempdir(),
-        "PATH": os.defpath,
+        "PATH": os.pathsep.join(path_entries),
         "PYTHONNOUSERSITE": "1",
         "PYTHONDONTWRITEBYTECODE": "1",
     }
@@ -150,7 +154,12 @@ def run_release_preflight(
         argv = ALLOWED_RELEASE_PREFLIGHT_COMMANDS.get(command)
         if argv is None:
             raise ReleaseReviewError(f"unapproved release preflight command: {command!r}")
-        executable = (python, *argv[1:])
+        executable_path = shutil.which(argv[0], path=safe_environment["PATH"])
+        if executable_path is None:
+            raise ReleaseReviewError(
+                f"{argv[0]} is required for approved release preflight"
+            )
+        executable = (executable_path, *argv[1:])
         try:
             completed = subprocess.run(
                 executable,
@@ -170,7 +179,23 @@ def run_release_preflight(
             output = ((error.stdout or "") + (error.stderr or "")).strip()
             output = output[:MAX_PREFLIGHT_OUTPUT_BYTES]
             status = f"timed out after {PREFLIGHT_TIMEOUT_SECONDS}s"
-        summaries.append(f"Command: {command}\nResult: {status}\nOutput:\n{output or '(no output)'}")
+        artifact_lines: list[str] = []
+        for relative_path in PREFLIGHT_OUTPUT_ARTIFACTS.get(command, ()):
+            artifact = repo_root / relative_path
+            if artifact.is_file() and not artifact.is_symlink() and artifact.stat().st_size > 0:
+                artifact_lines.append(
+                    f"Output check: passed ({relative_path}, {artifact.stat().st_size} bytes)"
+                )
+            else:
+                artifact_lines.append(
+                    f"Output check: failed ({relative_path} is missing, empty, or not a regular file)"
+                )
+                if status == "passed":
+                    status = "failed (expected output missing)"
+        details = f"Command: {command}\nResult: {status}\nOutput:\n{output or '(no output)'}"
+        if artifact_lines:
+            details += "\n" + "\n".join(artifact_lines)
+        summaries.append(details)
     return "\n\n".join(summaries)
 
 

@@ -84,6 +84,8 @@ access outside its repository.
   author, hash, validate, and publish a reviewed profile.
 - [`bundle.json` reference](docs/bundle-json-reference.md) — manifest fields,
   valid workflow mappings, and safety constraints.
+- [Run commands from a configuration bundle](docs/running_commands.md) —
+  configure and roll out approved release-review preflight commands.
 - [Security model](docs/security-model.md) — trust boundaries, defensive
   controls, and their rationale.
 - [Configuration guide](docs/configuration.md) — setup, all pathways, bundle

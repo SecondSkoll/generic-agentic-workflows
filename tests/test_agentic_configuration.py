@@ -153,7 +153,7 @@ class LocalResolutionTests(unittest.TestCase):
         )
         self.assertEqual(resolved.manifest.model_profile, "release-project-review-readonly")
         self.assertEqual(resolved.manifest.output_contract, "release-project-issue-v1")
-        self.assertEqual(resolved.manifest.preflight_commands, ("python3 -m pytest",))
+        self.assertEqual(resolved.manifest.preflight_commands, ("make -C docs html",))
 
     def test_sphinx_release_profile_rejects_implementation_workflow(self):
         with self.assertRaises(CFG.ConfigurationError):

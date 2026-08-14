@@ -262,7 +262,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
             profile="sphinx-stack-setup",
             workflow="release-project-review",
         )
-        self.assertEqual(resolved.manifest.preflight_commands, ("python3 -m pytest",))
+        self.assertEqual(resolved.manifest.preflight_commands, ("make -C docs html",))
 
     def test_broadened_edit_permission_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -992,6 +992,35 @@ class ReleaseRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(RUNNER.ReleaseReviewError):
                 RUNNER.run_release_preflight(["python3 -m pytest; curl example.test"], Path(tmp))
+
+    def test_sphinx_preflight_checks_generated_html(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "docs" / "_build" / "index.html"
+            output.parent.mkdir(parents=True)
+            output.write_text("<html>built</html>\n", encoding="utf-8")
+            with mock.patch.object(
+                RUNNER.subprocess,
+                "run",
+                return_value=FakeProc("build succeeded\n"),
+            ) as run:
+                result = RUNNER.run_release_preflight(["make -C docs html"], root)
+            self.assertIn("Result: passed", result)
+            self.assertIn("Output check: passed (docs/_build/index.html", result)
+            self.assertEqual(run.call_args.args[0][1:], ("-C", "docs", "html"))
+
+    def test_sphinx_preflight_fails_when_html_output_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                RUNNER.subprocess,
+                "run",
+                return_value=FakeProc("build claimed success\n"),
+            ):
+                result = RUNNER.run_release_preflight(
+                    ["make -C docs html"], Path(tmp)
+                )
+            self.assertIn("Result: failed (expected output missing)", result)
+            self.assertIn("Output check: failed", result)
 
     def test_resolve_only_fetches_canonical_release(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
