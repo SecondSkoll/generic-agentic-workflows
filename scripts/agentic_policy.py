@@ -181,6 +181,43 @@ BUILTIN_SAFETY_POLICY: dict[str, dict[str, Any]] = {
             r"^Gemfile\.lock$",
         ],
     },
+    "release-project-review": {
+        "capabilities": {
+            "filesystem": "read-release-context-only",
+            "shell": DENY,
+            "network": "provider-only",
+            "github_write": "issue-create-only",
+            "delegation": DENY,
+        },
+        "required_output_contract": "release-project-issue-v1",
+        "required_source": "trusted-or-allowlisted",
+        "max_tokens": 8000,
+        "temperature_max": 0.2,
+        "timeout_seconds": 180,
+        "max_retries": 1,
+        "allowed_workflows": ("release-project-review",),
+        "data_classification": "repository-content",
+        #: Release review is read-only over the checked-out release context.
+        #: The workflow (not the model) owns the issue destination, labels,
+        #: marker, and publication. The model may not select an endpoint,
+        #: repository, labels, or credentials.
+        "deny_path_patterns": [
+            r"^\.github/workflows/",
+            r"^\.opencode/",
+        ],
+        #: Bounded release/repository read context. The runner collects an
+        #: allowlisted set of release metadata and operational documents at
+        #: the immutable target commit and treats them as untrusted.
+        "allow_release_context": True,
+        "max_release_context_files": 8,
+        "max_release_context_file_bytes": 64 * 1024,
+        "max_release_context_total_bytes": 256 * 1024,
+        #: Publication is workflow-mediated issue creation only, and for an
+        #: external target repository requires an explicitly forwarded,
+        #: target-scoped token (verified by the runner before publication).
+        "issue_create_only": True,
+        "require_external_target_authorization": True,
+    },
 }
 
 
@@ -218,6 +255,15 @@ MODEL_PROFILES: dict[str, dict[str, Any]] = {
         "timeout_seconds": 300,
         "max_retries": 1,
         "allowed_workflows": ["issue-implementation"],
+        "data_classification": "repository-content",
+    },
+    "release-project-review-readonly": {
+        "provider_model": "openrouter/openai/gpt-5.6-luna",
+        "max_tokens": 8000,
+        "temperature_max": 0.2,
+        "timeout_seconds": 180,
+        "max_retries": 1,
+        "allowed_workflows": ["release-project-review"],
         "data_classification": "repository-content",
     },
 }

@@ -34,9 +34,13 @@ POLICY = _load("agentic_policy")
 PROMPTS = _load("agentic_prompts")
 
 
-def _resolved(profile: str, workflow: str) -> dict:
+def _resolved(
+    profile: str,
+    workflow: str,
+    bundle_root: Path = REPO_ROOT / ".opencode" / "configuration",
+) -> dict:
     return CFG.resolve_local_bundle(
-        bundle_root=REPO_ROOT / ".opencode" / "configuration",
+        bundle_root=bundle_root,
         profile=profile,
         workflow=workflow,
     ).to_dict()
@@ -51,17 +55,49 @@ class RealOpenCodeSmokeTests(unittest.TestCase):
     """
 
     BUNDLES = [
-        ("documentation-review", "pr-documentation-review"),
-        ("issue-feedback", "issue-feedback"),
-        ("default-implementation", "issue-implementation"),
+        (
+            REPO_ROOT / ".opencode" / "configuration",
+            "documentation-review",
+            "pr-documentation-review",
+        ),
+        (REPO_ROOT / ".opencode" / "configuration", "issue-feedback", "issue-feedback"),
+        (
+            REPO_ROOT / ".opencode" / "configuration",
+            "default-implementation",
+            "issue-implementation",
+        ),
+        (
+            REPO_ROOT / ".opencode" / "configuration",
+            "release-project-review",
+            "release-project-review",
+        ),
+        (
+            REPO_ROOT / "docs/examples/configuration-sources/local/.opencode/configuration",
+            "local-documentation-review",
+            "pr-documentation-review",
+        ),
+        (
+            REPO_ROOT / "docs/examples/configuration-sources/local/.opencode/configuration",
+            "local-issue-feedback",
+            "issue-feedback",
+        ),
+        (
+            REPO_ROOT / "docs/examples/configuration-sources/local/.opencode/configuration",
+            "local-release-project-review",
+            "release-project-review",
+        ),
     ]
 
     def test_all_bundle_agents_load_in_real_opencode(self) -> None:
         if shutil.which("opencode") is None:
             self.skipTest("opencode binary not available locally")
-        for profile, workflow in self.BUNDLES:
+        for bundle_root, profile, workflow in self.BUNDLES:
             with self.subTest(profile=profile):
-                data = _resolved(profile, workflow)
+                data = _resolved(profile, workflow, bundle_root)
+                self.assertTrue(data["manifest_sha256"])
+                self.assertTrue(data["prompt_template_sha256"])
+                self.assertTrue(data["prompt_template_text"])
+                self.assertIsInstance(data["limits"], dict)
                 with tempfile.TemporaryDirectory() as tmp:
                     staged = CFG.materialize_to_opencode_root(data, Path(tmp))
                     ok, message = CFG.opencode_config_smoke_check(Path(tmp))

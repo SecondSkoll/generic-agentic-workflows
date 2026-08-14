@@ -371,6 +371,35 @@ class OutputWriterTests(unittest.TestCase):
 class CliTests(unittest.TestCase):
     """Verify the CLI entry point surfaces validation errors cleanly."""
 
+    VALIDATE_ONLY_CASES = (
+        (
+            "pr-documentation-review",
+            "documentation-review",
+            ["--target-number", "1"],
+        ),
+        ("issue-feedback", "issue-feedback", []),
+        (
+            "issue-implementation",
+            "default-implementation",
+            ["--target-number", "1"],
+        ),
+        (
+            "release-project-review",
+            "release-project-review",
+            ["--target-repository", "SecondSkoll/generic-agentic-workflows", "--release-id", "1"],
+        ),
+        (
+            "release-project-review",
+            "release-project-review",
+            [
+                "--target-repository",
+                "SecondSkoll/generic-agentic-workflows",
+                "--release-tag",
+                "v1.0.0",
+            ],
+        ),
+    )
+
     def test_cli_returns_zero_on_valid_inputs(self) -> None:
         rc = RESOLVER.main(
             [
@@ -413,6 +442,58 @@ class CliTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             payload = json.loads(result_path.read_text(encoding="utf-8"))
         self.assertEqual(payload["workflow"], "issue-feedback")
+
+    def test_cli_validate_only_writes_expected_invocations(self) -> None:
+        for workflow, profile, target_args in self.VALIDATE_ONLY_CASES:
+            with self.subTest(workflow=workflow, target_args=target_args):
+                with tempfile.TemporaryDirectory() as tmp:
+                    result_path = Path(tmp) / "result.json"
+                    rc = RESOLVER.main(
+                        [
+                            "--workflow",
+                            workflow,
+                            "--configuration-profile",
+                            profile,
+                            "--validate-only",
+                            "true",
+                            *target_args,
+                            "--result",
+                            str(result_path),
+                        ]
+                    )
+                    self.assertEqual(rc, 0)
+                    payload = json.loads(result_path.read_text(encoding="utf-8"))
+                self.assertEqual(payload["workflow"], workflow)
+                self.assertEqual(payload["configuration_profile"], profile)
+                self.assertTrue(payload["validate_only"])
+
+    def test_cli_rejects_mutable_ref(self) -> None:
+        rc = RESOLVER.main(
+            [
+                "--workflow",
+                "pr-documentation-review",
+                "--configuration-profile",
+                "documentation-review",
+                "--configuration-ref",
+                "main",
+                "--target-number",
+                "1",
+            ]
+        )
+        self.assertEqual(rc, 1)
+
+    def test_cli_rejects_traversal_profile(self) -> None:
+        rc = RESOLVER.main(
+            [
+                "--workflow",
+                "pr-documentation-review",
+                "--configuration-profile",
+                "../escape",
+                "--target-number",
+                "1",
+            ]
+        )
+        self.assertEqual(rc, 1)
 
 
 if __name__ == "__main__":

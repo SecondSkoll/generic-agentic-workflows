@@ -1,8 +1,11 @@
 # generic-agentic-workflows
 
 Reusable GitHub Actions workflows that use OpenCode to provide pull-request
-documentation reviews, issue feedback, and a manually dispatched,
-issue-to-pull-request implementation path.
+documentation reviews, issue feedback, a manually dispatched
+issue-to-pull-request implementation path, and a manually dispatched/reusable
+release project-review that creates at most one release-readiness issue.
+
+Note: Issue implementation is not currently set up for calling as a remote action.
 
 ## Start here
 
@@ -13,7 +16,8 @@ issue-to-pull-request implementation path.
    permissions.
 3. Select one configuration pathway: **default**, **local**, or **central**.
    The [configuration guide](docs/configuration.md) includes complete
-   SHA-pinned examples for the review and feedback workflows.
+   SHA-pinned examples for the review, feedback, and release-project-review
+   workflows.
 4. Roll out in order: `validate_only: true`, then `dry_run: true`, then normal
    publication.
 
@@ -25,7 +29,9 @@ issue-to-pull-request implementation path.
 | `local` | Repository-specific instructions | The caller repository's trusted checkout. |
 | `central` | Shared organization profiles | An allowlisted central repository at a full pinned commit SHA. |
 
-Note: `default` and `central` currently point to this repository. `central` should eventually be aimed elsewhere to provide a shared, and more agile source or profiles.
+`default` resolves profiles from this repository. `central` resolves profiles
+from the separate allowlisted `SecondSkoll/generic-agentic-workflows-config`
+repository, so each source is pinned independently.
 
 All configuration is a hash-verified bundle. Callers cannot provide arbitrary
 prompt text, file paths, model identifiers, URLs, branches, or tags. Remote
@@ -38,22 +44,37 @@ sources require a 40-character commit SHA; resolution failures fail closed.
 | `.github/workflows/opencode-documentation-review.yml` | Direct PR trigger or reusable call | `contents: read`, `pull-requests: write` |
 | `.github/workflows/opencode-issue-feedback.yml` | Direct issue trigger or reusable call | `contents: read`, `issues: write` |
 | `.github/workflows/opencode-issue-implementation.yml` | Manual dispatch only | `contents: write`, `issues: write`, `pull-requests: write` |
+| `.github/workflows/opencode-release-project-review.yml` | Manual dispatch or reusable call only | `contents: read`, `issues: write` (plus a target-scoped `release_target_token` for cross-repository reviews) |
 
 The reusable caller owns triggers, concurrency, permissions, and secret
 forwarding. The callee validates configuration, composes prompts, invokes the
 model, validates output, publishes feedback, and uploads redacted provenance.
 
+The release project-review workflow examines a published GitHub release
+identified by a release ID or tag and creates at most one `release-readiness`
+issue in the reviewed repository. It is manual/reusable only; it never runs
+automatically on a release event. The supplied `release-project-review`
+profile is the default for direct runs and for reusable calls that select
+`configuration_source: default`. For cross-repository reviews, forward a
+target-scoped token (`contents: read`, `issues: write` on the target only) as
+`release_target_token`; the caller's `GITHUB_TOKEN` is never assumed to have
+access outside its repository.
+
 ## Safety model
 
 - PR feedback uses a trusted base checkout with `pull_request_target`; it does
   not check out or execute untrusted PR code.
-- Issue and PR text is explicitly delimited as untrusted data.
+- Issue, PR, and release text is explicitly delimited as untrusted data.
 - Policy layers can only narrow capabilities and limits.
 - Output must satisfy a versioned contract before GitHub publication.
 - Provenance artifacts record safe hashes and metadata, never credentials,
-  complete prompts, diffs, or raw model responses.
+  complete prompts, diffs, release bodies, or raw model responses.
 - The implementation workflow blocks edits to workflows, automation,
   dependencies, and agent/configuration instructions before it can push.
+- The release project-review workflow checks out exactly the resolved
+  immutable target commit (read-only), collects a bounded allowlisted release
+  context, and the workflow (not the model) owns the issue destination,
+  labels, idempotency marker, and publication.
 
 ## Further documentation
 
@@ -67,3 +88,7 @@ model, validates output, publishes feedback, and uploads redacted provenance.
   — remote bundle layout and release process.
 - [Operations guide](docs/operations/operations-guide.md) — rollback,
   reliability controls, and test matrix.
+
+> OpenCode configuration (`.opencode/`) is loaded once at startup and is not
+> hot-reloaded. After changing any configuration in `.opencode/`, quit and
+> restart OpenCode for the change to take effect.

@@ -16,7 +16,7 @@ jobs:
       issues: write
     with:
       configuration_source: central
-      configuration_ref: 61ed1bbd34a878f3ae270b1e4ff027cf786b730b
+      configuration_ref: 9b35f1fc2860a1d6b8f1abaa9b467dc4eb42aec8
       configuration_profile: issue-feedback
       focus: general
       max_issues: 20

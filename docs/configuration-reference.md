@@ -23,13 +23,17 @@ Fields not applicable to the selected workflow are rejected.
 | `configuration_source` | string | Both | `default` | `default`, `local`, or `central`. Selects the supplied bundle, a trusted bundle in the caller repository, or an allowlisted central bundle. |
 | `configuration_ref` | string | Both | Empty | Required for `default` and `central`; omitted for `local`. Must be a lowercase, 40-character Git commit SHA, for example `0123456789abcdef0123456789abcdef01234567`. |
 | `configuration_profile` | string | Both | Required | Bundle directory/profile name. It must match `[a-z0-9][a-z0-9-]{0,62}`, for example `documentation-review`. |
-| `focus` | string | Both | Empty | Optional allowlisted focus: `documentation`, `security`, `tests`, or `general`. It is not arbitrary prompt text. |
+| `focus` | string | Both | Empty | Optional allowlisted focus. For PR review and issue feedback: `documentation`, `security`, `tests`, or `general`. For release project review: `release-notes`, `rollout`, `rollback`, `acceptance`, `dependencies`, `owners`, `risk`, `operational-readiness`, or `general`. It is not arbitrary prompt text. |
 | `max_comments` | number | PR review | `10` for reusable calls | Optional number of PR inline comments, from `0` through `20`. The chosen bundle can apply a lower ceiling; omitting the value lets the profile limit apply. |
 | `max_issues` | number | Issue feedback | `100` for reusable calls | Optional batch limit from `1` through `100`. The issue-feedback workflow uses the event issue unless a target is supplied. |
 | `dry_run` | boolean | Both | `false` | Resolves configuration, invokes the model, and validates output, but does not publish feedback. Cannot be `true` with `validate_only`. |
 | `validate_only` | boolean | Both | `false` | Resolves and validates invocation/configuration without invoking a model or publishing. Cannot be `true` with `dry_run`. |
 | `pull_number` | number | PR review | `0` | Optional positive PR number when no pull-request event provides the target, such as a wrapper invoked with `workflow_call`. |
 | `issue_number` | number | Issue feedback | `0` | Optional positive issue number when no issue event provides the target. |
+| `target_repository` | string | Release project review | `${{ github.repository }}` | Strict canonical `owner/repo` of the release to review. Rejects URLs, `owner/repo@ref`/`owner/repo:ref` syntax, paths, and expressions. |
+| `release_id` | number | Release project review | `0` | Positive GitHub release ID. Exactly one of `release_id`/`release_tag` is required. |
+| `release_tag` | string | Release project review | Empty | Conservative tag selector (`[A-Za-z0-9._-]{1,128}`, no `..`). Resolved through the GitHub REST API; never used as a Git ref. Exactly one of `release_id`/`release_tag` is required. |
+| `release_target_token` | secret | Release project review | Optional | Target-scoped GitHub token (`contents: read`, `issues: write` on the target only) for cross-repository reviews. Falls back to `github.token` for same-repo runs. |
 
 ### PR review caller example
 
@@ -127,13 +131,13 @@ issue-feedback profile using some fictitious values:
 | --- | --- | --- | --- |
 | `schema_version` | Yes | integer | Bundle schema version. The supported value is `1`. |
 | `profile_name` | Yes | string | Must equal the selected profile directory name and match `[a-z0-9][a-z0-9-]{0,62}`. Example: `product-issue-feedback`. |
-| `allowed_workflows` | Yes | non-empty string array | Workflows that may use the bundle: `pr-documentation-review`, `issue-feedback`, or `issue-implementation`. Example: `["issue-feedback"]`. |
+| `allowed_workflows` | Yes | non-empty string array | Workflows that may use the bundle: `pr-documentation-review`, `issue-feedback`, `issue-implementation`, or `release-project-review`. Example: `["issue-feedback"]`. |
 | `agent_file` | Yes | safe relative path | Primary agent Markdown file. Example: `agent.md`. Its YAML front matter must declare a unique `name`. |
 | `additional_agent_files` | No | unique array of safe relative paths | Extra agent Markdown files, used by the implementation profile. Example: `["executor.md"]`. Each requires unique `name` front matter and may not repeat `agent_file`. |
 | `skill_files` | Yes (may be empty) | unique array of safe relative paths | Skill Markdown files. Example: `["skills/triage/SKILL.md"]`. Each requires YAML front matter with a unique `name`. |
 | `prompt_template` | Yes | safe relative path | Prompt template file. Example: `prompts/feedback.md`. |
 | `model_profile` | Yes | string | Reviewed model-profile identifier, matching the profile-name grammar. Example: `issue-feedback-readonly`. Callers cannot override it. |
-| `output_contract` | Yes | string | Workflow-owned output contract: `pr-review-json-v1`, `issue-feedback-markdown-v1`, or `issue-implementation-decision-v1`. |
+| `output_contract` | Yes | string | Workflow-owned output contract: `pr-review-json-v1`, `issue-feedback-markdown-v1`, `issue-implementation-decision-v1`, or `release-project-issue-v1`. |
 | `context_policy` | No | string | PR-review-only context collection policy. The currently supported value is `pr-review-on-demand-v1`; omit it for issue workflows. |
 | `limits` | No | object | Profile limits. For review profiles, use `{"max_comments": 10}` to cap caller-selected comments at 10. An empty object is valid. |
 | `policy` | No | object | Bundle policy overlay. It can further restrict behavior, for example the `capabilities` object in the preceding example. It must be a JSON object. |
@@ -145,6 +149,7 @@ The available supplied profiles demonstrate the supported workflow mappings:
 | `documentation-review` | `["pr-documentation-review"]` | `pr-review-json-v1` | `{"max_comments": 10}` |
 | `issue-feedback` | `["issue-feedback"]` | `issue-feedback-markdown-v1` | `{"max_comments": 5}` |
 | `default-implementation` | `["issue-implementation"]` | `issue-implementation-decision-v1` | `{}` |
+| `release-project-review` | `["release-project-review"]` | `release-project-issue-v1` | `{}` |
 
 ## `hashes.json`
 
@@ -212,3 +217,24 @@ agent or skill paths, model IDs, output contracts, URLs, repository names,
 branches, tags, or mutable references. Choose a reviewed profile instead. A
 missing file, invalid front matter, mismatched hash, invalid path, or workflow
 mismatch fails the run without falling back to another source.
+
+## Release project-review contract
+
+The `release-project-issue-v1` output contract accepts exactly one of:
+
+```json
+{"decision":"NO_ISSUE","summary":"..."}
+```
+
+or:
+
+```json
+{"decision":"CREATE_ISSUE","title":"...","body":"...","labels":["release-readiness"]}
+```
+
+The parser rejects malformed JSON, unknown top-level keys, unknown labels,
+destination/endpoint fields (e.g. `repository`, `endpoint`, `url`, `assignees`,
+`milestone`), oversize or empty content, empty evidence, and code-only
+findings. The runner owns the destination repository, the `release-readiness`
+label allowlist, the idempotency marker, and publication; the model may never
+select an endpoint, repository, labels, or credentials.

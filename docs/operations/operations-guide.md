@@ -14,7 +14,7 @@ with every release:
 | --- | --- | --- |
 | Reusable workflows | immutable commit pin in consumer `uses:` | per release tag |
 | Bundle manifest schema | `bundle.json` `schema_version` | `1` |
-| Output contracts | contract identifier suffix, e.g. `-v1` | `pr-review-json-v1`, `issue-feedback-markdown-v1`, `issue-implementation-decision-v1` |
+| Output contracts | contract identifier suffix, e.g. `-v1` | `pr-review-json-v1`, `issue-feedback-markdown-v1`, `issue-implementation-decision-v1`, `release-project-issue-v1` |
 | Policy schema | `.opencode/policy/organization-policy.json` `schema_version` | `1` |
 | Feedback marker | marker schema version field | `v2` |
 
@@ -67,6 +67,13 @@ fresh review for the same PR head or issue.
 | PR review | `<!-- agentic-workflow:pr-documentation-review:v2:<digest>:<head_sha> -->` | same digest AND same head SHA |
 | Issue feedback | `<!-- agentic-workflow:issue-feedback:v2:<digest> -->` | same digest |
 | Issue implementation status | `<!-- agentic-workflow:issue-implementation-status:v1 -->` | records the result of an explicitly dispatched issue run |
+| Release project review | `<!-- agentic-workflow:release-project-review:v2:<idempotency_key>:<target_commit_sha> -->` | same idempotency key (canonical target repository, release ID, target commit SHA, configuration digest, workflow version) |
+
+The release project-review idempotency key is derived from the canonical
+target repository, the GitHub release ID, the immutable target commit SHA, the
+configuration digest, and the workflow version. A change in any of those
+fields produces a fresh marker and may create one new release-readiness issue;
+the same tuple produces at most one issue.
 
 To intentionally re-review after a configuration change, update the pinned
 bundle SHA (remote) or the local bundle content; the new digest produces a new
@@ -113,6 +120,9 @@ Automatic, unreviewed rollback is intentionally not supported.
 | Provider/API transient error | Bounded retry (5xx/network only); diagnosable failed run; no partial feedback. |
 | Configuration rollback | Next run uses only the explicitly updated pinned SHA. |
 | Implementation modifies denied paths | Push/PR creation blocked by `enforce_changed_paths`; status comment reports failure. |
+| Release project review (same repo) | At most one `release-readiness` issue in the reviewed repository; the resolved immutable target commit is checked out read-only. |
+| Release project review (external target) | Requires an explicitly forwarded `release_target_token` with `contents: read` and `issues: write` on the target only; read access is verified before checkout and publication. |
+| Release project review idempotency | An existing matching marker suppresses duplicate issue creation (`result: "skipped"`). |
 
 ## Runtime reliability controls
 
@@ -155,3 +165,32 @@ workflow run.
   as `result: "skipped"`.
 - **Rollback:** maintainer-controlled pinned SHA change only; no automatic
   unreviewed rollback.
+
+## Release project-review rollout
+
+The supplied release project-review examples run on published releases and
+start in `validate_only` mode. Promote in this order:
+
+1. `validate_only: true` — resolve and validate configuration only; no
+   release fetch, checkout, model invocation, or publication.
+2. `dry_run: true` — fetch the release, check out the immutable target commit,
+   compose the prompt, run OpenCode, and validate the contract decision, but
+   do not search for or create an issue.
+3. publish — search for the idempotency marker; create at most one
+   `release-readiness` issue in the canonical target repository when the
+   decision is `CREATE_ISSUE`.
+
+For cross-repository reviews, forward a target-scoped token as
+`release_target_token` (a GitHub App installation token or fine-grained token
+with `contents: read` and `issues: write` on the target repository only). The
+caller's `GITHUB_TOKEN` is never assumed to have access outside its
+repository; read access is verified before checkout and publication, and the
+same target-scoped token is used for issue creation.
+
+The separate `external-release-project-review.yml` example runs daily for a
+cross-repository check. Before enabling it, replace both `OWNER/REPOSITORY`
+placeholders and configure `release_target_token`. The job reviews only the
+newest non-draft target release published during the preceding 24 hours.
+It also supports manual dispatch with a required `target_repository` and an
+optional `release_id`; supplying an ID skips discovery, while omitting it
+reviews the target's latest published release.
