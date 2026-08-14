@@ -994,6 +994,18 @@ class ReleaseRunnerTests(unittest.TestCase):
             self.assertEqual(run.call_args.kwargs["cwd"], Path(tmp))
             self.assertNotIn("shell", run.call_args.kwargs)
 
+    def test_preflight_output_is_limited_to_its_tail(self) -> None:
+        output = "head-marker\n" + ("middle\n" * RUNNER.MAX_PREFLIGHT_OUTPUT_BYTES) + "tail-marker"
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                RUNNER.subprocess,
+                "run",
+                return_value=FakeProc(output, returncode=1),
+            ):
+                result = RUNNER.run_release_preflight(["python3 -m pytest"], Path(tmp))
+        self.assertIn("tail-marker", result)
+        self.assertNotIn("head-marker", result)
+
     def test_preflight_rejects_unapproved_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(RUNNER.ReleaseReviewError):
