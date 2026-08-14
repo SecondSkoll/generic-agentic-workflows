@@ -1598,6 +1598,12 @@ class WorkflowYamlTests(unittest.TestCase):
         target_input = triggers["workflow_call"]["inputs"]["target_repository"]
         self.assertTrue(target_input["required"])
         self.assertNotIn("default", target_input)
+        # Job outputs are strings, so reusable wrappers that discover a
+        # release through the API can forward the output without GitHub's
+        # number-input schema rejecting it during workflow evaluation.
+        release_id_input = triggers["workflow_call"]["inputs"]["release_id"]
+        self.assertEqual(release_id_input["type"], "string")
+        self.assertEqual(release_id_input["default"], "")
         # validate_only exits before resolve-only fetch and both checkouts.
         self.assertIn("steps.resolve.outputs.validate_only != 'true'", text)
         self.assertIn("steps.resolve.outputs.validate_only == 'true'", text)

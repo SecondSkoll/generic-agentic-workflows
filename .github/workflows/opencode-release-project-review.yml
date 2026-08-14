@@ -18,10 +18,14 @@ on:
         # repository by the runtime expression below.
         default: ''
       release_id:
-        description: Positive GitHub release ID. Exactly one of release_id/release_tag is required.
-        type: number
+        description: Positive decimal GitHub release ID. Exactly one of release_id/release_tag is required.
+        # Workflow-job outputs, including IDs returned by `gh api`, are
+        # strings. Accept that transport representation so dispatch wrappers
+        # can forward a discovered ID; resolve_invocation.py validates it as a
+        # positive integer before the release is fetched.
+        type: string
         required: false
-        default: 0
+        default: ''
       release_tag:
         description: Conservative release tag selector. Exactly one of release_id/release_tag is required.
         type: string
@@ -68,10 +72,14 @@ on:
         # workflow input default. Callers must explicitly pass their target.
         required: true
       release_id:
-        description: Positive GitHub release ID. Exactly one of release_id/release_tag is required.
-        type: number
+        description: Positive decimal GitHub release ID. Exactly one of release_id/release_tag is required.
+        # Workflow-job outputs, including IDs returned by `gh api`, are
+        # strings. Accept that transport representation so dispatch wrappers
+        # can forward a discovered ID; resolve_invocation.py validates it as a
+        # positive integer before the release is fetched.
+        type: string
         required: false
-        default: 0
+        default: ''
       release_tag:
         description: Conservative release tag selector. Exactly one of release_id/release_tag is required.
         type: string
