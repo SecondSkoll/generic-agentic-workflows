@@ -1580,6 +1580,15 @@ class WorkflowYamlTests(unittest.TestCase):
             triggers["workflow_dispatch"]["inputs"]["configuration_source"]["default"],
             "local",
         )
+        # Input defaults are parsed before GitHub context is available. The
+        # target falls back to github.repository at runtime instead.
+        dispatch_target_input = triggers["workflow_dispatch"]["inputs"]["target_repository"]
+        self.assertEqual(dispatch_target_input["default"], "")
+        self.assertNotIn("default: ${{ github.repository }}", text)
+        self.assertIn(
+            "AGENTIC_TARGET_REPOSITORY: ${{ inputs.target_repository || github.repository }}",
+            text,
+        )
         self.assertEqual(
             triggers["workflow_call"]["inputs"]["configuration_source"]["default"],
             "default",

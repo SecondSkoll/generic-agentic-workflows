@@ -10,13 +10,13 @@ permissions:
 
 jobs:
   review:
-    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@61ed1bbd34a878f3ae270b1e4ff027cf786b730b
+    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@6418b0c0ccc4100dc1d86b611b18a166b21aefe5
     permissions:
       contents: read
       pull-requests: write
     with:
       configuration_source: default
-      configuration_ref: 61ed1bbd34a878f3ae270b1e4ff027cf786b730b
+      configuration_ref: 6418b0c0ccc4100dc1d86b611b18a166b21aefe5
       configuration_profile: documentation-review
       focus: documentation
       max_comments: 10

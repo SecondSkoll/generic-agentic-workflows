@@ -13,7 +13,10 @@ on:
         description: Canonical owner/repo of the release to review (strict owner/repo grammar)
         type: string
         required: false
-        default: ${{ github.repository }}
+        # Input defaults are evaluated while GitHub parses the workflow, when
+        # contexts are unavailable. An empty value is resolved to the caller
+        # repository by the runtime expression below.
+        default: ''
       release_id:
         description: Positive GitHub release ID. Exactly one of release_id/release_tag is required.
         type: number

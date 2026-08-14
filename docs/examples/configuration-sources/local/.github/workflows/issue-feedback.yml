@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   feedback:
-    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-issue-feedback.yml@61ed1bbd34a878f3ae270b1e4ff027cf786b730b
+    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-issue-feedback.yml@6418b0c0ccc4100dc1d86b611b18a166b21aefe5
     permissions:
       contents: read
       issues: write
