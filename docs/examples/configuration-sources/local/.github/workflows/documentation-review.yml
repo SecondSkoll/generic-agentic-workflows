@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   review:
-    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@6418b0c0ccc4100dc1d86b611b18a166b21aefe5
+    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@72177b0f334301559f866f19baca2e0204104121
     permissions:
       contents: read
       pull-requests: write

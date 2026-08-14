@@ -27,7 +27,7 @@ the controls that establish the trust boundary and why they exist.
 | --- | --- | --- |
 | Immutable workflow and remote-bundle SHA pins | Mutable branch/tag substitution | A reviewed commit is stable; a branch or tag can later point to different workflow code or instructions. |
 | Fixed source aliases | Caller-controlled URLs or repositories | An alias maps to a known repository and root, preventing configuration exfiltration or unreviewed code sources. |
-| Hash-verified bundle files | Tampered, incomplete, or substituted agent content | The manifest's declared content must match `hashes.json` byte-for-byte before use. |
+| Hash-verified remote bundle files | Tampered, incomplete, or substituted remote agent content | Remote manifest content must match `hashes.json` byte-for-byte before use. Caller-local bundles may omit the file and are trusted through the protected checkout. |
 | Path and symlink validation | Traversal and filesystem escape | Bundles cannot read a runner path outside their profile through `..`, absolute paths, or symlinks. |
 | Trusted base checkout for PR review | Pull-request code execution/configuration takeover | `pull_request_target` uses the trusted base and does not check out or execute the untrusted PR head. |
 | Typed invocation inputs | Prompt injection through wrapper inputs | Callers may choose bounded selectors, not raw prompt text, paths, model IDs, URLs, or mutable refs. |
@@ -39,7 +39,7 @@ the controls that establish the trust boundary and why they exist.
 ## Configuration trust boundary
 
 A configuration bundle combines `bundle.json`, declared agent/skill/prompt
-files, and `hashes.json`. The resolver enforces the supported schema, known
+files, and, for remote sources or optional local hash locks, `hashes.json`. The resolver enforces the supported schema, known
 workflow and output contract, a registered model-profile name, safe relative
 paths, required agent/skill front matter, file-count and size bounds, and
 SHA-256 integrity for every declared content file.

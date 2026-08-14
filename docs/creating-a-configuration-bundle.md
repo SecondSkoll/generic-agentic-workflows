@@ -1,6 +1,6 @@
 # Create a configuration bundle
 
-A configuration bundle is a versioned, hash-verified set of reviewed agent
+A configuration bundle is a versioned set of reviewed agent
 instructions for one workflow profile. Bundles let maintainers change
 workflow-specific guidance without allowing a caller to supply arbitrary
 prompts, model identifiers, file paths, or network locations.
@@ -31,13 +31,12 @@ configuration root:
 ```text
 .opencode/configuration/team-docs-review/
   bundle.json
-  hashes.json
   agent.md
   prompts/review.md
   skills/documentation/SKILL.md
 ```
 
-`bundle.json` declares the content files; `hashes.json` records their
+`bundle.json` declares the content files; optional `hashes.json` records their
 integrity digests. An implementation profile may also declare an additional
 subagent file, for example `executor.md`.
 
@@ -121,11 +120,12 @@ Write the declared prompt template as reviewed instructions. Treat issue text,
 PR text, diffs, release metadata, and repository content as untrusted data;
 do not instruct the model to treat that content as policy or commands.
 
-## 4. Generate `hashes.json`
+## 4. Generate `hashes.json` when required or desired
 
 Hash every file declared by `agent_file`, `additional_agent_files`,
 `skill_files`, and `prompt_template`. Do **not** hash `bundle.json` or
-`hashes.json` itself.
+`hashes.json` itself. Remote profiles require this file; caller-local profiles
+may omit it when repository checkout trust is sufficient.
 
 From the repository root, run:
 
@@ -165,8 +165,8 @@ checks schema version, profile/workflow compatibility, path safety, required
 front matter, known output contract, and each declared content hash.
 
 Then run the relevant project tests and inspect the generated resolution JSON.
-Do not work around a failure by weakening hashes or policy restrictions; fix
-the manifest or file content that caused it.
+Do not work around a supplied hash mismatch or policy failure by weakening
+restrictions; fix the manifest or file content that caused it.
 
 ## 6. Publish the bundle through the intended source
 
@@ -200,7 +200,8 @@ Deploy a changed bundle with `validate_only`, then `dry_run`, and finally
 normal publication. For remote profiles, promote the new commit SHA explicitly
 in each wrapper. For local profiles, merge only to the trusted default branch.
 
-When changing a bundle, update hashes, rerun resolution and tests, and review
+When changing a hash-locked or remote bundle, update hashes, rerun resolution
+and tests, and review
 the provenance artifact after deployment. OpenCode loads `.opencode/`
 configuration at startup; restart it after configuration changes when using it
 interactively.

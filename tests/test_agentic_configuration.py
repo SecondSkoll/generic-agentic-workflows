@@ -30,6 +30,7 @@ def _write_bundle(
     prompt_text: str | None = None,
     manifest: dict | None = None,
     hashes: dict | None = None,
+    write_hashes: bool = True,
 ) -> Path:
     profile_dir = root / profile
     profile_dir.mkdir(parents=True, exist_ok=True)
@@ -67,7 +68,10 @@ def _write_bundle(
             ).hexdigest(),
             "prompts/review.md": hashlib.sha256(prompt_text.encode()).hexdigest(),
         }
-    (profile_dir / "hashes.json").write_text(json.dumps(hashes), encoding="utf-8")
+    if write_hashes:
+        (profile_dir / "hashes.json").write_text(
+            json.dumps(hashes), encoding="utf-8"
+        )
     return profile_dir
 
 
@@ -112,6 +116,27 @@ class PathSafetyTests(unittest.TestCase):
 
 
 class LocalResolutionTests(unittest.TestCase):
+    def test_local_bundle_without_hashes_resolves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile_dir = _write_bundle(root, "no-hashes", write_hashes=False)
+
+            resolved = CFG.resolve_local_bundle(
+                bundle_root=root,
+                profile="no-hashes",
+                workflow="pr-documentation-review",
+            )
+
+            self.assertFalse((profile_dir / "hashes.json").exists())
+            self.assertEqual(
+                set(resolved.content_hashes),
+                {
+                    "agent.md",
+                    "skills/documentation/SKILL.md",
+                    "prompts/review.md",
+                },
+            )
+
     def test_valid_local_bundle_resolves(self):
         resolved = CFG.resolve_local_bundle(
             bundle_root=REPO_ROOT / ".opencode" / "configuration",

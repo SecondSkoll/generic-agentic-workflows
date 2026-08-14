@@ -2,7 +2,8 @@
 
 This reference describes every supported configuration field for reusable
 pull-request review and issue-feedback workflows, plus the files that make up
-a hash-verified configuration bundle. For setup and rollout instructions, see
+a configuration bundle. Remote bundles are hash-verified; caller-local bundles
+may omit the optional hash lock. For setup and rollout instructions, see
 the [configuration guide](configuration.md).
 
 Configuration has two layers:
@@ -90,16 +91,16 @@ caller repository's trusted default-branch checkout:
 ```text
 .opencode/configuration/product-issue-feedback/
   bundle.json
-  hashes.json
   agent.md
   prompts/feedback.md
   skills/triage/SKILL.md
 ```
 
-Every content path declared in `bundle.json` must occur exactly once in
-`hashes.json`. No undeclared hash entries are permitted. Paths must be safe,
-relative files inside the profile directory; absolute paths, `..` traversal,
-and symlinks are rejected.
+`hashes.json` is optional for a `local` profile. When supplied, every content
+path declared in `bundle.json` must occur exactly once in it and no undeclared
+hash entries are permitted. It is required for remote profiles. Paths must be
+safe, relative files inside the profile directory; absolute paths, `..`
+traversal, and symlinks are rejected.
 
 ## `bundle.json` fields
 
@@ -153,8 +154,10 @@ The available supplied profiles demonstrate the supported workflow mappings:
 
 ## `hashes.json`
 
-`hashes.json` maps every declared content file to its lowercase SHA-256 digest.
-Do not include `bundle.json` or `hashes.json` itself. For the previous
+For remote profiles, `hashes.json` maps every declared content file to its
+lowercase SHA-256 digest. It is optional for local profiles; when supplied,
+the same all-and-only mapping is enforced. Do not include `bundle.json` or
+`hashes.json` itself. For the previous
 issue-feedback example, its shape is:
 
 ```json
@@ -172,7 +175,8 @@ actual values after every content edit rather than copying them:
 python3 scripts/update_hashes.py --profile product-issue-feedback
 ```
 
-Note: Hashes are needed to call remote files for security, they are not needed when using local opencode configuration.
+Hashes are required to fetch remote profiles. They are optional for local
+configuration, which is read from the caller repository's trusted checkout.
 
 ## Agent and skill front matter
 

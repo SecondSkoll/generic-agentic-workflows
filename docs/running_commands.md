@@ -77,7 +77,7 @@ permission:
 
 `preflight_commands` is manifest configuration, not a declared content file,
 so it is not added to `hashes.json`. If agent, skill, or prompt content is also
-changed, regenerate the content hashes as usual:
+changed in a remote or hash-locked local bundle, regenerate the content hashes:
 
 ```text
 uv run scripts/update_hashes.py --profile release-readiness

@@ -84,16 +84,17 @@ Create `.opencode/configuration/acme-docs-review/` in the caller repository:
 ```text
 .opencode/configuration/acme-docs-review/
   bundle.json
-  hashes.json
   agent.md
   prompts/review.md
   skills/documentation/SKILL.md
 ```
 
 `bundle.json` declares the workflow, agent, skills, prompt, model profile,
-output contract, and limits. `hashes.json` contains lowercase SHA-256 values
-for every declared content file. Agent and skill Markdown files require YAML
-front matter with `name`. Update hashes whenever content changes:
+output contract, and limits. A caller-local bundle may omit `hashes.json`.
+When present, it contains lowercase SHA-256 values for every declared content
+file and must be updated whenever content changes. Agent and skill Markdown
+files require YAML front matter with `name`. Generate an optional integrity
+lock with:
 
 ```text
 python3 scripts/update_hashes.py --profile acme-docs-review
