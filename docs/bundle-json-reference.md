@@ -62,7 +62,8 @@ Each path must:
 - contain no absolute prefix, backslash, `.`, `..`, empty segment, or trailing
   slash;
 - identify a normal, non-symlink file; and
-- appear exactly once as a key in `hashes.json`.
+- appear exactly once as a key in `hashes.json` when the optional local hash
+  lock is supplied (and always for remote profiles).
 
 The resolver allows at most 64 declared files, 1 MiB per content file, and 8
 MiB of total bundle content.
@@ -129,8 +130,10 @@ approved command, rollout procedure, execution behavior, and troubleshooting.
 
 ## Relationship to `hashes.json`
 
-`hashes.json` must map every declared content path—and only those paths—to a
-lowercase SHA-256 digest. It does not include `bundle.json` or `hashes.json`.
+Remote profiles must include `hashes.json`, mapping every declared content
+path—and only those paths—to a lowercase SHA-256 digest. Caller-local profiles
+may omit it; if supplied, the same all-and-only mapping is enforced.
+`hashes.json` does not include `bundle.json` or itself.
 Use the project helper after any content change:
 
 ```text

@@ -21,18 +21,5 @@ class CheckedInBundleHashTests(unittest.TestCase):
     def test_primary_bundle_hashes_are_current(self) -> None:
         self.assertEqual(UPDATE_HASHES.main(["--dry-run"]), 0)
 
-    def test_local_example_bundle_hashes_are_current(self) -> None:
-        self.assertEqual(
-            UPDATE_HASHES.main(
-                [
-                    "--dry-run",
-                    "--bundle-root",
-                    "docs/examples/configuration-sources/local/.opencode/configuration",
-                ]
-            ),
-            0,
-        )
-
-
 if __name__ == "__main__":
     unittest.main()

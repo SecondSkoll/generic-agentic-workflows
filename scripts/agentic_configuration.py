@@ -518,11 +518,17 @@ def _read_bounded(path: Path, *, max_bytes: int, label: str) -> bytes:
     return raw
 
 
-def _load_hashes(bundle_root: Path) -> dict[str, str]:
-    """Load and validate declared SHA-256 hashes for a local bundle."""
+def _load_hashes(
+    bundle_root: Path, *, require_hashes: bool = False
+) -> dict[str, str] | None:
+    """Load and validate bundle hashes when supplied or required."""
     hashes_path = bundle_root / "hashes.json"
+    if not hashes_path.exists():
+        if require_hashes:
+            raise ConfigurationError("bundle must contain hashes.json")
+        return None
     if not hashes_path.is_file():
-        raise ConfigurationError("bundle must contain hashes.json")
+        raise ConfigurationError("hashes.json must be a regular file")
     raw = _read_bounded(hashes_path, max_bytes=MAX_MANIFEST_BYTES, label="hashes.json")
     try:
         data = json.loads(raw)
@@ -547,7 +553,8 @@ def _load_content(
     bundle_root: Path,
     rel: str,
     *,
-    hashes: dict[str, str],
+    hashes: dict[str, str] | None,
+    content_hashes: dict[str, str],
     seen: set[str],
     total: int,
 ) -> tuple[str, int]:
@@ -555,7 +562,7 @@ def _load_content(
     if rel in seen:
         raise ConfigurationError(f"duplicate declared content path: {rel}")
     seen.add(rel)
-    if rel not in hashes:
+    if hashes is not None and rel not in hashes:
         raise ConfigurationError(f"no hash declared for {rel} in hashes.json")
     path = bundle_root / rel
     assert_no_symlink(path)
@@ -568,7 +575,8 @@ def _load_content(
     if total > MAX_TOTAL_BYTES:
         raise ConfigurationError("total bundle content exceeds the byte limit")
     actual = sha256_bytes(raw)
-    if actual != hashes[rel]:
+    content_hashes[rel] = actual
+    if hashes is not None and actual != hashes[rel]:
         raise ConfigurationError(
             f"hash mismatch for {rel}: expected {hashes[rel]}, got {actual}"
         )
@@ -580,6 +588,7 @@ def resolve_local_bundle(
     bundle_root: Path,
     profile: str,
     workflow: str,
+    require_hashes: bool = False,
 ) -> ResolvedBundle:
     """Resolve a bundle from the trusted checkout of the calling repository."""
     if not isinstance(profile, str) or not PROFILE_PATTERN.match(profile):
@@ -608,8 +617,9 @@ def resolve_local_bundle(
             f"bundle profile_name {manifest.profile_name!r} does not match requested profile {profile!r}"
         )
 
-    hashes = _load_hashes(profile_dir)
+    hashes = _load_hashes(profile_dir, require_hashes=require_hashes)
     seen: set[str] = set()
+    content_hashes: dict[str, str] = {}
     total = 0
 
     declared_paths = [
@@ -624,14 +634,24 @@ def resolve_local_bundle(
         )
 
     agent_text, total = _load_content(
-        profile_dir, manifest.agent_file, hashes=hashes, seen=seen, total=total
+        profile_dir,
+        manifest.agent_file,
+        hashes=hashes,
+        content_hashes=content_hashes,
+        seen=seen,
+        total=total,
     )
     agent_front = validate_agent_front_matter(agent_text, workflow=workflow)
 
     additional_agent_names: list[str] = []
     for rel in manifest.additional_agent_files:
         text, total = _load_content(
-            profile_dir, rel, hashes=hashes, seen=seen, total=total
+            profile_dir,
+            rel,
+            hashes=hashes,
+            content_hashes=content_hashes,
+            seen=seen,
+            total=total,
         )
         front = validate_agent_front_matter(text, workflow=workflow)
         name = front["name"]
@@ -647,7 +667,12 @@ def resolve_local_bundle(
     skill_names: list[str] = []
     for rel in manifest.skill_files:
         text, total = _load_content(
-            profile_dir, rel, hashes=hashes, seen=seen, total=total
+            profile_dir,
+            rel,
+            hashes=hashes,
+            content_hashes=content_hashes,
+            seen=seen,
+            total=total,
         )
         front = validate_skill_front_matter(text)
         name = front["name"]
@@ -657,13 +682,18 @@ def resolve_local_bundle(
         skill_texts.append(text)
 
     prompt_text, total = _load_content(
-        profile_dir, manifest.prompt_template, hashes=hashes, seen=seen, total=total
+        profile_dir,
+        manifest.prompt_template,
+        hashes=hashes,
+        content_hashes=content_hashes,
+        seen=seen,
+        total=total,
     )
     prompt_sha = sha256_bytes(prompt_text.encode("utf-8"))
 
     # Any path listed in hashes.json that is not declared by the manifest is
     # rejected: the manifest is the authority for what the runner reads.
-    extra = set(hashes) - seen
+    extra = set(hashes or ()) - seen
     if extra:
         raise ConfigurationError(
             f"hashes.json declares undeclared content: {sorted(extra)}"
@@ -680,7 +710,7 @@ def resolve_local_bundle(
         skill_names=tuple(skill_names),
         prompt_template_text=prompt_text,
         prompt_template_sha256=prompt_sha,
-        content_hashes=dict(hashes),
+        content_hashes=content_hashes,
         agent_file=manifest.agent_file,
         skill_files=manifest.skill_files,
         bundle_root=str(profile_dir),
@@ -1031,7 +1061,10 @@ def _resolved_from_local(
 ) -> ResolvedBundle:
     """Resolve a materialized profile dir and stamp it with remote metadata."""
     resolved = resolve_local_bundle(
-        bundle_root=profile_dir.parent, profile=profile_dir.name, workflow=workflow
+        bundle_root=profile_dir.parent,
+        profile=profile_dir.name,
+        workflow=workflow,
+        require_hashes=True,
     )
     return ResolvedBundle(
         source_alias=source_alias,

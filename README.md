@@ -33,9 +33,11 @@ Note: Issue implementation is not currently set up for calling as a remote actio
 from the separate allowlisted `SecondSkoll/generic-agentic-workflows-config`
 repository, so each source is pinned independently.
 
-All configuration is a hash-verified bundle. Callers cannot provide arbitrary
-prompt text, file paths, model identifiers, URLs, branches, or tags. Remote
-sources require a 40-character commit SHA; resolution failures fail closed.
+Remote configuration is a hash-verified bundle. Caller-local bundles may omit
+`hashes.json`; their declared content is still validated and hashed when
+resolved. Callers cannot provide arbitrary prompt text, file paths, model
+identifiers, URLs, branches, or tags. Remote sources require a 40-character
+commit SHA; resolution failures fail closed.
 
 ## Workflows
 

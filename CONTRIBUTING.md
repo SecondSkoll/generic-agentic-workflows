@@ -34,9 +34,14 @@ Reusable profiles live under `.opencode/configuration/<profile>/`. A bundle norm
 - `bundle.json` — declares the workflow, agent, skills, prompt, and model profile.
 - `agent.md` and optional additional agent files — OpenCode agent front matter and instructions.
 - `skills/` and `prompts/` — the bundle's verified guidance.
-- `hashes.json` — SHA-256 integrity hashes for every declared content file.
+- `hashes.json` — optional SHA-256 integrity hashes for every declared content
+  file in caller-local bundles; required for remotely resolved bundles.
 
-The resolver rejects a bundle when a declared file does not exactly match its entry in `hashes.json`. Therefore, **every content edit must update the corresponding hash**. This includes agent instructions and front matter such as `model:`, prompt templates, skills, and additional agents.
+When present, the resolver rejects a bundle when a declared file does not
+exactly match its entry in `hashes.json`. Therefore, **every content edit must
+update the corresponding hash** for hash-locked local bundles and all remotely
+resolved bundles. This includes agent instructions and front matter such as
+`model:`, prompt templates, skills, and additional agents.
 
 The organization-controlled model profile mapping is in `scripts/agentic_policy.py`. When changing the model for a bundle, update both:
 
@@ -47,7 +52,11 @@ Do not introduce credentials, endpoints, headers, or caller-controlled model ide
 
 ## Updating `hashes.json`
 
-Every content edit must update the corresponding SHA-256 hash in the bundle's `hashes.json`. Use the bundled helper script to recompute hashes automatically for one or more bundles:
+Remote bundles must include `hashes.json`. It is optional for caller-local
+bundles; use it when an explicit integrity lock is desired. Every content edit
+to a bundle with `hashes.json` must update the corresponding SHA-256 hash. Use
+the bundled helper script to recompute hashes automatically for one or more
+bundles:
 
 ```text
 uv run scripts/update_hashes.py
