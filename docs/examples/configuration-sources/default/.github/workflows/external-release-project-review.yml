@@ -80,7 +80,7 @@ jobs:
       needs.find-scheduled-release.outputs.release_id != ''
       )
     needs: [find-scheduled-release, find-dispatch-release]
-    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-release-project-review.yml@7a481dfff786674b8b0fb8d6974de5bd16ce47a9
+    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-release-project-review.yml@6418b0c0ccc4100dc1d86b611b18a166b21aefe5
     permissions:
       contents: read
       issues: write
@@ -88,7 +88,7 @@ jobs:
       target_repository: ${{ inputs.target_repository || 'OWNER/REPOSITORY' }}
       release_id: ${{ inputs.release_id || needs.find-dispatch-release.outputs.release_id || needs.find-scheduled-release.outputs.release_id }}
       configuration_source: default
-      configuration_ref: 7a481dfff786674b8b0fb8d6974de5bd16ce47a9
+      configuration_ref: 6418b0c0ccc4100dc1d86b611b18a166b21aefe5
       configuration_profile: release-project-review
       validate_only: true
     secrets:
