@@ -80,7 +80,7 @@ jobs:
       needs.find-scheduled-release.outputs.release_id != ''
       )
     needs: [find-scheduled-release, find-dispatch-release]
-    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-release-project-review.yml@61ed1bbd34a878f3ae270b1e4ff027cf786b730b
+    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-release-project-review.yml@7a481dfff786674b8b0fb8d6974de5bd16ce47a9
     permissions:
       contents: read
       issues: write

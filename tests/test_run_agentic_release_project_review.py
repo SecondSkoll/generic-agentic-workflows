@@ -1584,6 +1584,11 @@ class WorkflowYamlTests(unittest.TestCase):
             triggers["workflow_call"]["inputs"]["configuration_source"]["default"],
             "default",
         )
+        # The reusable-workflow input schema cannot evaluate github context
+        # expressions. Every caller must therefore state its target explicitly.
+        target_input = triggers["workflow_call"]["inputs"]["target_repository"]
+        self.assertTrue(target_input["required"])
+        self.assertNotIn("default", target_input)
         # validate_only exits before resolve-only fetch and both checkouts.
         self.assertIn("steps.resolve.outputs.validate_only != 'true'", text)
         self.assertIn("steps.resolve.outputs.validate_only == 'true'", text)

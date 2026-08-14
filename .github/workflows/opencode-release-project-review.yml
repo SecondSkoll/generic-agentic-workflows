@@ -61,8 +61,9 @@ on:
       target_repository:
         description: Canonical owner/repo of the release to review (strict owner/repo grammar)
         type: string
-        required: false
-        default: ${{ github.repository }}
+        # GitHub does not expose the github context while parsing a reusable
+        # workflow input default. Callers must explicitly pass their target.
+        required: true
       release_id:
         description: Positive GitHub release ID. Exactly one of release_id/release_tag is required.
         type: number

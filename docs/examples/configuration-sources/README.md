@@ -3,9 +3,10 @@
 Each directory is a complete, copy-ready set of reusable workflow wrappers
 for pull-request documentation review, issue feedback, and release project
 review. Copy the contents of one directory into the root of a consumer
-repository; in particular, retain its `.github/` path. The workflows call the
-reusable actions in this repository at commit
-`61ed1bbd34a878f3ae270b1e4ff027cf786b730b`.
+repository; in particular, retain its `.github/` path. The documentation and
+issue-feedback wrappers retain their existing pins; release-project-review
+wrappers call the reusable workflow at commit
+`7a481dfff786674b8b0fb8d6974de5bd16ce47a9`.
 
 | Directory | `configuration_source` | Additional files to copy | Use case |
 | --- | --- | --- | --- |
@@ -51,10 +52,11 @@ so its `configuration_ref` matches the `uses:` SHA. For the `central` source,
 workflow `uses:` SHA. The `release-project-review-self.yml` and
 `external-release-project-review.yml` workflow pins must point to a reviewed
 release commit containing
-`.github/workflows/opencode-release-project-review.yml`. The placeholder
-workflow pin shown in these examples (`61ed1bbd…`) predates the release
-project-review work and is a format placeholder only; replace it with a real
-reviewed release commit SHA before enabling the workflow.
+`.github/workflows/opencode-release-project-review.yml`. The release-review
+wrappers are pinned to `7a481dfff786674b8b0fb8d6974de5bd16ce47a9`, which
+contains that workflow and accepts an explicitly supplied `target_repository`.
+When updating the pin, use a reviewed commit that retains that reusable-call
+schema.
 
 > OpenCode configuration (`.opencode/`) is loaded once at startup and is not
 > hot-reloaded. After changing any configuration in this directory, quit and
