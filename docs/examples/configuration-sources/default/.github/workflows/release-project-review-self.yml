@@ -12,9 +12,7 @@ jobs:
   release-review:
     # The pin below must point to a reviewed release commit that contains both
     # the reusable workflow and the supplied release-project-review profile.
-    # The placeholder SHA shown predates the release project-review work and is
-    # a format placeholder only; replace it before enabling this workflow.
-    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-release-project-review.yml@61ed1bbd34a878f3ae270b1e4ff027cf786b730b
+    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-release-project-review.yml@7a481dfff786674b8b0fb8d6974de5bd16ce47a9
     permissions:
       contents: read
       issues: write
@@ -23,7 +21,7 @@ jobs:
       release_id: ${{ github.event.release.id }}
       configuration_source: default
       # configuration_ref must be the same reviewed commit SHA as `uses:` above.
-      configuration_ref: 61ed1bbd34a878f3ae270b1e4ff027cf786b730b
+      configuration_ref: 7a481dfff786674b8b0fb8d6974de5bd16ce47a9
       configuration_profile: release-project-review
       validate_only: true
     secrets:
