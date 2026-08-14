@@ -125,10 +125,10 @@ jobs:
 The current `central` alias resolves approved bundles in
 `SecondSkoll/generic-agentic-workflows-config` under `.opencode/configuration`.
 Its `configuration_ref` pins that repository and is independent of the SHA
-that pins the reusable workflow in `uses:`.
-See the copy-ready [central example](examples/configuration-sources/central/)
-and the [central configuration guide](examples/central-configuration/README.md)
-for its repository layout and release process.
+that pins the reusable workflow in `uses:`. See the copy-ready
+[central example](examples/configuration-sources/central/) and the
+[bundle authoring guide](creating-a-configuration-bundle.md) for its
+repository layout and release process.
 
 ## Common rules
 

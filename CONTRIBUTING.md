@@ -31,7 +31,7 @@ Thanks for contributing to `generic-agentic-workflows`.
 
 Reusable profiles live under `.opencode/configuration/<profile>/`. A bundle normally contains:
 
-- `manifest.json` — declares the workflow, agent, skills, prompt, and model profile.
+- `bundle.json` — declares the workflow, agent, skills, prompt, and model profile.
 - `agent.md` and optional additional agent files — OpenCode agent front matter and instructions.
 - `skills/` and `prompts/` — the bundle's verified guidance.
 - `hashes.json` — SHA-256 integrity hashes for every declared content file.
@@ -85,7 +85,7 @@ For example, after editing `documentation-review/agent.md`, update:
 }
 ```
 
-Do not hash `manifest.json` into `hashes.json` unless the resolver is explicitly changed to require it. Do not alter an unrelated bundle's hashes merely to make a test pass—investigate the mismatch and update only when the checked-in content intentionally changed.
+Do not hash `bundle.json` into `hashes.json` unless the resolver is explicitly changed to require it. Do not alter an unrelated bundle's hashes merely to make a test pass—investigate the mismatch and update only when the checked-in content intentionally changed.
 
 ## Validate bundle changes
 
