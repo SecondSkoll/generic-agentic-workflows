@@ -31,7 +31,7 @@ Fields not applicable to the selected workflow are rejected.
 | `pull_number` | number | PR review | `0` | Optional positive PR number when no pull-request event provides the target, such as a wrapper invoked with `workflow_call`. |
 | `issue_number` | number | Issue feedback | `0` | Optional positive issue number when no issue event provides the target. |
 | `target_repository` | string | Release project review | `${{ github.repository }}` | Strict canonical `owner/repo` of the release to review. Rejects URLs, `owner/repo@ref`/`owner/repo:ref` syntax, paths, and expressions. |
-| `release_id` | number | Release project review | `0` | Positive GitHub release ID. Exactly one of `release_id`/`release_tag` is required. |
+| `release_id` | string | Release project review | Empty | Positive decimal GitHub release ID. The reusable workflow accepts a string because workflow-job outputs are strings; it validates the value as a positive integer. Exactly one of `release_id`/`release_tag` is required. |
 | `release_tag` | string | Release project review | Empty | Conservative tag selector (`[A-Za-z0-9._-]{1,128}`, no `..`). Resolved through the GitHub REST API; never used as a Git ref. Exactly one of `release_id`/`release_tag` is required. |
 | `release_target_token` | secret | Release project review | Optional | Target-scoped GitHub token (`contents: read`, `issues: write` on the target only) for cross-repository reviews. Falls back to `github.token` for same-repo runs. |
 
