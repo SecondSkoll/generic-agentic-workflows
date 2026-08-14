@@ -1061,6 +1061,42 @@ class ReleaseRunnerTests(unittest.TestCase):
             self.assertIn(f"target_repository={self.TARGET}", out)
             self.assertIn("external=false", out)
 
+    def test_resolve_only_accepts_github_release_without_repository_member(self) -> None:
+        """GitHub's release API does not guarantee embedded repository metadata.
+
+        Repository identity is already proven by the target-scoped repository
+        request, while the release endpoint is scoped to that same repository.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            metadata_path = tmp_path / "release-metadata.json"
+            release_payload = {
+                "id": 42,
+                "tag_name": "v1.0",
+                "draft": False,
+                "target_commitish": self.SHA,
+            }
+            with (
+                mock.patch.object(RUNNER, "github_request", return_value=(release_payload, {})),
+                mock.patch.object(
+                    RUNNER,
+                    "_require_token_access",
+                    return_value={"full_name": self.TARGET},
+                ),
+            ):
+                rc = RUNNER.main(
+                    [
+                        "resolve-only",
+                        "--target-repository", self.TARGET,
+                        "--caller-repository", self.TARGET,
+                        "--release-id", "42",
+                        "--target-token", "t",
+                        "--release-metadata", str(metadata_path),
+                    ]
+                )
+            self.assertEqual(rc, 0)
+            self.assertEqual(json.loads(metadata_path.read_text())["repository"], self.TARGET)
+
     def test_resolve_only_resolves_branch_target_commitish(self) -> None:
         """A release whose target_commitish is a branch is resolved to a SHA."""
         with tempfile.TemporaryDirectory() as tmp:
