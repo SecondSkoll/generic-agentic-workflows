@@ -1,0 +1,1 @@
+With preflight commands, a command is used before an agent runs. We would like to have the agent run with a specific prompt, have an action run in the workflow, then have an agent assess the output of the action and reflect on its actions.

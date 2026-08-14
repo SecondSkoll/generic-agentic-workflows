@@ -10,7 +10,8 @@
   "model_profile_allowlist": [
     "review-readonly",
     "issue-feedback-readonly",
-    "implementation-planner"
+    "implementation-planner",
+    "release-project-review-readonly"
   ],
   "organization_ceilings": {
     "max_tokens": 16000,

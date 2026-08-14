@@ -125,10 +125,10 @@ jobs:
 The current `central` alias resolves approved bundles in
 `SecondSkoll/generic-agentic-workflows-config` under `.opencode/configuration`.
 Its `configuration_ref` pins that repository and is independent of the SHA
-that pins the reusable workflow in `uses:`.
-See the copy-ready [central example](examples/configuration-sources/central/)
-and the [central configuration guide](examples/central-configuration/README.md)
-for its repository layout and release process.
+that pins the reusable workflow in `uses:`. See the copy-ready
+[central example](examples/configuration-sources/central/) and the
+[bundle authoring guide](creating-a-configuration-bundle.md) for its
+repository layout and release process.
 
 ## Common rules
 
@@ -178,6 +178,13 @@ publication. The workflow checks out exactly the resolved immutable target
 commit (read-only) and the workflow—not the model—owns the issue destination,
 the `release-readiness` label allowlist, the idempotency marker, and
 publication.
+
+A release bundle may declare up to three reviewed `preflight_commands`. The
+runner—not the model—executes these from a fixed local-only allowlist in the
+immutable checkout with a minimal environment, no shell, no installation, and
+bounded output. Preflight results are untrusted evidence; a test failure may
+support an issue only when the generated finding explains a concrete
+release-management consequence and owner/action.
 
 ## Rollout and operations
 

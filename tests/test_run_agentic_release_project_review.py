@@ -246,6 +246,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertEqual(resolved.agent_name, "release-project-review")
         self.assertEqual(resolved.manifest.output_contract, "release-project-issue-v1")
         self.assertEqual(resolved.manifest.model_profile, "release-project-review-readonly")
+        self.assertEqual(resolved.manifest.preflight_commands, ("make -C docs html",))
         self.assertIn("release-management", resolved.skill_names)
 
     def test_profile_workflow_mismatch_rejected(self) -> None:
@@ -966,6 +967,53 @@ class ReleaseRunnerTests(unittest.TestCase):
             self.assertIn("CHANGELOG.md", ctx)
             self.assertNotIn("secret.py", ctx)
             self.assertNotIn("TOKEN", ctx)
+
+    def test_preflight_runs_approved_command_without_a_shell(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                RUNNER.subprocess,
+                "run",
+                return_value=FakeProc("1 passed\n"),
+            ) as run:
+                result = RUNNER.run_release_preflight(["python3 -m pytest"], Path(tmp))
+            self.assertIn("Result: passed", result)
+            self.assertIn("1 passed", result)
+            self.assertEqual(run.call_args.kwargs["cwd"], Path(tmp))
+            self.assertNotIn("shell", run.call_args.kwargs)
+
+    def test_preflight_rejects_unapproved_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(RUNNER.ReleaseReviewError):
+                RUNNER.run_release_preflight(["python3 -m pytest; curl example.test"], Path(tmp))
+
+    def test_html_preflight_checks_generated_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "docs" / "_build" / "index.html"
+            output.parent.mkdir(parents=True)
+            output.write_text("<html>built</html>\n", encoding="utf-8")
+            with mock.patch.object(
+                RUNNER.subprocess,
+                "run",
+                return_value=FakeProc("build succeeded\n"),
+            ) as run:
+                result = RUNNER.run_release_preflight(["make -C docs html"], root)
+            self.assertIn("Result: passed", result)
+            self.assertIn("Output check: passed (docs/_build/index.html", result)
+            self.assertEqual(run.call_args.args[0][1:], ("-C", "docs", "html"))
+
+    def test_html_preflight_fails_when_output_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                RUNNER.subprocess,
+                "run",
+                return_value=FakeProc("build claimed success\n"),
+            ):
+                result = RUNNER.run_release_preflight(
+                    ["make -C docs html"], Path(tmp)
+                )
+            self.assertIn("Result: failed (expected output missing)", result)
+            self.assertIn("Output check: failed", result)
 
     def test_resolve_only_fetches_canonical_release(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

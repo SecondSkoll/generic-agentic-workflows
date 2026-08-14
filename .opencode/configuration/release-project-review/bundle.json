@@ -7,6 +7,7 @@
   "prompt_template": "prompts/release-project-review.md",
   "model_profile": "release-project-review-readonly",
   "output_contract": "release-project-issue-v1",
+  "preflight_commands": ["make -C docs html"],
   "limits": {},
   "policy": {
     "capabilities": {

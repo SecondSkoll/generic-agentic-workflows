@@ -31,6 +31,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -94,6 +95,21 @@ MAX_RELEASE_CONTEXT_FILE_BYTES = 64 * 1024
 MAX_RELEASE_CONTEXT_TOTAL_BYTES = 256 * 1024
 MAX_RELEASE_CONTEXT_FILES = 8
 
+# Commands are selected by a reviewed, hash-verified bundle but are executed
+# by this runner, never by the model.  Keep this intentionally small and use
+# argv execution (not a shell) so a profile cannot append flags, redirects, or
+# another command.  The test process receives a minimal environment and runs
+# only in the immutable release checkout.
+ALLOWED_RELEASE_PREFLIGHT_COMMANDS: dict[str, tuple[str, ...]] = {
+    "python3 -m pytest": ("python3", "-m", "pytest"),
+    "make -C docs html": ("make", "-C", "docs", "html"),
+}
+PREFLIGHT_OUTPUT_ARTIFACTS: dict[str, tuple[str, ...]] = {
+    "make -C docs html": ("docs/_build/index.html",),
+}
+MAX_PREFLIGHT_OUTPUT_BYTES = 16 * 1024
+PREFLIGHT_TIMEOUT_SECONDS = 300
+
 #: Per-release-fetch bounds.
 RELEASE_FETCH_TIMEOUT = 30
 RELEASE_FETCH_RETRIES = 3
@@ -106,6 +122,81 @@ SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 class ReleaseReviewError(ValueError):
     """Raised when release resolution, review, or publication fails."""
+
+
+def run_release_preflight(
+    commands: object, repo_root: Path
+) -> str:
+    """Run a bounded allowlisted local validation suite and summarize it.
+
+    Failure is evidence for the release review rather than a workflow failure:
+    the model must decide whether it creates a release-management issue from
+    that evidence. Invalid configuration fails closed before model execution.
+    """
+    if not isinstance(commands, list) or not all(isinstance(item, str) for item in commands):
+        raise ReleaseReviewError("resolved preflight_commands must be a list of strings")
+    if not commands:
+        return "No local preflight commands were configured."
+    if not repo_root.is_dir():
+        raise ReleaseReviewError(f"release checkout is unavailable: {repo_root}")
+
+    python = shutil.which("python3")
+    path_entries = [os.path.dirname(python)] if python else []
+    path_entries.append(os.defpath)
+    safe_environment = {
+        "HOME": tempfile.gettempdir(),
+        "PATH": os.pathsep.join(path_entries),
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    summaries: list[str] = []
+    for command in commands:
+        argv = ALLOWED_RELEASE_PREFLIGHT_COMMANDS.get(command)
+        if argv is None:
+            raise ReleaseReviewError(f"unapproved release preflight command: {command!r}")
+        executable_path = shutil.which(argv[0], path=safe_environment["PATH"])
+        if executable_path is None:
+            raise ReleaseReviewError(
+                f"{argv[0]} is required for approved release preflight"
+            )
+        executable = (executable_path, *argv[1:])
+        try:
+            completed = subprocess.run(
+                executable,
+                cwd=repo_root,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=PREFLIGHT_TIMEOUT_SECONDS,
+                env=safe_environment,
+                check=False,
+            )
+            output = (completed.stdout + completed.stderr).strip()
+            output = output[:MAX_PREFLIGHT_OUTPUT_BYTES]
+            status = "passed" if completed.returncode == 0 else f"failed (exit {completed.returncode})"
+        except subprocess.TimeoutExpired as error:
+            output = ((error.stdout or "") + (error.stderr or "")).strip()
+            output = output[:MAX_PREFLIGHT_OUTPUT_BYTES]
+            status = f"timed out after {PREFLIGHT_TIMEOUT_SECONDS}s"
+        artifact_lines: list[str] = []
+        for relative_path in PREFLIGHT_OUTPUT_ARTIFACTS.get(command, ()):
+            artifact = repo_root / relative_path
+            if artifact.is_file() and not artifact.is_symlink() and artifact.stat().st_size > 0:
+                artifact_lines.append(
+                    f"Output check: passed ({relative_path}, {artifact.stat().st_size} bytes)"
+                )
+            else:
+                artifact_lines.append(
+                    f"Output check: failed ({relative_path} is missing, empty, or not a regular file)"
+                )
+                if status == "passed":
+                    status = "failed (expected output missing)"
+        details = f"Command: {command}\nResult: {status}\nOutput:\n{output or '(no output)'}"
+        if artifact_lines:
+            details += "\n" + "\n".join(artifact_lines)
+        summaries.append(details)
+    return "\n\n".join(summaries)
 
 
 # ---------------------------------------------------------------------------
@@ -912,6 +1003,28 @@ def _cmd_review(args: argparse.Namespace) -> int:
     )
     if release_context:
         untrusted += "\n\nRelease/operational documents at the target commit (untrusted):\n" + release_context
+    try:
+        preflight = run_release_preflight(
+            resolved_bundle.get("preflight_commands", []), args.repo_root
+        )
+    except ReleaseReviewError as error:
+        print(f"::error::Release preflight failed: {error}", file=sys.stderr)
+        _write_provenance(
+            path=provenance_path,
+            resolved_bundle=resolved_bundle,
+            effective_policy=effective_policy,
+            target_repository=target_repository,
+            release_id=release_id,
+            target_commit_sha=target_commit_sha,
+            release_tag=release_tag,
+            mode=mode,
+            result="failed",
+            workflow_version=workflow_version,
+            caller_repository=caller_repository,
+            error=error,
+        )
+        return 1
+    untrusted += "\n\nLocal release preflight results (untrusted evidence):\n" + preflight
 
     agent_name = resolved_bundle.get("agent_name") or "release-project-review"
     output_contract = resolved_bundle.get("output_contract") or OUTPUT_CONTRACT

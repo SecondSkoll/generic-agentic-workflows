@@ -78,14 +78,22 @@ access outside its repository.
 
 ## Further documentation
 
+- [Deploy a workflow](docs/deploying-a-workflow.md) — step-by-step consumer
+  setup for supplied, local, and central configuration sources.
+- [Create a configuration bundle](docs/creating-a-configuration-bundle.md) —
+  author, hash, validate, and publish a reviewed profile.
+- [`bundle.json` reference](docs/bundle-json-reference.md) — manifest fields,
+  valid workflow mappings, and safety constraints.
+- [Run commands from a configuration bundle](docs/running_commands.md) —
+  configure and roll out approved release-review preflight commands.
+- [Security model](docs/security-model.md) — trust boundaries, defensive
+  controls, and their rationale.
 - [Configuration guide](docs/configuration.md) — setup, all pathways, bundle
   layout, and operational safeguards.
 - [Configuration reference](docs/configuration-reference.md) — every caller
   input and bundle field, with examples.
 - [Consumer examples](docs/examples/README.md) — ready-to-copy wrappers,
   including complete `default`, `local`, and `central` source examples.
-- [Central configuration example](docs/examples/central-configuration/README.md)
-  — remote bundle layout and release process.
 - [Operations guide](docs/operations/operations-guide.md) — rollback,
   reliability controls, and test matrix.
 
