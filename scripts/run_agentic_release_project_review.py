@@ -173,11 +173,13 @@ def run_release_preflight(
                 check=False,
             )
             output = (completed.stdout + completed.stderr).strip()
-            output = output[:MAX_PREFLIGHT_OUTPUT_BYTES]
+            # Test runners usually report the actionable failure summary last.
+            # Preserve that tail rather than the beginning of verbose output.
+            output = output[-MAX_PREFLIGHT_OUTPUT_BYTES:]
             status = "passed" if completed.returncode == 0 else f"failed (exit {completed.returncode})"
         except subprocess.TimeoutExpired as error:
             output = ((error.stdout or "") + (error.stderr or "")).strip()
-            output = output[:MAX_PREFLIGHT_OUTPUT_BYTES]
+            output = output[-MAX_PREFLIGHT_OUTPUT_BYTES:]
             status = f"timed out after {PREFLIGHT_TIMEOUT_SECONDS}s"
         artifact_lines: list[str] = []
         for relative_path in PREFLIGHT_OUTPUT_ARTIFACTS.get(command, ()):
