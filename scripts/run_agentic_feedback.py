@@ -633,6 +633,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Path to write safe structural diagnostics for the model response",
     )
+    parser.add_argument(
+        "--publication-preview",
+        type=Path,
+        default=None,
+        help="Path to write the validated GitHub publication payload during a dry run",
+    )
     parser.add_argument("--pr-metadata", type=Path, help="Verified PR metadata JSON")
     parser.add_argument("--base-ref", help="Trusted base SHA/ref used for context blobs")
     parser.add_argument("--head-ref", help="Fetched untrusted PR-head ref used for context blobs")
@@ -853,6 +859,20 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
         if args.dry_run:
+            if args.publication_preview:
+                args.publication_preview.write_text(
+                    json.dumps(
+                        {
+                            "kind": "pull-request-review",
+                            "body": f"{marker}\n{summary}",
+                            "comments": comments,
+                        },
+                        sort_keys=True,
+                        indent=2,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
             print(
                 f"Dry run: would post agentic review with {len(comments)} inline comment(s).\n"
                 f"{marker}\n{summary}",
@@ -908,6 +928,19 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
         if args.dry_run:
+            if args.publication_preview:
+                args.publication_preview.write_text(
+                    json.dumps(
+                        {
+                            "kind": "issue-comment",
+                            "body": f"{marker}\n{published_body}",
+                        },
+                        sort_keys=True,
+                        indent=2,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
             print(
                 f"Dry run: would post agentic feedback.\n{marker}\n{published_body}",
             )

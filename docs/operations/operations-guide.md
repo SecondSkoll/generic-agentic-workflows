@@ -55,6 +55,12 @@ failures that occur before a complete record exists, the runner emits a minimal
 redacted attempted-resolution record with `result: "failed"` and a non-secret
 error message.
 
+For a feedback-generating `dry_run`, the same short-retention artifact also
+includes `agentic-publication-preview*.json`. This is the validated payload
+that publication would use (the comment/review/issue body, plus any inline
+review comments). Treat it as workflow output with the same access controls as
+the target content; it intentionally is not included in redacted provenance.
+
 The configuration digest backs the v2 idempotency marker. A configuration
 change (different profile, manifest hash, prompt template hash, output
 contract, or model profile) produces a different digest, which triggers a

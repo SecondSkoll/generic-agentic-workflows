@@ -309,6 +309,7 @@ jobs:
               --resolved-config "$RUNNER_TEMP/resolved-agentic-configuration.json"
               --effective-policy "$RUNNER_TEMP/effective-policy.json"
               --provenance "$RUNNER_TEMP/resolved-agentic-provenance-$issue_number.json"
+              --publication-preview "$RUNNER_TEMP/agentic-publication-preview-$issue_number.json"
             )
             if [[ "$DRY_RUN" == "true" ]]; then
               feedback_args+=(--dry-run)
@@ -330,5 +331,6 @@ jobs:
             ${{ runner.temp }}/effective-policy.json
             ${{ runner.temp }}/resolved-agentic-provenance.json
             ${{ runner.temp }}/resolved-agentic-provenance-*.json
+            ${{ runner.temp }}/agentic-publication-preview-*.json
           retention-days: 14
           if-no-files-found: ignore
