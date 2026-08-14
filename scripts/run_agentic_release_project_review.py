@@ -31,6 +31,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -94,6 +95,17 @@ MAX_RELEASE_CONTEXT_FILE_BYTES = 64 * 1024
 MAX_RELEASE_CONTEXT_TOTAL_BYTES = 256 * 1024
 MAX_RELEASE_CONTEXT_FILES = 8
 
+# Commands are selected by a reviewed, hash-verified bundle but are executed
+# by this runner, never by the model.  Keep this intentionally small and use
+# argv execution (not a shell) so a profile cannot append flags, redirects, or
+# another command.  The test process receives a minimal environment and runs
+# only in the immutable release checkout.
+ALLOWED_RELEASE_PREFLIGHT_COMMANDS: dict[str, tuple[str, ...]] = {
+    "python3 -m pytest": ("python3", "-m", "pytest"),
+}
+MAX_PREFLIGHT_OUTPUT_BYTES = 16 * 1024
+PREFLIGHT_TIMEOUT_SECONDS = 120
+
 #: Per-release-fetch bounds.
 RELEASE_FETCH_TIMEOUT = 30
 RELEASE_FETCH_RETRIES = 3
@@ -106,6 +118,60 @@ SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 class ReleaseReviewError(ValueError):
     """Raised when release resolution, review, or publication fails."""
+
+
+def run_release_preflight(
+    commands: object, repo_root: Path
+) -> str:
+    """Run a bounded allowlisted local validation suite and summarize it.
+
+    Failure is evidence for the release review rather than a workflow failure:
+    the model must decide whether it creates a release-management issue from
+    that evidence. Invalid configuration fails closed before model execution.
+    """
+    if not isinstance(commands, list) or not all(isinstance(item, str) for item in commands):
+        raise ReleaseReviewError("resolved preflight_commands must be a list of strings")
+    if not commands:
+        return "No local preflight commands were configured."
+    if not repo_root.is_dir():
+        raise ReleaseReviewError(f"release checkout is unavailable: {repo_root}")
+
+    python = shutil.which("python3")
+    if not python:
+        raise ReleaseReviewError("python3 is required for approved release preflight")
+    safe_environment = {
+        "HOME": tempfile.gettempdir(),
+        "PATH": os.defpath,
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    summaries: list[str] = []
+    for command in commands:
+        argv = ALLOWED_RELEASE_PREFLIGHT_COMMANDS.get(command)
+        if argv is None:
+            raise ReleaseReviewError(f"unapproved release preflight command: {command!r}")
+        executable = (python, *argv[1:])
+        try:
+            completed = subprocess.run(
+                executable,
+                cwd=repo_root,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=PREFLIGHT_TIMEOUT_SECONDS,
+                env=safe_environment,
+                check=False,
+            )
+            output = (completed.stdout + completed.stderr).strip()
+            output = output[:MAX_PREFLIGHT_OUTPUT_BYTES]
+            status = "passed" if completed.returncode == 0 else f"failed (exit {completed.returncode})"
+        except subprocess.TimeoutExpired as error:
+            output = ((error.stdout or "") + (error.stderr or "")).strip()
+            output = output[:MAX_PREFLIGHT_OUTPUT_BYTES]
+            status = f"timed out after {PREFLIGHT_TIMEOUT_SECONDS}s"
+        summaries.append(f"Command: {command}\nResult: {status}\nOutput:\n{output or '(no output)'}")
+    return "\n\n".join(summaries)
 
 
 # ---------------------------------------------------------------------------
@@ -912,6 +978,28 @@ def _cmd_review(args: argparse.Namespace) -> int:
     )
     if release_context:
         untrusted += "\n\nRelease/operational documents at the target commit (untrusted):\n" + release_context
+    try:
+        preflight = run_release_preflight(
+            resolved_bundle.get("preflight_commands", []), args.repo_root
+        )
+    except ReleaseReviewError as error:
+        print(f"::error::Release preflight failed: {error}", file=sys.stderr)
+        _write_provenance(
+            path=provenance_path,
+            resolved_bundle=resolved_bundle,
+            effective_policy=effective_policy,
+            target_repository=target_repository,
+            release_id=release_id,
+            target_commit_sha=target_commit_sha,
+            release_tag=release_tag,
+            mode=mode,
+            result="failed",
+            workflow_version=workflow_version,
+            caller_repository=caller_repository,
+            error=error,
+        )
+        return 1
+    untrusted += "\n\nLocal release preflight results (untrusted evidence):\n" + preflight
 
     agent_name = resolved_bundle.get("agent_name") or "release-project-review"
     output_contract = resolved_bundle.get("output_contract") or OUTPUT_CONTRACT

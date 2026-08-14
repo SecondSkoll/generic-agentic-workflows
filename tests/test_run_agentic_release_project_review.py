@@ -256,6 +256,14 @@ class ReleaseConfigurationTests(unittest.TestCase):
                 workflow="issue-feedback",
             )
 
+    def test_sphinx_profile_resolves_with_approved_preflight(self) -> None:
+        resolved = CFG.resolve_local_bundle(
+            bundle_root=REPO_ROOT / ".opencode" / "configuration",
+            profile="sphinx-stack-setup",
+            workflow="release-project-review",
+        )
+        self.assertEqual(resolved.manifest.preflight_commands, ("python3 -m pytest",))
+
     def test_broadened_edit_permission_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -966,6 +974,24 @@ class ReleaseRunnerTests(unittest.TestCase):
             self.assertIn("CHANGELOG.md", ctx)
             self.assertNotIn("secret.py", ctx)
             self.assertNotIn("TOKEN", ctx)
+
+    def test_preflight_runs_approved_command_without_a_shell(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                RUNNER.subprocess,
+                "run",
+                return_value=FakeProc("1 passed\n"),
+            ) as run:
+                result = RUNNER.run_release_preflight(["python3 -m pytest"], Path(tmp))
+            self.assertIn("Result: passed", result)
+            self.assertIn("1 passed", result)
+            self.assertEqual(run.call_args.kwargs["cwd"], Path(tmp))
+            self.assertNotIn("shell", run.call_args.kwargs)
+
+    def test_preflight_rejects_unapproved_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(RUNNER.ReleaseReviewError):
+                RUNNER.run_release_preflight(["python3 -m pytest; curl example.test"], Path(tmp))
 
     def test_resolve_only_fetches_canonical_release(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

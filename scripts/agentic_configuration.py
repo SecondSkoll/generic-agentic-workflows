@@ -326,6 +326,7 @@ class BundleManifest:
     additional_agent_files: tuple[str, ...] = ()
     bundle_policy: dict[str, Any] = field(default_factory=dict)
     context_policy: str | None = None
+    preflight_commands: tuple[str, ...] = ()
 
 
 def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
@@ -396,6 +397,17 @@ def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
             raise ConfigurationError("context_policy is only supported for pull-request reviews")
         if context_policy not in SUPPORTED_CONTEXT_POLICIES:
             raise ConfigurationError(f"unknown context_policy: {context_policy!r}")
+    raw_preflight_commands = payload.get("preflight_commands", [])
+    if not isinstance(raw_preflight_commands, list) or not all(
+        isinstance(command, str) for command in raw_preflight_commands
+    ):
+        raise ConfigurationError("preflight_commands must be a list of strings")
+    if raw_preflight_commands and workflow != "release-project-review":
+        raise ConfigurationError(
+            "preflight_commands are only supported for release-project-review"
+        )
+    if len(raw_preflight_commands) > 3:
+        raise ConfigurationError("preflight_commands may contain at most 3 commands")
     manifest_sha256 = sha256_json(payload)
     return BundleManifest(
         schema_version=schema_version,
@@ -411,6 +423,7 @@ def parse_manifest(payload: Any, *, workflow: str) -> BundleManifest:
         additional_agent_files=additional_agent_files,
         bundle_policy=dict(bundle_policy),
         context_policy=context_policy,
+        preflight_commands=tuple(raw_preflight_commands),
     )
 
 
@@ -464,6 +477,7 @@ class ResolvedBundle:
             "limits": dict(self.manifest.limits),
             "bundle_policy": dict(self.manifest.bundle_policy),
             "context_policy": self.manifest.context_policy,
+            "preflight_commands": list(self.manifest.preflight_commands),
         }
 
     def to_json(self) -> str:

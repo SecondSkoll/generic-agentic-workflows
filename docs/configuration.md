@@ -179,6 +179,13 @@ commit (read-only) and the workflow—not the model—owns the issue destination
 the `release-readiness` label allowlist, the idempotency marker, and
 publication.
 
+A release bundle may declare up to three reviewed `preflight_commands`. The
+runner—not the model—executes these from a fixed local-only allowlist in the
+immutable checkout with a minimal environment, no shell, no installation, and
+bounded output. Preflight results are untrusted evidence; a test failure may
+support an issue only when the generated finding explains a concrete
+release-management consequence and owner/action.
+
 ## Rollout and operations
 
 After a successful validation run, replace `validate_only: true` with
