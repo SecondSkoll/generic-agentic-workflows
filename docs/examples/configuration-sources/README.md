@@ -5,7 +5,7 @@ for pull-request documentation review, issue feedback, and release project
 review. Copy the contents of one directory into the root of a consumer
 repository; in particular, retain its `.github/` path. All wrappers call their
 reusable workflows at commit
-`67039ac7f3157d0986952a5cb2c087827f5a9e1f`.
+`a38b4244024d6c458aef7d055693f9a145399394`.
 
 | Directory | `configuration_source` | Additional files to copy | Use case |
 | --- | --- | --- | --- |
@@ -52,7 +52,7 @@ workflow `uses:` SHA. The `release-project-review-self.yml` and
 `external-release-project-review.yml` workflow pins must point to a reviewed
 release commit containing
 `.github/workflows/opencode-release-project-review.yml`. The release-review
-wrappers are pinned to `67039ac7f3157d0986952a5cb2c087827f5a9e1f`, which
+wrappers are pinned to `a38b4244024d6c458aef7d055693f9a145399394`, which
 contains that workflow and accepts an explicitly supplied `target_repository`.
 When updating the pin, use a reviewed commit that retains that reusable-call
 schema.
