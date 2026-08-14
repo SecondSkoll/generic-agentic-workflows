@@ -5,6 +5,8 @@ documentation reviews, issue feedback, a manually dispatched
 issue-to-pull-request implementation path, and a manually dispatched/reusable
 release project-review that creates at most one release-readiness issue.
 
+Note: Issue implementation is not currently set up for calling as a remote action.
+
 ## Start here
 
 1. Add `OPENROUTER_API_KEY` as a repository Actions secret. Keep its scope,
