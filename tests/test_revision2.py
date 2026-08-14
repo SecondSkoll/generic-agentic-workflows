@@ -72,11 +72,6 @@ class RealOpenCodeSmokeTests(unittest.TestCase):
             "release-project-review",
         ),
         (
-            REPO_ROOT / ".opencode" / "configuration",
-            "sphinx-stack-setup",
-            "release-project-review",
-        ),
-        (
             REPO_ROOT / "docs/examples/configuration-sources/local/.opencode/configuration",
             "local-documentation-review",
             "pr-documentation-review",

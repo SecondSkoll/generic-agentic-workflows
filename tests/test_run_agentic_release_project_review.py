@@ -246,6 +246,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertEqual(resolved.agent_name, "release-project-review")
         self.assertEqual(resolved.manifest.output_contract, "release-project-issue-v1")
         self.assertEqual(resolved.manifest.model_profile, "release-project-review-readonly")
+        self.assertEqual(resolved.manifest.preflight_commands, ("make -C docs html",))
         self.assertIn("release-management", resolved.skill_names)
 
     def test_profile_workflow_mismatch_rejected(self) -> None:
@@ -255,14 +256,6 @@ class ReleaseConfigurationTests(unittest.TestCase):
                 profile="release-project-review",
                 workflow="issue-feedback",
             )
-
-    def test_sphinx_profile_resolves_with_approved_preflight(self) -> None:
-        resolved = CFG.resolve_local_bundle(
-            bundle_root=REPO_ROOT / ".opencode" / "configuration",
-            profile="sphinx-stack-setup",
-            workflow="release-project-review",
-        )
-        self.assertEqual(resolved.manifest.preflight_commands, ("make -C docs html",))
 
     def test_broadened_edit_permission_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -993,7 +986,7 @@ class ReleaseRunnerTests(unittest.TestCase):
             with self.assertRaises(RUNNER.ReleaseReviewError):
                 RUNNER.run_release_preflight(["python3 -m pytest; curl example.test"], Path(tmp))
 
-    def test_sphinx_preflight_checks_generated_html(self) -> None:
+    def test_html_preflight_checks_generated_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             output = root / "docs" / "_build" / "index.html"
@@ -1009,7 +1002,7 @@ class ReleaseRunnerTests(unittest.TestCase):
             self.assertIn("Output check: passed (docs/_build/index.html", result)
             self.assertEqual(run.call_args.args[0][1:], ("-C", "docs", "html"))
 
-    def test_sphinx_preflight_fails_when_html_output_is_missing(self) -> None:
+    def test_html_preflight_fails_when_output_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(
                 RUNNER.subprocess,

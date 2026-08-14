@@ -145,24 +145,6 @@ class LocalResolutionTests(unittest.TestCase):
             resolved.manifest.output_contract, "issue-implementation-decision-v1"
         )
 
-    def test_sphinx_release_profile_resolves(self):
-        resolved = CFG.resolve_local_bundle(
-            bundle_root=REPO_ROOT / ".opencode" / "configuration",
-            profile="sphinx-stack-setup",
-            workflow="release-project-review",
-        )
-        self.assertEqual(resolved.manifest.model_profile, "release-project-review-readonly")
-        self.assertEqual(resolved.manifest.output_contract, "release-project-issue-v1")
-        self.assertEqual(resolved.manifest.preflight_commands, ("make -C docs html",))
-
-    def test_sphinx_release_profile_rejects_implementation_workflow(self):
-        with self.assertRaises(CFG.ConfigurationError):
-            CFG.resolve_local_bundle(
-                bundle_root=REPO_ROOT / ".opencode" / "configuration",
-                profile="sphinx-stack-setup",
-                workflow="issue-implementation",
-            )
-
     def test_unknown_profile_rejected(self):
         with self.assertRaises(CFG.ConfigurationError):
             CFG.resolve_local_bundle(
