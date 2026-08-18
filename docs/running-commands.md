@@ -24,9 +24,9 @@ A command must satisfy all of these requirements:
   phase (preflight or midflight).
 - The required top-level executable must already be available on the
   GitHub-hosted runner. An approved project command may perform its normal,
-  reviewed setup—for example, the Sphinx Stack Makefile creates a virtual
-  environment and installs `docs/requirements.txt`—but a bundle cannot add a
-  separate installation command.
+  reviewed setup—for example, in the target checkout, the Sphinx Stack Makefile
+  creates a virtual environment and installs `docs/requirements.txt`—but a
+  bundle cannot add a separate installation command.
 
 The currently registered commands are:
 
@@ -45,6 +45,12 @@ after it runs, the workflow also requires a non-empty
 `docs/_build/index.html`. The Makefile may create its documented virtual
 environment and install its pinned Python requirements. For example,
 `python3 -m pytest tests/` is a different command and is rejected.
+
+`documentation-build` applies only to consumer target repositories that provide
+the Sphinx Stack `docs/Makefile`, which creates its own virtual environment and
+installs `docs/requirements.txt`. This repository provides neither
+`docs/Makefile` nor `docs/requirements.txt`; build its documentation with the uv
+commands in the README.md "Building the documentation" section.
 
 ## Configure a bundle
 

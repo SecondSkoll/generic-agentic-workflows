@@ -6,6 +6,8 @@ issue-to-pull-request implementation path, and a manually dispatched/reusable
 release project-review that creates at most one release-readiness issue.
 
 Note: Issue implementation is not currently set up for calling as a remote action.
+See [Run issue implementation](docs/running-issue-implementation.md) for the
+manual procedure.
 
 ## Start here
 
@@ -80,25 +82,64 @@ access outside its repository.
 
 ## Further documentation
 
+### How-to guides
+
 - [Deploy a workflow](docs/deploying-a-workflow.md) — step-by-step consumer
   setup for supplied, local, and central configuration sources.
+- [Configuration guide](docs/configuration.md) — select and maintain a trusted
+  configuration source.
 - [Create a configuration bundle](docs/creating-a-configuration-bundle.md) —
   author, hash, validate, and publish a reviewed profile.
-- [`bundle.json` reference](docs/bundle-json-reference.md) — manifest fields,
-  valid workflow mappings, and safety constraints.
-- [Run commands from a configuration bundle](docs/running_commands.md) —
+- [Run commands from a configuration bundle](docs/running-commands.md) —
   configure and roll out approved release-review preflight commands.
-- [Security model](docs/security-model.md) — trust boundaries, defensive
-  controls, and their rationale.
-- [Configuration guide](docs/configuration.md) — setup, all pathways, bundle
-  layout, and operational safeguards.
-- [Configuration reference](docs/configuration-reference.md) — every caller
-  input and bundle field, with examples.
+- [Run issue implementation](docs/running-issue-implementation.md) — manually
+  request an initial implementation for an open issue.
+- [Operations guide](docs/operations/operations-guide.md) — release, incident
+  response, rollback, and release-review rollout procedures.
 - [Consumer examples](docs/examples/README.md) — ready-to-copy wrappers,
   including complete `default`, `local`, and `central` source examples.
-- [Operations guide](docs/operations/operations-guide.md) — rollback,
-  reliability controls, and test matrix.
+
+### Reference
+
+- [Configuration reference](docs/configuration-reference.md) — every caller
+  input and bundle field, with examples.
+- [`bundle.json` reference](docs/bundle-json-reference.md) — manifest fields,
+  valid workflow mappings, and safety constraints.
+- [Operations reference](docs/operations/operations-reference.md) — versions,
+  provenance, markers, reliability limits, and failure modes.
+
+### Explanation
+
+- [Security model](docs/security-model.md) — trust boundaries, defensive
+  controls, and their rationale.
 
 > OpenCode configuration (`.opencode/`) is loaded once at startup and is not
 > hot-reloaded. After changing any configuration in `.opencode/`, quit and
 > restart OpenCode for the change to take effect.
+
+## Building the documentation
+
+The documentation is built with the [Canonical Sphinx
+Stack](https://github.com/canonical/sphinx-stack) (tag 2.0). The Sphinx
+configuration lives in [`docs/conf.py`](docs/conf.py) and the entry point is
+[`docs/index.md`](docs/index.md).
+
+Install the documentation dependencies (declared as the `docs` extra in
+`pyproject.toml`):
+
+```
+uv sync --extra docs
+```
+
+Build the HTML documentation (treats warnings as errors and keeps going to
+report all of them):
+
+```
+uv run --extra docs sphinx-build -b dirhtml -W --keep-going docs docs/_build
+```
+
+Check external links:
+
+```
+uv run --extra docs sphinx-build -b linkcheck -W --keep-going docs docs/_build-linkcheck
+```

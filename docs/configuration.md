@@ -1,6 +1,7 @@
 # Configure agentic workflows
 
-This guide configures the reusable PR-review and issue-feedback workflows.
+This guide helps maintainers select and maintain a trusted configuration source
+for an agentic workflow.
 Choose exactly one configuration source: `default`, `local`, or `central`.
 Start every new configuration with `validate_only: true`, then `dry_run: true`.
 
@@ -34,23 +35,8 @@ Use `default` when a supplied profile needs no repository-specific changes.
 Because it is remote for a reusable call, `configuration_ref` is required and
 must be a lowercase 40-character commit SHA.
 
-```yaml
-jobs:
-  review:
-    uses: organization/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
-    permissions:
-      contents: read
-      pull-requests: write
-    with:
-      configuration_source: default
-      configuration_ref: 0123456789abcdef0123456789abcdef01234567
-      configuration_profile: documentation-review
-      focus: documentation
-      max_comments: 10
-      validate_only: true
-    secrets:
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-```
+Use [Option A in the deployment guide](deploying-a-workflow.md#option-a-supplied-default-profile)
+for the canonical wrapper YAML and end-to-end deployment steps.
 
 Available supplied profiles are `documentation-review`, `issue-feedback`,
 `default-implementation`, and `release-project-review` (the implementation and
@@ -62,22 +48,9 @@ Use `local` for repository-specific instructions. Store the bundle on the
 protected default branch: the workflow resolves it from the caller's trusted
 checkout. Local configuration does **not** use `configuration_ref`.
 
-```yaml
-jobs:
-  review:
-    uses: organization/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
-    permissions:
-      contents: read
-      pull-requests: write
-    with:
-      configuration_source: local
-      configuration_profile: acme-docs-review
-      focus: documentation
-      max_comments: 5
-      validate_only: true
-    secrets:
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-```
+Use [Option B in the deployment guide](deploying-a-workflow.md#option-b-repository-owned-local-bundle)
+for the canonical wrapper YAML. Then create and maintain the bundle described
+below.
 
 Create `.opencode/configuration/acme-docs-review/` in the caller repository:
 
@@ -97,7 +70,7 @@ files require YAML front matter with `name`. Generate an optional integrity
 lock with:
 
 ```text
-python3 scripts/update_hashes.py --profile acme-docs-review
+uv run scripts/update_hashes.py --profile acme-docs-review
 ```
 
 Use the supplied `.opencode/configuration/documentation-review/` bundle as the
@@ -109,25 +82,8 @@ Use `central` when multiple repositories share organization-reviewed profiles.
 The source alias—not a caller-provided URL—maps to a repository and root in
 the workflow release. Pin the remote bundle with a full commit SHA.
 
-```yaml
-jobs:
-  review:
-    uses: organization/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
-    permissions:
-      contents: read
-      pull-requests: write
-    with:
-      configuration_source: central
-      configuration_ref: 0123456789abcdef0123456789abcdef01234567
-      configuration_profile: documentation-review
-      focus: documentation
-      max_comments: 10
-      validate_only: true
-    secrets:
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      # Only for a private central repository; needs contents: read.
-      central_config_token: ${{ secrets.CENTRAL_CONFIG_TOKEN }}
-```
+Use [Option C in the deployment guide](deploying-a-workflow.md#option-c-organization-managed-central-bundle)
+for the canonical wrapper YAML and token requirements.
 
 The current `central` alias resolves approved bundles in
 `SecondSkoll/generic-agentic-workflows-config` under `.opencode/configuration`.
@@ -195,8 +151,6 @@ release-management consequence and owner/action.
 
 ## Rollout and operations
 
-After a successful validation run, replace `validate_only: true` with
-`dry_run: true`, inspect the configuration, policy, provenance, and output,
-then remove `dry_run`. Each run uploads redacted short-retention artifacts;
-use them to diagnose failures and roll back by pinning a known-good workflow
-or remote bundle SHA. See the [operations guide](operations/operations-guide.md).
+Follow [Roll out safely](deploying-a-workflow.md#roll-out-safely) to promote a
+configuration through validation and dry run. For incident response and
+rollback, use the [operations guide](operations/operations-guide.md).

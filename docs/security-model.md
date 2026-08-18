@@ -202,3 +202,5 @@ wrapper trigger, preserve the redacted artifacts, identify the failing layer,
 and explicitly pin a known-good workflow or bundle SHA. Do not automate
 rollback to an unreviewed revision. The [operations guide](operations/operations-guide.md)
 contains the detailed incident-response and rollback procedure.
+The [operations reference](operations/operations-reference.md) lists the
+normative marker formats, provenance fields, and runtime limits.

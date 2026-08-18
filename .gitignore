@@ -3,3 +3,7 @@ __pycache__/
 
 # UV / Python tooling
 .ruff_cache/
+
+# Sphinx build output
+docs/_build/
+docs/_build-linkcheck/

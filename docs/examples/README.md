@@ -32,8 +32,9 @@ declares.
 ## Ready-to-copy configuration-source examples
 
 For complete pull-request documentation-review and issue-feedback workflows
-for each supported configuration source, copy one of the directories in
-[`configuration-sources/`](configuration-sources/). These examples use this
+for each supported configuration source, copy one of the directories described
+in the [configuration-source examples README](configuration-sources/README.md).
+These examples use this
 repository as the reusable workflow source and contain real full commit-SHA
 pins:
 
@@ -46,7 +47,9 @@ pins:
    `SecondSkoll/generic-agentic-workflows-config`.
 
 Each starts with `validate_only: true`. Follow the rollout instructions in the
-example README before enabling model invocation or publication.
+configuration-source examples README before enabling model invocation or
+publication. See the [configuration reference](../configuration-reference.md)
+for exact input definitions.
 
 ## Typed inputs exposed to callers
 

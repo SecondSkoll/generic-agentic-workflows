@@ -17,7 +17,8 @@ For authoring a local or central profile, see [creating a configuration bundle](
 | Release project review | `opencode-release-project-review.yml` | `workflow_dispatch`, schedule, or a release wrapper | `contents: read`, `issues: write` |
 
 The issue-implementation workflow is manual-dispatch only. It is not available
-as a remote reusable call.
+as a remote reusable call. To use it in this repository, follow [Run issue
+implementation](running-issue-implementation.md).
 
 Use the copy-ready wrappers under [configuration-source examples](examples/configuration-sources/README.md)
 when one matches the intended deployment.

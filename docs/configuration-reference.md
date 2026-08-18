@@ -1,8 +1,8 @@
 # Configuration reference
 
 This reference describes every supported configuration field for reusable
-pull-request review and issue-feedback workflows, plus the files that make up
-a configuration bundle. Remote bundles are hash-verified; caller-local bundles
+pull-request review, issue-feedback, and release-project-review workflows, plus
+the files that make up a configuration bundle. Remote bundles are hash-verified; caller-local bundles
 may omit the optional hash lock. For setup and rollout instructions, see
 the [configuration guide](configuration.md).
 
@@ -21,7 +21,7 @@ Fields not applicable to the selected workflow are rejected.
 
 | Field | Type | Applies to | Default | Valid values and behavior |
 | --- | --- | --- | --- | --- |
-| `configuration_source` | string | Both | `default` | `default`, `local`, or `central`. Selects the supplied bundle, a trusted bundle in the caller repository, or an allowlisted central bundle. |
+| `configuration_source` | string | Both | `default` | `default`, `local`, or `central`. Selects the supplied bundle, a trusted bundle in the caller repository, or an allowlisted central bundle. For a direct event run, `local` reads the trusted checkout of the repository containing the workflow. |
 | `configuration_ref` | string | Both | Empty | Required for `default` and `central`; omitted for `local`. Must be a lowercase, 40-character Git commit SHA, for example `0123456789abcdef0123456789abcdef01234567`. |
 | `configuration_profile` | string | Both | Required | Bundle directory/profile name. It must match `[a-z0-9][a-z0-9-]{0,62}`, for example `documentation-review`. |
 | `focus` | string | Both | Empty | Optional allowlisted focus. For PR review and issue feedback: `documentation`, `security`, `tests`, or `general`. For release project review: `release-notes`, `rollout`, `rollback`, `acceptance`, `dependencies`, `owners`, `risk`, `operational-readiness`, or `general`. It is not arbitrary prompt text. |
@@ -31,7 +31,7 @@ Fields not applicable to the selected workflow are rejected.
 | `validate_only` | boolean | Both | `false` | Resolves and validates invocation/configuration without invoking a model or publishing. Cannot be `true` with `dry_run`. |
 | `pull_number` | number | PR review | `0` | Optional positive PR number when no pull-request event provides the target, such as a wrapper invoked with `workflow_call`. |
 | `issue_number` | number | Issue feedback | `0` | Optional positive issue number when no issue event provides the target. |
-| `target_repository` | string | Release project review | `${{ github.repository }}` | Strict canonical `owner/repo` of the release to review. Rejects URLs, `owner/repo@ref`/`owner/repo:ref` syntax, paths, and expressions. |
+| `target_repository` | string | Release project review | `${{ github.repository }}` | Strict canonical `owner/repo` of the release to review. Required for `workflow_call`; a direct dispatch defaults to the caller repository. Rejects URLs, `owner/repo@ref`/`owner/repo:ref` syntax, paths, and expressions. |
 | `release_id` | string | Release project review | Empty | Positive decimal GitHub release ID. The reusable workflow accepts a string because workflow-job outputs are strings; it validates the value as a positive integer. Exactly one of `release_id`/`release_tag` is required. |
 | `release_tag` | string | Release project review | Empty | Conservative tag selector (`[A-Za-z0-9._-]{1,128}`, no `..`). Resolved through the GitHub REST API; never used as a Git ref. Exactly one of `release_id`/`release_tag` is required. |
 | `release_target_token` | secret | Release project review | Optional | Target-scoped GitHub token (`contents: read`, `issues: write` on the target only) for cross-repository reviews. Falls back to `github.token` for same-repo runs. |
@@ -174,7 +174,7 @@ These are real values from the supplied `issue-feedback` profile. Generate
 actual values after every content edit rather than copying them:
 
 ```text
-python3 scripts/update_hashes.py --profile product-issue-feedback
+uv run scripts/update_hashes.py --profile product-issue-feedback
 ```
 
 Hashes are required to fetch remote profiles. They are optional for local

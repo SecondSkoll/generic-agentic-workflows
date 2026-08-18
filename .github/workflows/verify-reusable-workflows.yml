@@ -2,16 +2,21 @@ name: Verify reusable workflows
 
 # Runs the full test suite, including static reusable-workflow wiring,
 # validate-only resolver invocations, configuration-bundle materialization,
-# hash freshness, and policy/prompt/provenance validation. The only separate
-# test invocation is the authenticated central configuration pin ancestry check.
+# hash freshness, and policy/prompt/provenance validation. It also validates the
+# documentation build and links. The only separate test invocation is the
+# authenticated central configuration pin ancestry check.
 on:
   pull_request:
     paths:
       - '.github/workflows/**'
       - 'scripts/**'
       - 'tests/**'
-      - 'docs/examples/**'
+      - 'docs/**'
       - '.opencode/**'
+      - 'README.md'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.readthedocs.yaml'
   workflow_dispatch:
 
 permissions:
@@ -59,5 +64,26 @@ jobs:
 
       - name: Run unit tests (includes real OpenCode smoke when binary present)
         run: uv run python -m unittest discover -s tests -v
-# End of workflow.
 
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Sync documentation dependencies
+        run: uv sync --extra docs
+
+      - name: Build documentation (warnings as errors)
+        run: uv run --no-sync --extra docs sphinx-build -b dirhtml -W --keep-going docs docs/_build
+
+      - name: Check documentation links (warnings as errors)
+        run: uv run --no-sync --extra docs sphinx-build -b linkcheck -W --keep-going docs docs/_build-linkcheck
+# End of workflow.

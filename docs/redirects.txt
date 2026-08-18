@@ -1,0 +1,4 @@
+# Redirects for sphinx-rerediraffe.
+# See https://sphinxext-rediraffe.readthedocs.io/en/latest/ for the file format.
+# Add entries in the form:  old-path  new-path
+running_commands.md running-commands.md
