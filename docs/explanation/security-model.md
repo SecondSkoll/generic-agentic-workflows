@@ -200,7 +200,7 @@ and artifacts, and never add secrets to bundle files or prompts.
 If a workflow behaves unexpectedly, set `validate_only: true` or disable its
 wrapper trigger, preserve the redacted artifacts, identify the failing layer,
 and explicitly pin a known-good workflow or bundle SHA. Do not automate
-rollback to an unreviewed revision. The [operations guide](operations/operations-guide.md)
+rollback to an unreviewed revision. The [operations guide](../how-to/operations-guide.md)
 contains the detailed incident-response and rollback procedure.
-The [operations reference](operations/operations-reference.md) lists the
+The [operations reference](../reference/operations-reference.md) lists the
 normative marker formats, provenance fields, and runtime limits.

@@ -33,7 +33,7 @@ declares.
 
 For complete pull-request documentation-review and issue-feedback workflows
 for each supported configuration source, copy one of the directories described
-in the [configuration-source examples README](configuration-sources/README.md).
+in the [configuration-source examples](configuration-sources/index.md).
 These examples use this
 repository as the reusable workflow source and contain real full commit-SHA
 pins:
@@ -47,27 +47,13 @@ pins:
    `SecondSkoll/generic-agentic-workflows-config`.
 
 Each starts with `validate_only: true`. Follow the rollout instructions in the
-configuration-source examples README before enabling model invocation or
-publication. See the [configuration reference](../configuration-reference.md)
+configuration-source examples before enabling model invocation or
+publication. See the [configuration reference](../../reference/configuration-reference.md)
 for exact input definitions.
 
-## Typed inputs exposed to callers
-
-| Input | Type | Required | Purpose |
-| --- | --- | --- | --- |
-| `configuration_source` | string | no | `default` (supplied profile), `local` (calling repository), or `central`; default `default`. |
-| `configuration_ref` | string | no | Full 40-character commit SHA for a remote bundle. |
-| `configuration_profile` | string | yes | Bundle profile name, constrained to `[a-z0-9][a-z0-9-]{0,62}`. |
-| `focus` | string | no | Allowlisted review focus; no arbitrary prompt text. |
-| `max_comments` | number | no | Bounded feedback count, `0`–`20` (PR review only). |
-| `max_issues` | number | no | Bounded issue count, `1`–`100` (issue feedback only). |
-| `dry_run` | boolean | no | Resolve, validate, and generate output without publishing. |
-| `validate_only` | boolean | no | Resolve and validate configuration only. |
-| `pull_number` / `issue_number` | number | no | Target number when event context is unavailable. |
-
-The reusable workflows do **not** expose raw prompt, agent path, skill path,
-model identifier, arbitrary URL, or mutable reference inputs. Any attempt to
-supply them is rejected before checkout or model invocation.
+For the complete typed caller interface and the values that callers cannot
+configure, see [Caller inputs in the configuration
+reference](../../reference/configuration-reference.md#caller-inputs).
 
 ## Migration from direct triggers
 

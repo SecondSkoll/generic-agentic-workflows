@@ -6,7 +6,7 @@ Choose exactly one configuration source: `default`, `local`, or `central`.
 Start every new configuration with `validate_only: true`, then `dry_run: true`.
 
 For field-by-field definitions and complete bundle-file examples, see the
-[configuration reference](configuration-reference.md).
+[configuration reference](../reference/configuration-reference.md).
 
 ## Prerequisites
 
@@ -35,7 +35,7 @@ Use `default` when a supplied profile needs no repository-specific changes.
 Because it is remote for a reusable call, `configuration_ref` is required and
 must be a lowercase 40-character commit SHA.
 
-Use [Option A in the deployment guide](deploying-a-workflow.md#option-a-supplied-default-profile)
+Use [Option A in the deployment guide](deploy-a-workflow.md#option-a-supplied-default-profile)
 for the canonical wrapper YAML and end-to-end deployment steps.
 
 Available supplied profiles are `documentation-review`, `issue-feedback`,
@@ -48,7 +48,7 @@ Use `local` for repository-specific instructions. Store the bundle on the
 protected default branch: the workflow resolves it from the caller's trusted
 checkout. Local configuration does **not** use `configuration_ref`.
 
-Use [Option B in the deployment guide](deploying-a-workflow.md#option-b-repository-owned-local-bundle)
+Use [Option B in the deployment guide](deploy-a-workflow.md#option-b-repository-owned-local-bundle)
 for the canonical wrapper YAML. Then create and maintain the bundle described
 below.
 
@@ -82,7 +82,7 @@ Use `central` when multiple repositories share organization-reviewed profiles.
 The source alias—not a caller-provided URL—maps to a repository and root in
 the workflow release. Pin the remote bundle with a full commit SHA.
 
-Use [Option C in the deployment guide](deploying-a-workflow.md#option-c-organization-managed-central-bundle)
+Use [Option C in the deployment guide](deploy-a-workflow.md#option-c-organization-managed-central-bundle)
 for the canonical wrapper YAML and token requirements.
 
 The current `central` alias resolves approved bundles in
@@ -151,6 +151,6 @@ release-management consequence and owner/action.
 
 ## Rollout and operations
 
-Follow [Roll out safely](deploying-a-workflow.md#roll-out-safely) to promote a
+Follow [Roll out safely](deploy-a-workflow.md#roll-out-safely) to promote a
 configuration through validation and dry run. For incident response and
-rollback, use the [operations guide](operations/operations-guide.md).
+rollback, use the [operations guide](operations-guide.md).

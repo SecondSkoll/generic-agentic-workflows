@@ -1,41 +1,65 @@
 # Generic Agentic Workflows
 
-Reusable GitHub Actions workflows that use OpenCode to provide pull-request
-documentation reviews, issue feedback, a manually dispatched issue-to-pull-request
-implementation path, and a manually dispatched release project-review.
+Generic Agentic Workflows provides reusable GitHub Actions workflows that use
+read-only OpenCode agents for pull-request documentation reviews, issue
+feedback, a manually dispatched issue-to-pull-request implementation path, and
+a manually dispatched or reusable release project review.
 
-Start with [Deploy an agentic workflow](deploying-a-workflow.md) to add a
-reusable workflow. Read the [security model](security-model.md) to understand
-the trust boundaries, or use the reference pages to look up exact interfaces
-and operational behavior. This documentation does not include a separate
-tutorial section; its new-user path is the deployment how-to.
+The reusable caller owns triggers, concurrency, permissions, and secret
+forwarding. The called workflow validates configuration, composes prompts,
+invokes the model when required, validates its output, publishes bounded
+feedback, and uploads redacted provenance.
+
+## Available workflows
+
+| Workflow | Interface | Required publication permissions |
+| --- | --- | --- |
+| Documentation review | Direct pull-request trigger or reusable call | `contents: read`, `pull-requests: write` |
+| Issue feedback | Direct issue trigger or reusable call | `contents: read`, `issues: write` |
+| Issue implementation | Manual dispatch only | `contents: write`, `issues: write`, `pull-requests: write` |
+| Release project review | Manual dispatch or reusable call | `contents: read`, `issues: write` |
+
+Configuration comes from one of three trusted sources: a supplied `default`
+profile, a repository-owned `local` bundle, or an organization-managed
+`central` bundle. Remote sources require immutable commit pins. Start new
+deployments in validation-only mode before allowing model invocation or
+publication.
+
+## Documentation map
+
+- **Learning → [Tutorials](tutorial/index.md):** complete a guided first
+  validation-only deployment and verify its result.
+- **Tasks → [How-to guides](how-to/index.md):** deploy, configure, operate, and
+  maintain workflows and configuration bundles.
+- **Lookup → [Reference](reference/index.md):** find exact inputs, manifest
+  fields, versions, limits, and operational behavior.
+- **Understanding → [Explanation](explanation/index.md):** understand the trust
+  boundaries and the reasons for the defensive controls.
+
+```{toctree}
+:maxdepth: 2
+:caption: Tutorials
+
+tutorial/index
+```
 
 ```{toctree}
 :maxdepth: 2
 :caption: How-to guides
 
-deploying-a-workflow
-configuration
-creating-a-configuration-bundle
-running-commands
-running-issue-implementation
-operations/operations-guide
-examples/README
-examples/configuration-sources/README
+how-to/index
 ```
 
 ```{toctree}
 :maxdepth: 2
 :caption: Reference
 
-configuration-reference
-bundle-json-reference
-operations/operations-reference
+reference/index
 ```
 
 ```{toctree}
 :maxdepth: 2
 :caption: Explanation
 
-security-model
+explanation/index
 ```

@@ -49,6 +49,6 @@ implementation changes.
 
 If a run fails or is blocked, do not bypass the path checks. Clarify the issue
 or correct the trusted local configuration, then dispatch the workflow again.
-For broader incident response, use the [operations guide](operations/operations-guide.md).
+For broader incident response, use the [operations guide](operations-guide.md).
 For bundle fields and the `default-implementation` mapping, see the
-[configuration reference](configuration-reference.md).
+[configuration reference](../reference/configuration-reference.md).

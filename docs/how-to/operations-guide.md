@@ -3,7 +3,7 @@
 Use this guide to release, recover, roll back, and safely roll out the reusable
 workflows. For version tables, provenance fields, idempotency markers,
 reliability limits, and failure behavior, see the [operations
-reference](operations-reference.md).
+reference](../reference/operations-reference.md).
 
 ## Release process
 

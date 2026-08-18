@@ -6,7 +6,7 @@ options. The resolver supports schema versions `1` and `2`, rejects unknown
 manifest keys in every schema, and rejects unknown or invalid combinations
 before model invocation.
 
-For the authoring sequence, see [creating a configuration bundle](creating-a-configuration-bundle.md).
+For the authoring sequence, see [creating a configuration bundle](../how-to/creating-a-configuration-bundle.md).
 
 ## Complete example
 
@@ -133,7 +133,7 @@ environment and bounded output, and treats results as untrusted evidence. A
 failed preflight supports a finding only if the output explains a concrete
 release-management consequence and owner/action.
 
-See [Run commands from a configuration bundle](running-commands.md) for the
+See [Run commands from a configuration bundle](../how-to/running-commands.md) for the
 approved command, rollout procedure, execution behavior, and troubleshooting.
 
 ## `midflight_commands`

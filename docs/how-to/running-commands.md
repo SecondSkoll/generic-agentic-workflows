@@ -46,11 +46,11 @@ after it runs, the workflow also requires a non-empty
 environment and install its pinned Python requirements. For example,
 `python3 -m pytest tests/` is a different command and is rejected.
 
-`documentation-build` applies only to consumer target repositories that provide
-the Sphinx Stack `docs/Makefile`, which creates its own virtual environment and
-installs `docs/requirements.txt`. This repository provides neither
-`docs/Makefile` nor `docs/requirements.txt`; build its documentation with the uv
-commands in the README.md "Building the documentation" section.
+`documentation-build` applies only to target repositories that provide the
+Sphinx Stack `docs/Makefile`, which creates its own virtual environment and
+installs `docs/requirements.txt`. This repository provides both files; its
+README.md "Building the documentation" section uses the same Makefile entry
+point.
 
 ## Configure a bundle
 
@@ -139,7 +139,7 @@ jobs:
 
 For a supplied or central bundle, use `configuration_source: default` or
 `configuration_source: central` and provide the reviewed full commit SHA as
-`configuration_ref`. See [Deploy a workflow](deploying-a-workflow.md) for the
+`configuration_ref`. See [Deploy a workflow](deploy-a-workflow.md) for the
 complete source-specific setup and token requirements.
 
 There is no separate caller input that enables commands. Selecting a valid

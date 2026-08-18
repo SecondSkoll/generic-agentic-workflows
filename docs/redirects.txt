@@ -6,3 +6,15 @@
 # The old path must be a file that doesn"t exist in the source. The current path must be
 # a file that does exist in the source.
 
+"deploying-a-workflow.md" "how-to/deploy-a-workflow.md"
+"configuration.md" "how-to/configuration.md"
+"creating-a-configuration-bundle.md" "how-to/creating-a-configuration-bundle.md"
+"running-commands.md" "how-to/running-commands.md"
+"running-issue-implementation.md" "how-to/running-issue-implementation.md"
+"operations/operations-guide.md" "how-to/operations-guide.md"
+"operations/operations-reference.md" "reference/operations-reference.md"
+"configuration-reference.md" "reference/configuration-reference.md"
+"bundle-json-reference.md" "reference/bundle-json-reference.md"
+"security-model.md" "explanation/security-model.md"
+"examples/README.md" "how-to/examples/index.md"
+"examples/configuration-sources/README.md" "how-to/examples/configuration-sources/index.md"

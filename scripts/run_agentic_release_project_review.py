@@ -96,9 +96,9 @@ RELEASE_CONTEXT_ALLOWLIST: tuple[str, ...] = (
     "RELEASE_NOTES.md",
     "RELEASES.md",
     "README.md",
-    "docs/operations/operations-guide.md",
-    "docs/configuration.md",
-    "docs/configuration-reference.md",
+    "docs/how-to/operations-guide.md",
+    "docs/how-to/configuration.md",
+    "docs/reference/configuration-reference.md",
 )
 
 #: Bounds mirror the immutable release-project-review builtin policy.

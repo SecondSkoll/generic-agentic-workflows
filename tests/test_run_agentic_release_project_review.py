@@ -319,7 +319,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
 
     def test_local_example_profile_resolves(self) -> None:
         resolved = CFG.resolve_local_bundle(
-            bundle_root=REPO_ROOT / "docs/examples/configuration-sources/local/.opencode/configuration",
+            bundle_root=REPO_ROOT / "docs/how-to/examples/configuration-sources/local/.opencode/configuration",
             profile="local-release-project-review",
             workflow="release-project-review",
         )
@@ -1810,7 +1810,7 @@ class WorkflowYamlTests(unittest.TestCase):
     def test_examples_validate_only_and_sha_pinned(self) -> None:
         import yaml
 
-        root = REPO_ROOT / "docs/examples/configuration-sources"
+        root = REPO_ROOT / "docs/how-to/examples/configuration-sources"
         for source in ("default", "local", "central"):
             workflows = root / source / ".github/workflows"
             self.assertFalse((workflows / "release-project-review.yml").exists())
@@ -1885,14 +1885,14 @@ class WorkflowYamlTests(unittest.TestCase):
 
 class DocsExamplesTests(unittest.TestCase):
     def test_examples_readme_mentions_release_workflow(self) -> None:
-        text = (REPO_ROOT / "docs/examples/configuration-sources/README.md").read_text(
+        text = (REPO_ROOT / "docs/how-to/examples/configuration-sources/index.md").read_text(
             encoding="utf-8"
         )
         self.assertIn("release-project-review", text)
         self.assertIn("validate_only", text)
 
     def test_operations_guide_documents_promotion(self) -> None:
-        text = (REPO_ROOT / "docs/operations/operations-guide.md").read_text(encoding="utf-8")
+        text = (REPO_ROOT / "docs/how-to/operations-guide.md").read_text(encoding="utf-8")
         self.assertIn("release-project-review", text)
         # Promotes validate_only -> dry_run -> publish.
         self.assertIn("dry_run", text)

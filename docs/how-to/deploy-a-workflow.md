@@ -5,7 +5,7 @@ this project. It covers all supported configuration sources: the supplied
 `default` profiles, repository-owned `local` bundles, and organization-managed
 `central` bundles.
 
-For the individual input definitions, see the [configuration reference](configuration-reference.md).
+For the individual input definitions, see the [configuration reference](../reference/configuration-reference.md).
 For authoring a local or central profile, see [creating a configuration bundle](creating-a-configuration-bundle.md).
 
 ## 1. Choose the workflow
@@ -20,7 +20,7 @@ The issue-implementation workflow is manual-dispatch only. It is not available
 as a remote reusable call. To use it in this repository, follow [Run issue
 implementation](running-issue-implementation.md).
 
-Use the copy-ready wrappers under [configuration-source examples](examples/configuration-sources/README.md)
+Use the copy-ready wrappers under [configuration-source examples](examples/configuration-sources/index.md)
 when one matches the intended deployment.
 
 ## 2. Prepare credentials and permissions
@@ -177,5 +177,5 @@ Each run uploads short-retention (14-day) redacted artifacts, including the
 resolved configuration, effective policy, and provenance record. Use them to
 confirm the selected profile, remote SHA, output contract, model profile, and
 result without exposing credentials, full prompts, raw model output, or full
-untrusted content. See the [operations guide](operations/operations-guide.md)
+untrusted content. See the [operations guide](operations-guide.md)
 for rollback, incident response, and reliability limits.

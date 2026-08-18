@@ -4,7 +4,7 @@ This reference describes every supported configuration field for reusable
 pull-request review, issue-feedback, and release-project-review workflows, plus
 the files that make up a configuration bundle. Remote bundles are hash-verified; caller-local bundles
 may omit the optional hash lock. For setup and rollout instructions, see
-the [configuration guide](configuration.md).
+the [configuration guide](../how-to/configuration.md).
 
 Configuration has two layers:
 

@@ -7,7 +7,7 @@ prompts, model identifiers, file paths, or network locations.
 
 Use this guide for a repository-owned `local` bundle or for a profile published
 to the allowlisted `central` configuration repository. Read the
-[`bundle.json` reference](bundle-json-reference.md) before choosing field
+[`bundle.json` reference](../reference/bundle-json-reference.md) before choosing field
 values.
 
 ## Before you begin
@@ -73,7 +73,7 @@ PR-documentation-review example:
 
 The `profile_name` must match both the directory name and the wrapper's
 `configuration_profile`. `allowed_workflows` must contain the workflow being
-resolved. See the complete [`bundle.json` reference](bundle-json-reference.md)
+resolved. See the complete [`bundle.json` reference](../reference/bundle-json-reference.md)
 for valid values and workflow-specific constraints.
 
 ## 3. Add the agent, skills, and prompt

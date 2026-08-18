@@ -1,23 +1,24 @@
 # generic-agentic-workflows
 
-Reusable GitHub Actions workflows that use OpenCode to provide pull-request
-documentation reviews, issue feedback, a manually dispatched
-issue-to-pull-request implementation path, and a manually dispatched/reusable
-release project-review that creates at most one release-readiness issue.
+Reusable GitHub Actions workflows that use **read only** OpenCode agents
+to provide pull-request documentation reviews, issue feedback, a manually
+dispatched issue-to-pull-request implementation path, and a manually
+dispatched/reusable release project-review that creates at most one
+release-readiness issue.
 
 Note: Issue implementation is not currently set up for calling as a remote action.
-See [Run issue implementation](docs/running-issue-implementation.md) for the
+See [Run issue implementation](docs/how-to/running-issue-implementation.md) for the
 manual procedure.
 
 ## Start here
 
 1. Add `OPENROUTER_API_KEY` as a repository Actions secret. Keep its scope,
    credit limit, and lifetime minimal.
-2. Copy a wrapper from [`docs/examples/`](docs/examples/README.md), pin the
+2. Copy a wrapper from [the consumer examples](docs/how-to/examples/index.md), pin the
    reusable workflow to a reviewed revision, and grant only the required job
    permissions.
 3. Select one configuration pathway: **default**, **local**, or **central**.
-   The [configuration guide](docs/configuration.md) includes complete
+   The [configuration guide](docs/how-to/configuration.md) includes complete
    SHA-pinned examples for the review, feedback, and release-project-review
    workflows.
 4. Roll out in order: `validate_only: true`, then `dry_run: true`, then normal
@@ -82,35 +83,40 @@ access outside its repository.
 
 ## Further documentation
 
+### Tutorials
+
+- [Set up your first workflow](docs/tutorial/set-up-your-first-workflow.md) —
+  add and verify a safe validation-only documentation-review workflow.
+
 ### How-to guides
 
-- [Deploy a workflow](docs/deploying-a-workflow.md) — step-by-step consumer
+- [Deploy a workflow](docs/how-to/deploy-a-workflow.md) — step-by-step consumer
   setup for supplied, local, and central configuration sources.
-- [Configuration guide](docs/configuration.md) — select and maintain a trusted
+- [Configuration guide](docs/how-to/configuration.md) — select and maintain a trusted
   configuration source.
-- [Create a configuration bundle](docs/creating-a-configuration-bundle.md) —
+- [Create a configuration bundle](docs/how-to/creating-a-configuration-bundle.md) —
   author, hash, validate, and publish a reviewed profile.
-- [Run commands from a configuration bundle](docs/running-commands.md) —
+- [Run commands from a configuration bundle](docs/how-to/running-commands.md) —
   configure and roll out approved release-review preflight commands.
-- [Run issue implementation](docs/running-issue-implementation.md) — manually
+- [Run issue implementation](docs/how-to/running-issue-implementation.md) — manually
   request an initial implementation for an open issue.
-- [Operations guide](docs/operations/operations-guide.md) — release, incident
+- [Operations guide](docs/how-to/operations-guide.md) — release, incident
   response, rollback, and release-review rollout procedures.
-- [Consumer examples](docs/examples/README.md) — ready-to-copy wrappers,
+- [Consumer examples](docs/how-to/examples/index.md) — ready-to-copy wrappers,
   including complete `default`, `local`, and `central` source examples.
 
 ### Reference
 
-- [Configuration reference](docs/configuration-reference.md) — every caller
+- [Configuration reference](docs/reference/configuration-reference.md) — every caller
   input and bundle field, with examples.
-- [`bundle.json` reference](docs/bundle-json-reference.md) — manifest fields,
+- [`bundle.json` reference](docs/reference/bundle-json-reference.md) — manifest fields,
   valid workflow mappings, and safety constraints.
-- [Operations reference](docs/operations/operations-reference.md) — versions,
+- [Operations reference](docs/reference/operations-reference.md) — versions,
   provenance, markers, reliability limits, and failure modes.
 
 ### Explanation
 
-- [Security model](docs/security-model.md) — trust boundaries, defensive
+- [Security model](docs/explanation/security-model.md) — trust boundaries, defensive
   controls, and their rationale.
 
 > OpenCode configuration (`.opencode/`) is loaded once at startup and is not
