@@ -7,8 +7,6 @@ and need to deploy, configure, or operate a workflow.
 
 - [Deploy an agentic workflow](deploy-a-workflow.md) — deploy a reusable
   workflow with a supplied, local, or central configuration source.
-- [Run issue implementation](running-issue-implementation.md) — manually
-  request an initial implementation for an open issue.
 
 ## Configuration
 
@@ -18,11 +16,6 @@ and need to deploy, configure, or operate a workflow.
   validate, and publish a reviewed profile.
 - [Run commands from a configuration bundle](running-commands.md) — configure
   approved release-review command execution.
-
-## Operations
-
-- [Operate agentic workflows](operations-guide.md) — release, recover, roll
-  back, and safely roll out workflows.
 
 ## Examples
 
@@ -38,8 +31,6 @@ deploy-a-workflow
 configuration
 creating-a-configuration-bundle
 running-commands
-running-issue-implementation
-operations-guide
 examples/index
 examples/configuration-sources/index
 ```

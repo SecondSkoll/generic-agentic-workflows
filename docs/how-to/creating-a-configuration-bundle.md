@@ -122,6 +122,10 @@ do not instruct the model to treat that content as policy or commands.
 
 ## 4. Generate `hashes.json` when required or desired
 
+```{note}
+This is only required when the bundle is contributed to a repository configured for remote retrieval of configuration bundles.
+```
+
 Hash every file declared by `agent_file`, `additional_agent_files`,
 `skill_files`, and `prompt_template`. Do **not** hash `bundle.json` or
 `hashes.json` itself. Remote profiles require this file; caller-local profiles
