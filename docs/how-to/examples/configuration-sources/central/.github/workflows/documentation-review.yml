@@ -1,0 +1,25 @@
+name: Documentation review (central configuration)
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@a38b4244024d6c458aef7d055693f9a145399394
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      configuration_source: central
+      configuration_ref: 9b35f1fc2860a1d6b8f1abaa9b467dc4eb42aec8
+      configuration_profile: documentation-review
+      focus: documentation
+      max_comments: 10
+      validate_only: true
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

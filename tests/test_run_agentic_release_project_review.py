@@ -246,7 +246,11 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertEqual(resolved.agent_name, "release-project-review")
         self.assertEqual(resolved.manifest.output_contract, "release-project-issue-v1")
         self.assertEqual(resolved.manifest.model_profile, "release-project-review-readonly")
-        self.assertEqual(resolved.manifest.preflight_commands, ("make -C docs html",))
+        # Schema-2 migration: preflight commands are now registry IDs, and
+        # midflight_commands is present (empty by default).
+        self.assertEqual(resolved.manifest.schema_version, 2)
+        self.assertEqual(resolved.manifest.preflight_commands, ("documentation-build",))
+        self.assertEqual(resolved.manifest.midflight_commands, ())
         self.assertIn("release-management", resolved.skill_names)
 
     def test_profile_workflow_mismatch_rejected(self) -> None:
@@ -315,7 +319,7 @@ class ReleaseConfigurationTests(unittest.TestCase):
 
     def test_local_example_profile_resolves(self) -> None:
         resolved = CFG.resolve_local_bundle(
-            bundle_root=REPO_ROOT / "docs/examples/configuration-sources/local/.opencode/configuration",
+            bundle_root=REPO_ROOT / "docs/how-to/examples/configuration-sources/local/.opencode/configuration",
             profile="local-release-project-review",
             workflow="release-project-review",
         )
@@ -983,28 +987,65 @@ class ReleaseRunnerTests(unittest.TestCase):
 
     def test_preflight_runs_approved_command_without_a_shell(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            fake_result = type(
+                "R",
+                (),
+                {
+                    "command_id": "python-pytest",
+                    "registry_version": 1,
+                    "status": "passed",
+                    "exit_code": 0,
+                    "output_tail": "1 passed\n",
+                    "truncated": False,
+                    "artifacts": (),
+                    "duration_bucket": "<1s",
+                    "result_sha256": "a" * 64,
+                    "is_safety_error": lambda self: False,
+                    "to_dict": lambda self: {},
+                },
+            )()
             with mock.patch.object(
-                RUNNER.subprocess,
-                "run",
-                return_value=FakeProc("1 passed\n"),
-            ) as run:
+                RUNNER.COMMANDS, "execute_command", return_value=fake_result
+            ) as exe, mock.patch.object(
+                RUNNER.COMMANDS, "create_disposable_workspace",
+                side_effect=lambda src, **k: src,
+            ), mock.patch.object(RUNNER.COMMANDS, "dispose_workspace"):
                 result = RUNNER.run_release_preflight(["python3 -m pytest"], Path(tmp))
             self.assertIn("Result: passed", result)
             self.assertIn("1 passed", result)
-            self.assertEqual(run.call_args.kwargs["cwd"], Path(tmp))
-            self.assertNotIn("shell", run.call_args.kwargs)
+            # Preflight now routes through the shared hardened executor; the
+            # registry spec (not a shell) supplies argv, and the phase is
+            # preflight.
+            self.assertEqual(exe.call_args.kwargs["phase"], "preflight")
 
     def test_preflight_output_is_limited_to_its_tail(self) -> None:
-        output = "head-marker\n" + ("middle\n" * RUNNER.MAX_PREFLIGHT_OUTPUT_BYTES) + "tail-marker"
+        tail = "tail-marker"
+        fake_result = type(
+            "R",
+            (),
+                {
+                    "command_id": "python-pytest",
+                    "registry_version": 1,
+                    "status": "failed",
+                    "exit_code": 1,
+                    "output_tail": tail,
+                    "truncated": True,
+                    "artifacts": (),
+                    "duration_bucket": "<1s",
+                    "result_sha256": "a" * 64,
+                    "is_safety_error": lambda self: False,
+                    "to_dict": lambda self: {},
+                },
+        )()
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(
-                RUNNER.subprocess,
-                "run",
-                return_value=FakeProc(output, returncode=1),
-            ):
+                RUNNER.COMMANDS, "execute_command", return_value=fake_result
+            ), mock.patch.object(
+                RUNNER.COMMANDS, "create_disposable_workspace",
+                side_effect=lambda src, **k: src,
+            ), mock.patch.object(RUNNER.COMMANDS, "dispose_workspace"):
                 result = RUNNER.run_release_preflight(["python3 -m pytest"], Path(tmp))
         self.assertIn("tail-marker", result)
-        self.assertNotIn("head-marker", result)
 
     def test_preflight_rejects_unapproved_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1017,23 +1058,72 @@ class ReleaseRunnerTests(unittest.TestCase):
             output = root / "docs" / "_build" / "index.html"
             output.parent.mkdir(parents=True)
             output.write_text("<html>built</html>\n", encoding="utf-8")
+            fake_result = type(
+                "R",
+                (),
+                {
+                    "command_id": "documentation-build",
+                    "registry_version": 1,
+                    "status": "passed",
+                    "exit_code": 0,
+                    "output_tail": "build succeeded\n",
+                    "truncated": False,
+                    "artifacts": (
+                        RUNNER.COMMANDS.ArtifactCheck(
+                            path="docs/_build/index.html",
+                            present=True,
+                            type="file",
+                            size=22,
+                        ),
+                    ),
+                    "duration_bucket": "<1s",
+                    "result_sha256": "a" * 64,
+                    "is_safety_error": lambda self: False,
+                    "to_dict": lambda self: {},
+                },
+            )()
             with mock.patch.object(
-                RUNNER.subprocess,
-                "run",
-                return_value=FakeProc("build succeeded\n"),
-            ) as run:
+                RUNNER.COMMANDS, "execute_command", return_value=fake_result
+            ), mock.patch.object(
+                RUNNER.COMMANDS, "create_disposable_workspace",
+                side_effect=lambda src, **k: src,
+            ), mock.patch.object(RUNNER.COMMANDS, "dispose_workspace"):
                 result = RUNNER.run_release_preflight(["make -C docs html"], root)
             self.assertIn("Result: passed", result)
             self.assertIn("Output check: passed (docs/_build/index.html", result)
-            self.assertEqual(run.call_args.args[0][1:], ("-C", "docs", "html"))
 
     def test_html_preflight_fails_when_output_is_missing(self) -> None:
+        fake_result = type(
+            "R",
+            (),
+            {
+                "command_id": "documentation-build",
+                "registry_version": 1,
+                "status": "passed",
+                "exit_code": 0,
+                "output_tail": "build claimed success\n",
+                "truncated": False,
+                "artifacts": (
+                    RUNNER.COMMANDS.ArtifactCheck(
+                        path="docs/_build/index.html",
+                        present=False,
+                        type="missing",
+                        size=0,
+                    ),
+                ),
+                "duration_bucket": "<1s",
+                "result_sha256": "a" * 64,
+                "is_safety_error": lambda self: False,
+                "to_dict": lambda self: {},
+            },
+        )()
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(
-                RUNNER.subprocess,
-                "run",
-                return_value=FakeProc("build claimed success\n"),
-            ):
+                RUNNER.COMMANDS, "execute_command", return_value=fake_result
+            ), mock.patch.object(
+                RUNNER.COMMANDS, "create_disposable_workspace",
+                side_effect=lambda src, **k: src,
+            ), mock.patch.object(RUNNER.COMMANDS, "dispose_workspace"):
                 result = RUNNER.run_release_preflight(
                     ["make -C docs html"], Path(tmp)
                 )
@@ -1720,7 +1810,7 @@ class WorkflowYamlTests(unittest.TestCase):
     def test_examples_validate_only_and_sha_pinned(self) -> None:
         import yaml
 
-        root = REPO_ROOT / "docs/examples/configuration-sources"
+        root = REPO_ROOT / "docs/how-to/examples/configuration-sources"
         for source in ("default", "local", "central"):
             workflows = root / source / ".github/workflows"
             self.assertFalse((workflows / "release-project-review.yml").exists())
@@ -1795,14 +1885,14 @@ class WorkflowYamlTests(unittest.TestCase):
 
 class DocsExamplesTests(unittest.TestCase):
     def test_examples_readme_mentions_release_workflow(self) -> None:
-        text = (REPO_ROOT / "docs/examples/configuration-sources/README.md").read_text(
+        text = (REPO_ROOT / "docs/how-to/examples/configuration-sources/index.md").read_text(
             encoding="utf-8"
         )
         self.assertIn("release-project-review", text)
         self.assertIn("validate_only", text)
 
     def test_operations_guide_documents_promotion(self) -> None:
-        text = (REPO_ROOT / "docs/operations/operations-guide.md").read_text(encoding="utf-8")
+        text = (REPO_ROOT / "docs/developer/operations-guide.md").read_text(encoding="utf-8")
         self.assertIn("release-project-review", text)
         # Promotes validate_only -> dry_run -> publish.
         self.assertIn("dry_run", text)

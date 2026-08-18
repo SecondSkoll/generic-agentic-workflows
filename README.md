@@ -1,21 +1,24 @@
 # generic-agentic-workflows
 
-Reusable GitHub Actions workflows that use OpenCode to provide pull-request
-documentation reviews, issue feedback, a manually dispatched
-issue-to-pull-request implementation path, and a manually dispatched/reusable
-release project-review that creates at most one release-readiness issue.
+Reusable GitHub Actions workflows that use **read only** OpenCode agents
+to provide pull-request documentation reviews, issue feedback, a manually
+dispatched issue-to-pull-request implementation path, and a manually
+dispatched/reusable release project-review that creates at most one
+release-readiness issue.
 
 Note: Issue implementation is not currently set up for calling as a remote action.
+See [Run issue implementation](docs/developer/running-issue-implementation.md) for the
+manual procedure.
 
 ## Start here
 
 1. Add `OPENROUTER_API_KEY` as a repository Actions secret. Keep its scope,
    credit limit, and lifetime minimal.
-2. Copy a wrapper from [`docs/examples/`](docs/examples/README.md), pin the
+2. Copy a wrapper from [the consumer examples](docs/how-to/examples/index.md), pin the
    reusable workflow to a reviewed revision, and grant only the required job
    permissions.
 3. Select one configuration pathway: **default**, **local**, or **central**.
-   The [configuration guide](docs/configuration.md) includes complete
+   The [configuration guide](docs/how-to/configuration.md) includes complete
    SHA-pinned examples for the review, feedback, and release-project-review
    workflows.
 4. Roll out in order: `validate_only: true`, then `dry_run: true`, then normal
@@ -80,25 +83,72 @@ access outside its repository.
 
 ## Further documentation
 
-- [Deploy a workflow](docs/deploying-a-workflow.md) — step-by-step consumer
+### Tutorials
+
+- [Set up your first workflow](docs/tutorial/set-up-your-first-workflow.md) —
+  add and verify a safe validation-only documentation-review workflow.
+
+### How-to guides
+
+- [Deploy a workflow](docs/how-to/deploy-a-workflow.md) — step-by-step consumer
   setup for supplied, local, and central configuration sources.
-- [Create a configuration bundle](docs/creating-a-configuration-bundle.md) —
+- [Configuration guide](docs/how-to/configuration.md) — select and maintain a trusted
+  configuration source.
+- [Create a configuration bundle](docs/how-to/creating-a-configuration-bundle.md) —
   author, hash, validate, and publish a reviewed profile.
-- [`bundle.json` reference](docs/bundle-json-reference.md) — manifest fields,
-  valid workflow mappings, and safety constraints.
-- [Run commands from a configuration bundle](docs/running_commands.md) —
+- [Run commands from a configuration bundle](docs/how-to/running-commands.md) —
   configure and roll out approved release-review preflight commands.
-- [Security model](docs/security-model.md) — trust boundaries, defensive
-  controls, and their rationale.
-- [Configuration guide](docs/configuration.md) — setup, all pathways, bundle
-  layout, and operational safeguards.
-- [Configuration reference](docs/configuration-reference.md) — every caller
-  input and bundle field, with examples.
-- [Consumer examples](docs/examples/README.md) — ready-to-copy wrappers,
+- [Consumer examples](docs/how-to/examples/index.md) — ready-to-copy wrappers,
   including complete `default`, `local`, and `central` source examples.
-- [Operations guide](docs/operations/operations-guide.md) — rollback,
-  reliability controls, and test matrix.
+
+### Reference
+
+- [Configuration reference](docs/reference/configuration-reference.md) — caller inputs,
+  bundle layout, supplied profiles, and output contracts.
+- [`bundle.json` reference](docs/reference/bundle-json-reference.md) — manifest fields,
+  valid workflow mappings, and safety constraints.
+- [Operations reference](docs/reference/operations-reference.md) — versions,
+  provenance, markers, reliability limits, and failure modes.
+
+### Explanation
+
+- [Security model](docs/explanation/security-model.md) — trust boundaries, defensive
+  controls, and their rationale.
+
+### Developer documentation
+
+- [Developer documentation](docs/developer/index.md)
+- [Operations guide](docs/developer/operations-guide.md)
+- [Run issue implementation](docs/developer/running-issue-implementation.md)
 
 > OpenCode configuration (`.opencode/`) is loaded once at startup and is not
 > hot-reloaded. After changing any configuration in `.opencode/`, quit and
 > restart OpenCode for the change to take effect.
+
+## Building the documentation
+
+The documentation is built with the [Canonical Sphinx
+Stack](https://github.com/canonical/sphinx-stack) (tag 2.0). The Sphinx
+configuration lives in [`docs/conf.py`](docs/conf.py) and the entry point is
+[`docs/index.md`](docs/index.md).
+
+Use the Canonical Sphinx Stack Makefile from the repository root. It creates
+`docs/.venv` and installs `docs/requirements.txt`. Read the Docs instead uses
+uv to install the locked `docs` extra from `pyproject.toml`.
+
+```
+make -C docs install
+```
+
+Build the HTML documentation (treats warnings as errors and keeps going to
+report all of them):
+
+```
+make -C docs html
+```
+
+Check external links:
+
+```
+make -C docs linkcheck
+```

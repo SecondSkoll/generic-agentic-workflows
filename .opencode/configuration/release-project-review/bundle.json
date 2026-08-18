@@ -1,13 +1,20 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "profile_name": "release-project-review",
-  "allowed_workflows": ["release-project-review"],
+  "allowed_workflows": [
+    "release-project-review"
+  ],
   "agent_file": "agent.md",
-  "skill_files": ["skills/release-management/SKILL.md"],
+  "skill_files": [
+    "skills/release-management/SKILL.md"
+  ],
   "prompt_template": "prompts/release-project-review.md",
   "model_profile": "release-project-review-readonly",
   "output_contract": "release-project-issue-v1",
-  "preflight_commands": ["make -C docs html"],
+  "preflight_commands": [
+    "documentation-build"
+  ],
+  "midflight_commands": [],
   "limits": {},
   "policy": {
     "capabilities": {

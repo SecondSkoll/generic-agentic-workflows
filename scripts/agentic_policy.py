@@ -217,6 +217,22 @@ BUILTIN_SAFETY_POLICY: dict[str, dict[str, Any]] = {
         #: target-scoped token (verified by the runner before publication).
         "issue_create_only": True,
         "require_external_target_authorization": True,
+        #: Workflow-owned command controls (midflight commands). Restrictive
+        #: only: a lower layer may remove command IDs, lower counts/limits, or
+        #: disable midflight, but cannot add commands or relax isolation. The
+        #: bundle command list is intersected with this ceiling and the pinned
+        #: registry. This section is part of the effective policy hash so a
+        #: command-policy change is detectable in provenance.
+        "workflow_commands": {
+            "allowed_phases": ("preflight", "midflight"),
+            "max_commands_per_phase": 3,
+            "max_commands_total": 3,
+            "allowed_registry_ids": ("documentation-build", "python-pytest"),
+            "required_isolation_profile": "release-midflight-v1",
+            "max_total_wall_seconds": 600,
+            "max_total_output_bytes": 64 * 1024,
+            "max_model_phases": 2,
+        },
     },
 }
 
@@ -419,6 +435,7 @@ class EffectivePolicy:
     layers: tuple[dict[str, Any], ...]
     sha256: str
     context: dict[str, Any] = field(default_factory=dict)
+    workflow_commands: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable effective-policy report."""
@@ -440,6 +457,7 @@ class EffectivePolicy:
             "rejected_conflicts": list(self.rejected_conflicts),
             "sha256": self.sha256,
             "context": dict(self.context),
+            "workflow_commands": dict(self.workflow_commands),
         }
 
     def to_json(self) -> str:
@@ -450,6 +468,98 @@ class EffectivePolicy:
 def _layer(name: str, **fields: Any) -> dict[str, Any]:
     """Build a labelled policy-layer record for diagnostics and hashing."""
     return {"layer": name, **fields}
+
+
+#: Numeric workflow-command ceilings that a lower layer may only lower.
+_WORKFLOW_COMMAND_NUMERIC_CEILINGS: tuple[str, ...] = (
+    "max_commands_per_phase",
+    "max_commands_total",
+    "max_total_wall_seconds",
+    "max_total_output_bytes",
+    "max_model_phases",
+)
+
+
+def _merge_workflow_commands(
+    builtin: dict[str, Any],
+    bundle: dict[str, Any],
+    overlay: dict[str, Any],
+    invocation: Mapping[str, Any],
+    workflow: str,
+) -> dict[str, Any]:
+    """Merge the workflow-command ceiling restrictively across layers.
+
+    Starts from the built-in ceiling. The bundle and overlay may only remove
+    command IDs, lower counts/limits, remove phases, or disable midflight;
+    they cannot add commands, add phases, or relax isolation. The result is
+    included in the effective policy hash so a command-policy change is
+    detectable in provenance.
+    """
+    base = builtin.get("workflow_commands")
+    if not isinstance(base, dict):
+        return {}
+    # Deep-copy the built-in ceiling.
+    effective: dict[str, Any] = {
+        "allowed_phases": tuple(base.get("allowed_phases", ())),
+        "max_commands_per_phase": base.get("max_commands_per_phase"),
+        "max_commands_total": base.get("max_commands_total"),
+        "allowed_registry_ids": tuple(base.get("allowed_registry_ids", ())),
+        "required_isolation_profile": base.get("required_isolation_profile"),
+        "max_total_wall_seconds": base.get("max_total_wall_seconds"),
+        "max_total_output_bytes": base.get("max_total_output_bytes"),
+        "max_model_phases": base.get("max_model_phases"),
+    }
+    for layer_name, layer in (("bundle", bundle), ("overlay", overlay)):
+        section = layer.get("workflow_commands")
+        if not isinstance(section, dict):
+            continue
+        if "allowed_phases" in section:
+            phases = section["allowed_phases"]
+            if not isinstance(phases, list):
+                raise PolicyError(f"{layer_name} workflow_commands.allowed_phases must be a list")
+            current_phases = set(effective["allowed_phases"])
+            for phase in phases:
+                if phase not in current_phases:
+                    raise PolicyError(
+                        f"{layer_name} workflow_commands.allowed_phases cannot "
+                        f"add phase {phase!r}"
+                    )
+            effective["allowed_phases"] = tuple(phases)
+        if "allowed_registry_ids" in section:
+            ids = section["allowed_registry_ids"]
+            if not isinstance(ids, list):
+                raise PolicyError(
+                    f"{layer_name} workflow_commands.allowed_registry_ids must be a list"
+                )
+            current_ids = set(effective["allowed_registry_ids"])
+            for command_id in ids:
+                if command_id not in current_ids:
+                    raise PolicyError(
+                        f"{layer_name} workflow_commands.allowed_registry_ids cannot "
+                        f"add command {command_id!r}"
+                    )
+            effective["allowed_registry_ids"] = tuple(ids)
+        for key in _WORKFLOW_COMMAND_NUMERIC_CEILINGS:
+            if key in section:
+                value = section[key]
+                if isinstance(value, bool) or not isinstance(value, int):
+                    raise PolicyError(f"{layer_name} workflow_commands.{key} must be an integer")
+                ceiling = effective[key]
+                if ceiling is not None and value > ceiling:
+                    raise PolicyError(
+                        f"{layer_name} workflow_commands.{key}={value} exceeds ceiling {ceiling}"
+                    )
+                effective[key] = value
+        # A lower layer may not change the required isolation profile to a
+        # different value (it cannot broaden or substitute).
+        if "required_isolation_profile" in section:
+            requested = section["required_isolation_profile"]
+            if requested != effective["required_isolation_profile"]:
+                raise PolicyError(
+                    f"{layer_name} workflow_commands.required_isolation_profile "
+                    "cannot be broadened or substituted"
+                )
+    return effective
 
 
 def merge_policy(
@@ -620,6 +730,14 @@ def merge_policy(
         r"(^|/)secrets\.", r"(^|/)(?:\.npmrc|\.pypirc|\.netrc)$",
     )
 
+    # Workflow-owned command controls (midflight commands). Restrictive only:
+    # a lower layer may remove command IDs, lower counts/limits, or disable
+    # midflight, but cannot add commands, add phases, or relax isolation. The
+    # effective command policy is part of the policy hash.
+    workflow_commands = _merge_workflow_commands(
+        builtin, bundle, overlay, invocation, workflow
+    )
+
     policy_dict = {
         "workflow": workflow,
         "model_profile": model_profile,
@@ -638,6 +756,7 @@ def merge_policy(
         "rejected_conflicts": tuple(rejected),
         "layers": layers,
         "context": context,
+        "workflow_commands": workflow_commands,
     }
     import hashlib
 
@@ -663,6 +782,7 @@ def merge_policy(
         layers=tuple(layers),
         sha256=sha,
         context=context,
+        workflow_commands=workflow_commands,
     )
 
 

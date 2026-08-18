@@ -1,0 +1,24 @@
+name: Issue feedback (local configuration)
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  feedback:
+    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-issue-feedback.yml@a38b4244024d6c458aef7d055693f9a145399394
+    permissions:
+      contents: read
+      issues: write
+    with:
+      configuration_source: local
+      configuration_profile: local-issue-feedback
+      focus: general
+      max_issues: 20
+      validate_only: true
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

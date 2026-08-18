@@ -1,0 +1,98 @@
+name: External release project review (central configuration)
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      target_repository:
+        description: Canonical owner/repository of the external release to review
+        type: string
+        required: true
+      release_id:
+        description: Optional positive release ID; defaults to the target's latest release
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  find-scheduled-release:
+    name: Find target release published in the last 24 hours
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.find-release.outputs.release_id }}
+    env:
+      # Replace this placeholder with the canonical target owner/repository.
+      TARGET_REPOSITORY: OWNER/REPOSITORY
+      GH_TOKEN: ${{ secrets.release_target_token }}
+    steps:
+      - id: find-release
+        name: Select most recent published release
+        run: |
+          set -euo pipefail
+          gh api "/repos/$TARGET_REPOSITORY/releases?per_page=100" > releases.json
+          release_id=$(python3 - <<'PY'
+          import datetime as dt
+          import json
+
+          now = dt.datetime.now(dt.timezone.utc)
+          cutoff = now - dt.timedelta(hours=24)
+          releases = json.load(open("releases.json", encoding="utf-8"))
+          recent = []
+          for release in releases:
+              published_at = release.get("published_at")
+              if release.get("draft") or not isinstance(published_at, str):
+                  continue
+              published = dt.datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+              if cutoff <= published <= now:
+                  recent.append((published, release["id"]))
+          print(max(recent, default=(None, ""))[1])
+          PY
+          )
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
+  find-dispatch-release:
+    name: Find latest target release for dispatch
+    if: github.event_name == 'workflow_dispatch' && inputs.release_id == ''
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.find-release.outputs.release_id }}
+    env:
+      TARGET_REPOSITORY: ${{ inputs.target_repository }}
+      GH_TOKEN: ${{ secrets.release_target_token }}
+    steps:
+      - id: find-release
+        name: Select latest published release
+        run: |
+          set -euo pipefail
+          release_id=$(gh api "/repos/$TARGET_REPOSITORY/releases/latest" --jq '.id')
+          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+
+  release-review:
+    if: >-
+      always() && (inputs.release_id != '' ||
+      needs.find-dispatch-release.outputs.release_id != '' ||
+      needs.find-scheduled-release.outputs.release_id != ''
+      )
+    needs: [find-scheduled-release, find-dispatch-release]
+    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-release-project-review.yml@a38b4244024d6c458aef7d055693f9a145399394
+    permissions:
+      contents: read
+      issues: write
+    with:
+      target_repository: ${{ inputs.target_repository || 'OWNER/REPOSITORY' }}
+      release_id: ${{ inputs.release_id || needs.find-dispatch-release.outputs.release_id || needs.find-scheduled-release.outputs.release_id }}
+      configuration_source: central
+      # Pin this SHA in SecondSkoll/generic-agentic-workflows-config.
+      configuration_ref: 9b35f1fc2860a1d6b8f1abaa9b467dc4eb42aec8
+      configuration_profile: release-project-review
+      validate_only: true
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      release_target_token: ${{ secrets.release_target_token }}
+      central_config_token: ${{ secrets.central_config_token }}

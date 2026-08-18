@@ -69,7 +69,7 @@ class ReusableWorkflowVerificationTests(unittest.TestCase):
 
     def test_consumer_examples_have_expected_reusable_wiring(self) -> None:
         """Examples retain SHA-pinned, validate-only configuration wiring."""
-        examples_root = REPO_ROOT / "docs/examples/configuration-sources"
+        examples_root = REPO_ROOT / "docs/how-to/examples/configuration-sources"
         for source in ("default", "local", "central"):
             for filename, (job_name, reusable_workflow, profile) in EXAMPLES.items():
                 with self.subTest(source=source, filename=filename):

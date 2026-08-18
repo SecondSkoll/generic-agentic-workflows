@@ -1,0 +1,29 @@
+name: Release project review (self, central configuration)
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  release-review:
+    # The pin below must point to a reviewed release commit that contains both
+    # the reusable workflow and the supplied release-project-review profile.
+    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-release-project-review.yml@a38b4244024d6c458aef7d055693f9a145399394
+    permissions:
+      contents: read
+      issues: write
+    with:
+      target_repository: ${{ github.repository }}
+      release_id: ${{ github.event.release.id }}
+      configuration_source: central
+      # Pin this SHA in SecondSkoll/generic-agentic-workflows-config.
+      configuration_ref: 9b35f1fc2860a1d6b8f1abaa9b467dc4eb42aec8
+      configuration_profile: release-project-review
+      validate_only: true
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      central_config_token: ${{ secrets.central_config_token }}
