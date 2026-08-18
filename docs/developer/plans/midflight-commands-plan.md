@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # Plan: safe `midflight_commands` for release project review
 
 ## Objective

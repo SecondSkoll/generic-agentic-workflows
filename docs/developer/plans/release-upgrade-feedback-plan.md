@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # Plan: safe `release-upgrade-feedback` workflow
 
 ## Objective
@@ -30,7 +34,7 @@ validated in dry runs.
 
 This plan assumes the capability registry, disposable execution environment,
 bounded output capture, phase-aware prompt handoffs, policy ceilings, and other
-controls from `docs/plans/midflight-commands-plan.md` have already been
+controls from `docs/developer/midflight-commands-plan.md` have already been
 implemented. It does not reuse the current unsafe string-based preflight
 implementation in `run_agentic_release_project_review.py`.
 

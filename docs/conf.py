@@ -154,15 +154,13 @@ extensions = [
 
 # Exclude the local virtualenv plus the non-documentation artifacts nested
 # under the configuration-source examples (per-source `.github` workflow
-# wrappers and `.opencode` configuration bundles). Internal planning documents
-# under `docs/plans/` remain in the repository but are not published. `_build`
-# is the Sphinx output directory.
+# wrappers and `.opencode` configuration bundles). `_build` is the Sphinx
+# output directory.
 exclude_patterns = [
     ".venv*",
     "**/.github",
     "**/.opencode",
     "_build*",
-    "plans",
 ]
 
 # ---------------------------------------------------------------------------

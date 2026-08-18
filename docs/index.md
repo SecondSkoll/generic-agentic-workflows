@@ -35,6 +35,8 @@ publication.
   fields, versions, limits, and operational behavior.
 - **Understanding → [Explanation](explanation/index.md):** understand the trust
   boundaries and the reasons for the defensive controls.
+- **Maintaining → [Developer documentation](developer/index.md):** understand
+  implementation plans and maintain the workflow code safely.
 
 ```{toctree}
 :maxdepth: 2
@@ -62,4 +64,11 @@ reference/index
 :caption: Explanation
 
 explanation/index
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Developer documentation
+
+developer/index
 ```

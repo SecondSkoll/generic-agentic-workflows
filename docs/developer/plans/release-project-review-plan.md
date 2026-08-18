@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # Plan: release project-management review workflow
 
 ## Objective
