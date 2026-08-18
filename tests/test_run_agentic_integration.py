@@ -343,6 +343,183 @@ class IntegratedRunTests(unittest.TestCase):
             self.assertEqual(diagnostics["location_validation"][0]["reason"], "invalid_location")
             self.assertEqual(diagnostics["location_validation"][0]["line"], 287)
 
+    def test_blank_anchor_suggestion_demotes_to_summary(self):
+        # PR #17 shape: the model anchors a ```suggestion``` at a blank added
+        # line right after the intended line. The blank anchor must demote to
+        # summary feedback with reason=blank_suggestion_anchor, exit 0, and
+        # publish no inline comments.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, _ = self._write_inputs(tmp_path)
+            diff_path = tmp_path / "pr.diff"
+            # Two added lines: line 1 = the typo'd note, line 2 = a blank
+            # added line. The model anchors the suggestion at line 2.
+            diff_path.write_text(
+                "diff --git a/README.md b/README.md\n"
+                "--- a/README.md\n"
+                "+++ b/README.md\n"
+                "@@ -1,1 +1,2 @@\n"
+                "+typo'd note text\n"
+                "+\n",
+                encoding="utf-8",
+            )
+            diagnostics_path = tmp_path / "response-diagnostics.json"
+            output = json.dumps(
+                {
+                    "summary": "Review complete.",
+                    "comments": [
+                        {
+                            "path": "README.md",
+                            "line": 2,
+                            "body": "Fix the typo in the note above.",
+                            "suggestion": "fixed note text",
+                        }
+                    ],
+                }
+            )
+            with (
+                mock.patch.object(RUNNER.subprocess, "run", return_value=FakeSubprocessResult(_opencode_text_event(output))),
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
+                rc = RUNNER.main([
+                    "--input", str(diff_path),
+                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
+                    "--repository", "o/r", "--pull-number", "1", "--head-sha", "abc123",
+                    "--feedback-kind", "pr-documentation-review", "--author", "octocat",
+                    "--resolved-config", str(bundle_path), "--effective-policy", str(policy_path),
+                    "--response-diagnostics", str(diagnostics_path),
+                ])
+            self.assertEqual(rc, 0)
+            published = mock_gh.call_args.kwargs["body"]
+            self.assertEqual(published["comments"], [])
+            self.assertIn("no valid inline location", published["body"])
+            # Untrusted anchor/suggestion content must not leak verbatim.
+            self.assertNotIn("typo'd note text", published["body"])
+            diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                diagnostics["location_validation"][0]["reason"],
+                "blank_suggestion_anchor",
+            )
+            self.assertEqual(diagnostics["location_validation"][0]["outcome"], "summary")
+
+    def test_valid_anchor_suggestion_publishes_inline(self):
+        # Positive control: a suggestion anchored at a real added line with
+        # differing replacement content publishes exactly as before.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, _ = self._write_inputs(tmp_path)
+            diff_path = tmp_path / "pr.diff"
+            diff_path.write_text(
+                "diff --git a/README.md b/README.md\n"
+                "--- a/README.md\n"
+                "+++ b/README.md\n"
+                "@@ -1,1 +1,1 @@\n"
+                "+typo'd note text\n",
+                encoding="utf-8",
+            )
+            output = json.dumps(
+                {
+                    "summary": "Review complete.",
+                    "comments": [
+                        {
+                            "path": "README.md",
+                            "line": 1,
+                            "body": "Fix the typo in the note.",
+                            "suggestion": "fixed note text",
+                        }
+                    ],
+                }
+            )
+            with (
+                mock.patch.object(RUNNER.subprocess, "run", return_value=FakeSubprocessResult(_opencode_text_event(output))),
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
+                rc = RUNNER.main([
+                    "--input", str(diff_path),
+                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
+                    "--repository", "o/r", "--pull-number", "1", "--head-sha", "abc123",
+                    "--feedback-kind", "pr-documentation-review", "--author", "octocat",
+                    "--resolved-config", str(bundle_path), "--effective-policy", str(policy_path),
+                ])
+            self.assertEqual(rc, 0)
+            published = mock_gh.call_args.kwargs["body"]
+            self.assertEqual(len(published["comments"]), 1)
+            self.assertEqual(published["comments"][0]["line"], 1)
+            self.assertIn("```suggestion", published["comments"][0]["body"])
+
+    def test_context_loop_blank_anchor_demotes_on_final_parse(self):
+        # Regression for context_policy == "pr-review-on-demand-v1": the
+        # context loop returns the final review JSON, then main re-parses it
+        # with line_contents. A suggestion anchored at a blank added line
+        # must demote to summary feedback with reason=blank_suggestion_anchor,
+        # publish zero inline comments, and exit 0.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, _ = self._write_inputs(tmp_path)
+            diff_path = tmp_path / "pr.diff"
+            # Two added lines: line 1 = the typo'd note, line 2 = a blank
+            # added line. The model anchors the suggestion at line 2.
+            diff_path.write_text(
+                "diff --git a/README.md b/README.md\n"
+                "--- a/README.md\n"
+                "+++ b/README.md\n"
+                "@@ -1,1 +1,2 @@\n"
+                "+typo'd note text\n"
+                "+\n",
+                encoding="utf-8",
+            )
+            diagnostics_path = tmp_path / "response-diagnostics.json"
+            final_output = json.dumps(
+                {
+                    "summary": "Review complete.",
+                    "comments": [
+                        {
+                            "path": "README.md",
+                            "line": 2,
+                            "body": "Fix the typo in the note above.",
+                            "suggestion": "fixed note text",
+                        }
+                    ],
+                }
+            )
+            with (
+                mock.patch.object(
+                    RUNNER,
+                    "_run_opencode_integrated",
+                    return_value=(0, final_output),
+                ) as mock_integrated,
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
+                rc = RUNNER.main([
+                    "--input", str(diff_path),
+                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
+                    "--repository", "o/r", "--pull-number", "1", "--head-sha", "abc123",
+                    "--feedback-kind", "pr-documentation-review", "--author", "octocat",
+                    "--resolved-config", str(bundle_path), "--effective-policy", str(policy_path),
+                    "--base-ref", "main", "--head-ref", "feature",
+                    "--response-diagnostics", str(diagnostics_path),
+                ])
+            self.assertEqual(rc, 0)
+            # The context loop path was actually taken.
+            mock_integrated.assert_called_once()
+            published = mock_gh.call_args.kwargs["body"]
+            self.assertEqual(published["comments"], [])
+            self.assertIn("no valid inline location", published["body"])
+            # Untrusted anchor/suggestion content must not leak verbatim.
+            self.assertNotIn("typo'd note text", published["body"])
+            diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                diagnostics["location_validation"][0]["reason"],
+                "blank_suggestion_anchor",
+            )
+            self.assertEqual(diagnostics["location_validation"][0]["outcome"], "summary")
+
     def test_existing_v2_marker_suppresses_duplicate(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

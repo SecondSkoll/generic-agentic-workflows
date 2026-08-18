@@ -323,6 +323,46 @@ def changed_lines_by_path(diff: str) -> dict[str, set[int]]:
     return lines_by_path
 
 
+def changed_line_contents_by_path(diff: str) -> dict[str, dict[int, str]]:
+    """Return added-line text, indexed by repository path and new-file line.
+
+    Mirrors :func:`changed_lines_by_path` exactly, but also records the text
+    of each added new-file line. The returned mapping is consumed only by the
+    suggestion-anchor content checks in
+    :func:`agentic_prompts.parse_pr_review_output`; it is never published and
+    never echoed in diagnostics.
+    """
+    contents_by_path: dict[str, dict[int, str]] = {}
+    path: str | None = None
+    new_line: int | None = None
+
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            candidate = line[4:]
+            path = candidate[2:] if candidate.startswith("b/") else None
+            new_line = None
+            if path and path != "/dev/null":
+                contents_by_path.setdefault(path, {})
+            continue
+
+        hunk = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)
+        if hunk:
+            new_line = int(hunk.group(1))
+            continue
+
+        if path is None or new_line is None or line.startswith("\\"):
+            continue
+        if line.startswith("+"):
+            # Strip the leading ``+`` added-line marker to record the actual
+            # new-file content at this line number.
+            contents_by_path[path][new_line] = line[1:]
+            new_line += 1
+        elif not line.startswith("-"):
+            new_line += 1
+
+    return contents_by_path
+
+
 class DiffFile:
     """Parsed metadata for one path in a unified pull-request diff."""
 
@@ -741,6 +781,9 @@ def main(argv: list[str] | None = None) -> int:
 
     input_text = args.input.read_text(encoding="utf-8")
     changed_lines = changed_lines_by_path(input_text) if reviews_url else {}
+    line_contents = (
+        changed_line_contents_by_path(input_text) if reviews_url else None
+    )
     allowed_locations = format_changed_locations(changed_lines) if reviews_url else None
 
     pr_metadata: dict[str, object] = {}
@@ -829,6 +872,7 @@ def main(argv: list[str] | None = None) -> int:
                 changed_lines=changed_lines,
                 max_comments=effective_max_comments,
                 location_diagnostics=location_diagnostics,
+                line_contents=line_contents,
             )
             if diagnostics is not None:
                 diagnostics["location_validation"] = location_diagnostics

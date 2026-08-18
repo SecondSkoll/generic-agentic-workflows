@@ -365,6 +365,10 @@ def _pr_review_suffix() -> str:
         "- For a multi-line suggestion, also provide `start_line` and ensure "
         "every line from `start_line` through `line` is a changed new-file "
         "line.\n"
+        "- Anchor a suggestion to the new-file line(s) it actually addresses. "
+        "Never anchor to a blank, context, or unrelated line, and never "
+        "propose a replacement identical to the current content; the workflow "
+        "demotes such suggestions to summary feedback.\n"
         "- Do not include `side` or `start_side` fields.\n"
         "\nYou may instead return `pr-review-context-request-v1` JSON only when "
         "more evidence is necessary: `{" 
@@ -728,6 +732,7 @@ def parse_pr_review_output(
     *,
     max_comments: int | None = None,
     location_diagnostics: list[dict[str, object]] | None = None,
+    line_contents: dict[str, dict[int, str]] | None = None,
 ) -> tuple[str, list[dict[str, object]]]:
     """Parse and validate a `pr-review-json-v1` response.
 
@@ -735,6 +740,22 @@ def parse_pr_review_output(
     identical comments, and never letting output control API endpoints,
     repository identity, or permissions. Invalid locations are retained in
     the summary when safe.
+
+    When ``line_contents`` is supplied (a mapping of path to added-line
+    number -> line text), suggestion comments whose otherwise-valid addressed
+    range is entirely blank (``blank_suggestion_anchor``) or whose
+    replacement equals the range's current content (``no_op_suggestion``) are
+    demoted to the summary fallback. The addressed range is
+    ``start_line..line`` for a valid multi-line suggestion, or ``line`` for a
+    single-line comment. Demotion requires every range line's content to be
+    positively present in ``line_contents``; a missing entry means no signal
+    and never a blank-anchor demotion. The no-op comparison joins the range's
+    exact added-line contents with newlines and normalizes only unavoidable
+    surrounding trailing newlines on the suggestion payload, so a
+    whitespace-only meaningful edit is not falsely treated as a no-op. The
+    anchor line text is used only for these comparisons and is never echoed
+    in published feedback or diagnostics. When ``line_contents`` is ``None``
+    the prior behavior is preserved exactly.
     """
     changed_lines = changed_lines or {}
     raw_json = extract_json_object(output, contract="pr-review-json-v1")
@@ -819,7 +840,54 @@ def parse_pr_review_output(
             has_valid_location and not has_valid_range and not has_suggestion
         )
 
-        if has_valid_location and (has_valid_range or recover_single):
+        # Content-aware suggestion-anchor demotion. A suggestion whose
+        # addressed range is entirely blank, or whose replacement equals the
+        # range's current content, is a no-op publish that would mis-position
+        # an apply-able change. Demote to the summary fallback without echoing
+        # the untrusted line content. Only applied when the caller supplies
+        # ``line_contents`` and the location/range would otherwise publish.
+        # The addressed range is ``start_line..line`` for a valid multi-line
+        # range, or just ``line`` for a single-line comment. Demotion requires
+        # every range line's content to be positively present in
+        # ``line_contents``: a missing entry means no signal (skip), never a
+        # blank-anchor demotion. Blank-anchor demotion fires only when every
+        # range line is blank, so a valid multi-line range that includes
+        # nonblank addressed content is not demoted just because its final
+        # line is blank. No-op comparison uses exact content joined with
+        # newlines and normalizes only unavoidable surrounding trailing
+        # newlines on the suggestion payload; indentation and trailing
+        # spaces are preserved so a whitespace-only meaningful edit is not
+        # falsely treated as a no-op.
+        suggestion_demoted = False
+        demotion_reason = ""
+        if (
+            line_contents is not None
+            and has_suggestion
+            and has_valid_location
+            and (has_valid_range or recover_single)
+        ):
+            range_lines = (
+                list(range(start_line, line + 1))
+                if (has_valid_range and start_line is not None)
+                else [line]
+            )
+            path_contents = line_contents.get(path, {})
+            if all(ln in path_contents for ln in range_lines):
+                contents = [path_contents[ln] for ln in range_lines]
+                if all(not c.strip() for c in contents):
+                    suggestion_demoted = True
+                    demotion_reason = "blank_suggestion_anchor"
+                else:
+                    current_content = "\n".join(contents)
+                    if current_content.rstrip("\n") == suggestion.rstrip("\n"):
+                        suggestion_demoted = True
+                        demotion_reason = "no_op_suggestion"
+
+        if (
+            has_valid_location
+            and (has_valid_range or recover_single)
+            and not suggestion_demoted
+        ):
             key = (
                 path,
                 line,
@@ -856,7 +924,9 @@ def parse_pr_review_output(
             unlocated.append(
                 f"- **Additional feedback (no valid inline location):** {body.strip()}"
             )
-            if not has_valid_location:
+            if suggestion_demoted:
+                reason = demotion_reason
+            elif not has_valid_location:
                 reason = "invalid_location"
             elif not has_valid_range:
                 reason = "invalid_range"

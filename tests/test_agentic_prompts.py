@@ -303,6 +303,216 @@ class OutputContractTests(unittest.TestCase):
         )
         self.assertEqual(len(comments), 2)
 
+    def test_pr_review_blank_anchor_suggestion_demotes(self):
+        output = json.dumps(
+            {
+                "summary": "s",
+                "comments": [
+                    {
+                        "path": "a.py",
+                        "line": 11,
+                        "body": "Replace this line.",
+                        "suggestion": "fixed text",
+                    }
+                ],
+            }
+        )
+        diagnostics: list[dict[str, object]] = []
+        summary, comments = PROMPTS.parse_pr_review_output(
+            output,
+            {"a.py": {10, 11}},
+            location_diagnostics=diagnostics,
+            line_contents={"a.py": {10: "real content", 11: ""}},
+        )
+        self.assertEqual(comments, [])
+        self.assertIn("Additional feedback", summary)
+        self.assertEqual(diagnostics[0]["outcome"], "summary")
+        self.assertEqual(diagnostics[0]["reason"], "blank_suggestion_anchor")
+        # Untrusted anchor content is never echoed.
+        self.assertNotIn("real content", summary)
+
+    def test_pr_review_noop_suggestion_demotes(self):
+        output = json.dumps(
+            {
+                "summary": "s",
+                "comments": [
+                    {
+                        "path": "a.py",
+                        "line": 10,
+                        "body": "Replace this line.",
+                        "suggestion": "real content",
+                    }
+                ],
+            }
+        )
+        diagnostics: list[dict[str, object]] = []
+        summary, comments = PROMPTS.parse_pr_review_output(
+            output,
+            {"a.py": {10}},
+            location_diagnostics=diagnostics,
+            line_contents={"a.py": {10: "real content"}},
+        )
+        self.assertEqual(comments, [])
+        self.assertIn("Additional feedback", summary)
+        self.assertEqual(diagnostics[0]["outcome"], "summary")
+        self.assertEqual(diagnostics[0]["reason"], "no_op_suggestion")
+
+    def test_pr_review_proper_anchor_publishes_suggestion(self):
+        output = json.dumps(
+            {
+                "summary": "s",
+                "comments": [
+                    {
+                        "path": "a.py",
+                        "line": 10,
+                        "body": "Replace this line.",
+                        "suggestion": "fixed text",
+                    }
+                ],
+            }
+        )
+        diagnostics: list[dict[str, object]] = []
+        _, comments = PROMPTS.parse_pr_review_output(
+            output,
+            {"a.py": {10}},
+            location_diagnostics=diagnostics,
+            line_contents={"a.py": {10: "typo content"}},
+        )
+        self.assertEqual(len(comments), 1)
+        self.assertEqual(diagnostics[0]["outcome"], "inline")
+        self.assertEqual(diagnostics[0]["reason"], "valid")
+
+    def test_pr_review_line_contents_none_preserves_old_behavior(self):
+        # A blank anchor with a suggestion publishes when line_contents is
+        # None: the content-aware demotion must not fire.
+        output = json.dumps(
+            {
+                "summary": "s",
+                "comments": [
+                    {
+                        "path": "a.py",
+                        "line": 10,
+                        "body": "Replace this line.",
+                        "suggestion": "fixed text",
+                    }
+                ],
+            }
+        )
+        _, comments = PROMPTS.parse_pr_review_output(
+            output, {"a.py": {10}}, line_contents=None
+        )
+        self.assertEqual(len(comments), 1)
+
+    def test_pr_review_multiline_noop_demotes(self):
+        # Range-aware no-op: a multi-line suggestion whose replacement equals
+        # the joined current range content demotes.
+        output = json.dumps(
+            {
+                "summary": "s",
+                "comments": [
+                    {
+                        "path": "a.py",
+                        "start_line": 10,
+                        "line": 11,
+                        "body": "Replace both lines.",
+                        "suggestion": "first\nsecond",
+                    }
+                ],
+            }
+        )
+        diagnostics: list[dict[str, object]] = []
+        _, comments = PROMPTS.parse_pr_review_output(
+            output,
+            {"a.py": {10, 11}},
+            location_diagnostics=diagnostics,
+            line_contents={"a.py": {10: "first", 11: "second"}},
+        )
+        self.assertEqual(comments, [])
+        self.assertEqual(diagnostics[0]["outcome"], "summary")
+        self.assertEqual(diagnostics[0]["reason"], "no_op_suggestion")
+
+    def test_pr_review_valid_range_ending_blank_publishes(self):
+        # A multi-line range that includes nonblank addressed content must NOT
+        # be demoted as a blank anchor even when its final line is blank.
+        output = json.dumps(
+            {
+                "summary": "s",
+                "comments": [
+                    {
+                        "path": "a.py",
+                        "start_line": 10,
+                        "line": 11,
+                        "body": "Replace the range.",
+                        "suggestion": "new content\n",
+                    }
+                ],
+            }
+        )
+        diagnostics: list[dict[str, object]] = []
+        _, comments = PROMPTS.parse_pr_review_output(
+            output,
+            {"a.py": {10, 11}},
+            location_diagnostics=diagnostics,
+            line_contents={"a.py": {10: "real content", 11: ""}},
+        )
+        self.assertEqual(len(comments), 1)
+        self.assertEqual(diagnostics[0]["outcome"], "inline")
+        self.assertEqual(diagnostics[0]["reason"], "valid")
+
+    def test_pr_review_missing_range_content_skips_demotion(self):
+        # A missing entry in line_contents must mean no signal: no demotion,
+        # the comment publishes (location/range are otherwise valid).
+        output = json.dumps(
+            {
+                "summary": "s",
+                "comments": [
+                    {
+                        "path": "a.py",
+                        "line": 11,
+                        "body": "Replace this line.",
+                        "suggestion": "fixed text",
+                    }
+                ],
+            }
+        )
+        diagnostics: list[dict[str, object]] = []
+        _, comments = PROMPTS.parse_pr_review_output(
+            output,
+            {"a.py": {10, 11}},
+            location_diagnostics=diagnostics,
+            # Line 11 content absent (not blank): no demotion signal.
+            line_contents={"a.py": {10: "real content"}},
+        )
+        self.assertEqual(len(comments), 1)
+        self.assertEqual(diagnostics[0]["outcome"], "inline")
+
+    def test_pr_review_whitespace_only_meaningful_change_publishes(self):
+        # Exact-content comparison: a suggestion that changes only
+        # leading/trailing whitespace is a meaningful edit and must publish.
+        output = json.dumps(
+            {
+                "summary": "s",
+                "comments": [
+                    {
+                        "path": "a.py",
+                        "line": 10,
+                        "body": "Tighten indentation.",
+                        "suggestion": "indented",
+                    }
+                ],
+            }
+        )
+        diagnostics: list[dict[str, object]] = []
+        _, comments = PROMPTS.parse_pr_review_output(
+            output,
+            {"a.py": {10}},
+            location_diagnostics=diagnostics,
+            line_contents={"a.py": {10: "  indented  "}},
+        )
+        self.assertEqual(len(comments), 1)
+        self.assertEqual(diagnostics[0]["outcome"], "inline")
+        self.assertEqual(diagnostics[0]["reason"], "valid")
+
     def test_pr_review_rejects_code_fence_in_suggestion(self):
         output = json.dumps(
             {

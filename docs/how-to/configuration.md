@@ -83,6 +83,10 @@ repository layout and release process.
   counts. Prompt text, paths, model IDs, URLs, and mutable refs are rejected.
 - PR inline comments must target added diff lines; invalid locations become
   summary feedback instead of failing publication.
+- For suggested changes, the workflow checks the current content of the
+  addressed new-file range. It demotes entirely blank ranges and replacements
+  identical to the current range to summary feedback rather than publishing
+  them as apply-able suggestions.
 
 ## Release project-review
 
