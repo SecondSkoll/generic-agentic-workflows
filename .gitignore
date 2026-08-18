@@ -7,3 +7,4 @@ __pycache__/
 # Sphinx build output
 docs/_build/
 docs/_build-linkcheck/
+docs/_build-baseline/

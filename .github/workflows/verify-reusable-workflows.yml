@@ -28,6 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install UV
@@ -65,25 +66,4 @@ jobs:
       - name: Run unit tests (includes real OpenCode smoke when binary present)
         run: uv run python -m unittest discover -s tests -v
 
-  docs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-
-      - name: Install UV
-        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: pyproject.toml
-
-      - name: Sync documentation dependencies
-        run: uv sync --extra docs
-
-      - name: Build documentation (warnings as errors)
-        run: uv run --no-sync --extra docs sphinx-build -b dirhtml -W --keep-going docs docs/_build
-
-      - name: Check documentation links (warnings as errors)
-        run: uv run --no-sync --extra docs sphinx-build -b linkcheck -W --keep-going docs docs/_build-linkcheck
 # End of workflow.

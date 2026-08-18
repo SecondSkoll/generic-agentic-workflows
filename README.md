@@ -124,22 +124,22 @@ Stack](https://github.com/canonical/sphinx-stack) (tag 2.0). The Sphinx
 configuration lives in [`docs/conf.py`](docs/conf.py) and the entry point is
 [`docs/index.md`](docs/index.md).
 
-Install the documentation dependencies (declared as the `docs` extra in
-`pyproject.toml`):
+Use the Canonical Sphinx Stack Makefile from the repository root. It installs
+the locked `docs` extra declared in `pyproject.toml`:
 
 ```
-uv sync --extra docs
+make -C docs install
 ```
 
 Build the HTML documentation (treats warnings as errors and keeps going to
 report all of them):
 
 ```
-uv run --extra docs sphinx-build -b dirhtml -W --keep-going docs docs/_build
+make -C docs html
 ```
 
 Check external links:
 
 ```
-uv run --extra docs sphinx-build -b linkcheck -W --keep-going docs docs/_build-linkcheck
+make -C docs linkcheck
 ```

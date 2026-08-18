@@ -161,7 +161,7 @@ exclude_patterns = [
     ".venv*",
     "**/.github",
     "**/.opencode",
-    "_build",
+    "_build*",
     "plans",
 ]
 
