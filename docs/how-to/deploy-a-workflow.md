@@ -18,7 +18,7 @@ For authoring a local or central profile, see [creating a configuration bundle](
 
 The issue-implementation workflow is manual-dispatch only. It is not available
 as a remote reusable call. To use it in this repository, follow [Run issue
-implementation](running-issue-implementation.md).
+implementation](../developer/running-issue-implementation.md).
 
 Use the copy-ready wrappers under [configuration-source examples](examples/configuration-sources/index.md)
 when one matches the intended deployment.
@@ -164,12 +164,10 @@ Promote the wrapper through these stages:
 5. Remove `dry_run` to allow publication.
 
 `validate_only` and `dry_run` are mutually exclusive. At any stage, return to
-a known-good workflow or remote-bundle SHA to roll back explicitly. For
-release review, `midflight_commands` ships disabled; opt in a single low-risk
-command only after dry-run evaluation, and roll back by emptying
-`midflight_commands` or pinning the last known-good bundle SHA. Never fall back
-automatically to an unisolated executor or a one-stage model decision after a
-midflight failure.
+a known-good workflow or remote-bundle SHA to roll back explicitly. For command
+and midflight rollout and rollback behavior, see [Run commands from a
+configuration bundle](running-commands.md) and the [operations
+guide](../developer/operations-guide.md).
 
 ## 6. Verify ongoing operation
 
@@ -177,5 +175,5 @@ Each run uploads short-retention (14-day) redacted artifacts, including the
 resolved configuration, effective policy, and provenance record. Use them to
 confirm the selected profile, remote SHA, output contract, model profile, and
 result without exposing credentials, full prompts, raw model output, or full
-untrusted content. See the [operations guide](operations-guide.md)
+untrusted content. See the [operations guide](../developer/operations-guide.md)
 for rollback, incident response, and reliability limits.

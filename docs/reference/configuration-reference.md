@@ -1,10 +1,11 @@
 # Configuration reference
 
-This reference describes every supported configuration field for reusable
-pull-request review, issue-feedback, and release-project-review workflows, plus
-the files that make up a configuration bundle. Remote bundles are hash-verified; caller-local bundles
-may omit the optional hash lock. For setup and rollout instructions, see
-the [configuration guide](../how-to/configuration.md).
+This reference describes caller inputs, bundle layout, supplied profiles,
+the `hashes.json` overview, and output contracts for reusable pull-request
+review, issue-feedback, and release-project-review workflows. Remote bundles
+are hash-verified; caller-local bundles may omit the optional hash lock. For
+setup and rollout instructions, see the [configuration
+guide](../how-to/configuration.md).
 
 Configuration has two layers:
 
@@ -104,46 +105,11 @@ traversal, and symlinks are rejected.
 
 ## `bundle.json` fields
 
-`bundle.json` is a JSON object. The following example is a valid
-issue-feedback profile using some fictitious values:
+The [`bundle.json` reference](bundle-json-reference.md#fields) defines the
+manifest fields, schema versions, content-path rules, and workflow mappings.
+Use it as the canonical field reference for local and remote bundles.
 
-```json
-{
-  "schema_version": 1,
-  "profile_name": "product-issue-feedback",
-  "allowed_workflows": ["issue-feedback"],
-  "agent_file": "agent.md",
-  "skill_files": ["skills/triage/SKILL.md"],
-  "prompt_template": "prompts/feedback.md",
-  "model_profile": "issue-feedback-readonly",
-  "output_contract": "issue-feedback-markdown-v1",
-  "limits": {"max_comments": 5},
-  "policy": {
-    "capabilities": {
-      "filesystem": "read-issue-context-only",
-      "github_write": "issue-comment-only",
-      "delegation": "deny"
-    }
-  }
-}
-```
-
-| Field | Required | Type | Description and example |
-| --- | --- | --- | --- |
-| `schema_version` | Yes | integer | Bundle schema version. The supported values are `1` and `2`. Schema 1 is preserved for existing bundles; schema 2 is ID-based and is the only schema that may declare `midflight_commands`. Unknown manifest keys are rejected in every schema. |
-| `profile_name` | Yes | string | Must equal the selected profile directory name and match `[a-z0-9][a-z0-9-]{0,62}`. Example: `product-issue-feedback`. |
-| `allowed_workflows` | Yes | non-empty string array | Workflows that may use the bundle: `pr-documentation-review`, `issue-feedback`, `issue-implementation`, or `release-project-review`. Example: `["issue-feedback"]`. |
-| `agent_file` | Yes | safe relative path | Primary agent Markdown file. Example: `agent.md`. Its YAML front matter must declare a unique `name`. |
-| `additional_agent_files` | No | unique array of safe relative paths | Extra agent Markdown files, used by the implementation profile. Example: `["executor.md"]`. Each requires unique `name` front matter and may not repeat `agent_file`. |
-| `skill_files` | Yes (may be empty) | unique array of safe relative paths | Skill Markdown files. Example: `["skills/triage/SKILL.md"]`. Each requires YAML front matter with a unique `name`. |
-| `prompt_template` | Yes | safe relative path | Prompt template file. Example: `prompts/feedback.md`. |
-| `model_profile` | Yes | string | Reviewed model-profile identifier, matching the profile-name grammar. Example: `issue-feedback-readonly`. Callers cannot override it. |
-| `output_contract` | Yes | string | Workflow-owned output contract: `pr-review-json-v1`, `issue-feedback-markdown-v1`, `issue-implementation-decision-v1`, or `release-project-issue-v1`. |
-| `context_policy` | No | string | PR-review-only context collection policy. The currently supported value is `pr-review-on-demand-v1`; omit it for issue workflows. |
-| `limits` | No | object | Profile limits. For review profiles, use `{"max_comments": 10}` to cap caller-selected comments at 10. An empty object is valid. |
-| `policy` | No | object | Bundle policy overlay. It can further restrict behavior, for example the `capabilities` object in the preceding example. It must be a JSON object. |
-| `preflight_commands` | No | array of strings | Release-project-review only; at most three commands. Schema 2 lists registry IDs; schema 1 lists legacy shell strings resolved through compatibility aliases. |
-| `midflight_commands` | No | array of command IDs | Schema 2 only, release-project-review only; at most three unique registry command IDs run between two model phases. The model cannot select or override commands. |
+## Supplied profiles
 
 The available supplied profiles demonstrate the supported workflow mappings:
 
@@ -156,11 +122,9 @@ The available supplied profiles demonstrate the supported workflow mappings:
 
 ## `hashes.json`
 
-For remote profiles, `hashes.json` maps every declared content file to its
-lowercase SHA-256 digest. It is optional for local profiles; when supplied,
-the same all-and-only mapping is enforced. Do not include `bundle.json` or
-`hashes.json` itself. For the previous
-issue-feedback example, its shape is:
+For normative hash rules, see [Relationship to
+`hashes.json`](bundle-json-reference.md#relationship-to-hashesjson). For the
+previous issue-feedback example, its shape is:
 
 ```json
 {
@@ -177,44 +141,13 @@ actual values after every content edit rather than copying them:
 uv run scripts/update_hashes.py --profile product-issue-feedback
 ```
 
-Hashes are required to fetch remote profiles. They are optional for local
-configuration, which is read from the caller repository's trusted checkout.
-
 ## Agent and skill front matter
 
-The agent and every skill require YAML front matter with `name`. This minimal
-agent is suitable for an issue-feedback profile:
-
-```markdown
----
-name: product-issue-feedback
-description: Provide concise, actionable feedback for product issues
-mode: primary
-model: openrouter/openai/gpt-5.6-luna
-permission:
-  edit: deny
-  bash: deny
-  read: allow
----
-
-# Product issue feedback agent
-
-Return only the response required by the configured output contract.
-```
-
-For PR review profiles, agent front matter must remain read-only: requesting
-`permission.edit: allow` is rejected. A corresponding minimal skill is:
-
-```markdown
----
-name: triage
-description: Classify issue feedback by clarity and reproducibility
----
-
-# Triage guidance
-
-Ask for missing reproduction steps, expected behavior, and actual behavior.
-```
+The agent and every skill require YAML front matter with a unique `name`.
+Review-profile agents must remain read-only; requesting
+`permission.edit: allow` is rejected. See [Create a configuration
+bundle](../how-to/creating-a-configuration-bundle.md#add-the-agent-skills-and-prompt)
+for complete agent and skill examples.
 
 ## Values callers cannot configure
 

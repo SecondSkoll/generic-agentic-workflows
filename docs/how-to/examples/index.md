@@ -34,17 +34,9 @@ declares.
 For complete pull-request documentation-review and issue-feedback workflows
 for each supported configuration source, copy one of the directories described
 in the [configuration-source examples](configuration-sources/index.md).
-These examples use this
-repository as the reusable workflow source and contain real full commit-SHA
-pins:
-
-- [`default/`](configuration-sources/default/) — supplied configuration;
-   no additional bundle files.
-- [`local/`](configuration-sources/local/) — repository-owned configuration,
-  including valid placeholder documentation-review and issue-feedback bundles.
-- [`central/`](configuration-sources/central/) — centrally hosted profile;
-   the current central alias resolves approved bundles from
-   `SecondSkoll/generic-agentic-workflows-config`.
+These examples use this repository as the reusable workflow source and contain
+real full commit-SHA pins. See the [configuration-source examples directory
+table](configuration-sources/index.md) to choose the files to copy.
 
 Each starts with `validate_only: true`. Follow the rollout instructions in the
 configuration-source examples before enabling model invocation or

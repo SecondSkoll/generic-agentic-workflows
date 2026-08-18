@@ -96,7 +96,7 @@ RELEASE_CONTEXT_ALLOWLIST: tuple[str, ...] = (
     "RELEASE_NOTES.md",
     "RELEASES.md",
     "README.md",
-    "docs/how-to/operations-guide.md",
+    "docs/developer/operations-guide.md",
     "docs/how-to/configuration.md",
     "docs/reference/configuration-reference.md",
 )

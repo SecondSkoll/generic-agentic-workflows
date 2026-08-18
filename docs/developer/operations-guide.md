@@ -62,19 +62,10 @@ dispatcher job to serialize publication.
 
 ## Roll out release project review
 
-The supplied release project-review examples begin in validation-only mode.
-Promote them in this order:
-
-1. Set `validate_only: true` to resolve and validate configuration and policy.
-   This does not fetch a release, check out a target, execute commands, invoke
-   the model, or publish. It still rejects an invalid `midflight_commands` ID,
-   count, phase, or overlap.
-2. Set `dry_run: true` to fetch the release, check out the immutable target
-   commit, run the preflight, invoke the configured model phases, and validate
-   the decision without searching for or creating an issue.
-3. Remove `dry_run` to search for the idempotency marker and, for a
-   `CREATE_ISSUE` decision, create at most one `release-readiness` issue in the
-   canonical target repository.
+For release project-review promotion stages, follow [Roll out
+safely](../how-to/deploy-a-workflow.md#roll-out-safely); for command-specific
+validation and rollout, see [Run commands from a configuration
+bundle](../how-to/running-commands.md).
 
 The supplied schema-2 bundle has an empty `midflight_commands` list. No command
 is currently approved for that phase. Roll back by emptying the list or pinning

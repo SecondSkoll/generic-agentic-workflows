@@ -2,7 +2,7 @@
 
 This reference describes the versions, provenance, identity, reliability, and
 failure behavior of the agentic workflows. For operational procedures, see the
-[operations guide](../how-to/operations-guide.md).
+[operations guide](../developer/operations-guide.md).
 
 ## Independently versioned artifacts
 

@@ -7,7 +7,7 @@ dispatched/reusable release project-review that creates at most one
 release-readiness issue.
 
 Note: Issue implementation is not currently set up for calling as a remote action.
-See [Run issue implementation](docs/how-to/running-issue-implementation.md) for the
+See [Run issue implementation](docs/developer/running-issue-implementation.md) for the
 manual procedure.
 
 ## Start here
@@ -98,17 +98,13 @@ access outside its repository.
   author, hash, validate, and publish a reviewed profile.
 - [Run commands from a configuration bundle](docs/how-to/running-commands.md) —
   configure and roll out approved release-review preflight commands.
-- [Run issue implementation](docs/how-to/running-issue-implementation.md) — manually
-  request an initial implementation for an open issue.
-- [Operations guide](docs/how-to/operations-guide.md) — release, incident
-  response, rollback, and release-review rollout procedures.
 - [Consumer examples](docs/how-to/examples/index.md) — ready-to-copy wrappers,
   including complete `default`, `local`, and `central` source examples.
 
 ### Reference
 
-- [Configuration reference](docs/reference/configuration-reference.md) — every caller
-  input and bundle field, with examples.
+- [Configuration reference](docs/reference/configuration-reference.md) — caller inputs,
+  bundle layout, supplied profiles, and output contracts.
 - [`bundle.json` reference](docs/reference/bundle-json-reference.md) — manifest fields,
   valid workflow mappings, and safety constraints.
 - [Operations reference](docs/reference/operations-reference.md) — versions,
@@ -118,6 +114,12 @@ access outside its repository.
 
 - [Security model](docs/explanation/security-model.md) — trust boundaries, defensive
   controls, and their rationale.
+
+### Developer documentation
+
+- [Developer documentation](docs/developer/index.md)
+- [Operations guide](docs/developer/operations-guide.md)
+- [Run issue implementation](docs/developer/running-issue-implementation.md)
 
 > OpenCode configuration (`.opencode/`) is loaded once at startup and is not
 > hot-reloaded. After changing any configuration in `.opencode/`, quit and
@@ -130,8 +132,9 @@ Stack](https://github.com/canonical/sphinx-stack) (tag 2.0). The Sphinx
 configuration lives in [`docs/conf.py`](docs/conf.py) and the entry point is
 [`docs/index.md`](docs/index.md).
 
-Use the Canonical Sphinx Stack Makefile from the repository root. It installs
-the locked `docs` extra declared in `pyproject.toml`:
+Use the Canonical Sphinx Stack Makefile from the repository root. It creates
+`docs/.venv` and installs `docs/requirements.txt`. Read the Docs instead uses
+uv to install the locked `docs` extra from `pyproject.toml`.
 
 ```
 make -C docs install

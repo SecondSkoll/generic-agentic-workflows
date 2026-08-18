@@ -1892,7 +1892,7 @@ class DocsExamplesTests(unittest.TestCase):
         self.assertIn("validate_only", text)
 
     def test_operations_guide_documents_promotion(self) -> None:
-        text = (REPO_ROOT / "docs/how-to/operations-guide.md").read_text(encoding="utf-8")
+        text = (REPO_ROOT / "docs/developer/operations-guide.md").read_text(encoding="utf-8")
         self.assertIn("release-project-review", text)
         # Promotes validate_only -> dry_run -> publish.
         self.assertIn("dry_run", text)
