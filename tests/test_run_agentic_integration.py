@@ -451,6 +451,105 @@ class IntegratedRunTests(unittest.TestCase):
             self.assertEqual(published["comments"][0]["line"], 1)
             self.assertIn("```suggestion", published["comments"][0]["body"])
 
+    def test_two_suggestions_keep_independent_nonconsecutive_coordinates(self):
+        # Regression for the reported "a few lines off" symptom: two
+        # suggestions on nonconsecutive added lines whose surrounding diff
+        # structures differ must each publish at their true new-file
+        # coordinates. The prompt must pair each target's content with its
+        # coordinate inside the untrusted section so the model does not count
+        # raw diff rows or infer offsets.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, _ = self._write_inputs(tmp_path)
+            diff_path = tmp_path / "pr.diff"
+            # Hunk 1: a deletion precedes the targeted addition, then more
+            # additions (including a blank line). Hunk 2: a deletion precedes
+            # the targeted addition, with no trailing additions. The two
+            # targets are new-file lines 2 and 23 (nonconsecutive, different
+            # hunk structures).
+            diff_path.write_text(
+                "diff --git a/docs/intro.md b/docs/intro.md\n"
+                "--- a/docs/intro.md\n"
+                "+++ b/docs/intro.md\n"
+                "@@ -1,3 +1,5 @@\n"
+                " Welcome\n"
+                "-This is the orginal intro.\n"
+                "+This is the original intro.\n"
+                " More context here\n"
+                "+New section start\n"
+                "+\n"
+                "@@ -20,2 +22,2 @@\n"
+                " Later content\n"
+                "-Old ending\n"
+                "+New ending with detail\n",
+                encoding="utf-8",
+            )
+            output = json.dumps(
+                {
+                    "summary": "Fixed two issues.",
+                    "comments": [
+                        {
+                            "path": "docs/intro.md",
+                            "line": 2,
+                            "body": "Fix the typo in the intro sentence.",
+                            "suggestion": "This is the corrected intro.",
+                        },
+                        {
+                            "path": "docs/intro.md",
+                            "line": 23,
+                            "body": "Add more detail to the ending.",
+                            "suggestion": "New ending with full detail",
+                        },
+                    ],
+                }
+            )
+            captured = {}
+
+            def fake_run(cmd, **kwargs):
+                captured["prompt"] = kwargs["input"]
+                captured["cmd"] = cmd
+                return FakeSubprocessResult(_opencode_text_event(output))
+
+            with (
+                mock.patch.object(RUNNER.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "has_marker", return_value=False),
+            ):
+                rc = RUNNER.main([
+                    "--input", str(diff_path),
+                    "--comments-url", "https://api.github.com/repos/o/r/issues/1/comments",
+                    "--repository", "o/r", "--pull-number", "1", "--head-sha", "abc123",
+                    "--feedback-kind", "pr-documentation-review", "--author", "octocat",
+                    "--resolved-config", str(bundle_path), "--effective-policy", str(policy_path),
+                ])
+            self.assertEqual(rc, 0)
+            prompt = captured["prompt"]
+            # The content-to-coordinate mapping is inside the untrusted
+            # delimiters, never promoted to trusted instructions.
+            start = prompt.index(RUNNER.PROMPTS.START_MARKER)
+            end = prompt.index(RUNNER.PROMPTS.END_MARKER)
+            mapping_block = prompt[start:end]
+            # Both target contents are paired with their true coordinates.
+            self.assertIn("- docs/intro.md:2", mapping_block)
+            self.assertIn("  This is the original intro.", mapping_block)
+            self.assertIn("- docs/intro.md:23", mapping_block)
+            self.assertIn("  New ending with detail", mapping_block)
+            # The mapping never leaks into the runtime context section.
+            context_block = prompt[
+                prompt.index("Runtime context (verified)"):prompt.index("Untrusted content")
+            ]
+            self.assertNotIn("This is the original intro.", context_block)
+            # The published review keeps both coordinates on RIGHT.
+            published = mock_gh.call_args.kwargs["body"]
+            lines = sorted(c["line"] for c in published["comments"])
+            self.assertEqual(lines, [2, 23])
+            for comment in published["comments"]:
+                self.assertEqual(comment["side"], "RIGHT")
+            # Both suggestions render as apply-able suggestion blocks.
+            bodies = [c["body"] for c in published["comments"]]
+            self.assertEqual(sum("```suggestion" in b for b in bodies), 2)
+
     def test_context_loop_blank_anchor_demotes_on_final_parse(self):
         # Regression for context_policy == "pr-review-on-demand-v1": the
         # context loop returns the final review JSON, then main re-parses it

@@ -329,8 +329,9 @@ def changed_line_contents_by_path(diff: str) -> dict[str, dict[int, str]]:
     Mirrors :func:`changed_lines_by_path` exactly, but also records the text
     of each added new-file line. The returned mapping is consumed only by the
     suggestion-anchor content checks in
-    :func:`agentic_prompts.parse_pr_review_output`; it is never published and
-    never echoed in diagnostics.
+    :func:`agentic_prompts.parse_pr_review_output` and by
+    :func:`format_changed_line_contents`; it is never published and never
+    echoed in diagnostics.
     """
     contents_by_path: dict[str, dict[int, str]] = {}
     path: str | None = None
@@ -361,6 +362,34 @@ def changed_line_contents_by_path(diff: str) -> dict[str, dict[int, str]]:
             new_line += 1
 
     return contents_by_path
+
+
+def format_changed_line_contents(
+    contents_by_path: dict[str, dict[int, str]]
+) -> str:
+    """Return a deterministic content-to-coordinate mapping for added lines.
+
+    Pairs every added new-file line's exact repository path and new-file line
+    number with that line's content so the model can anchor each inline
+    comment to the coordinate displayed beside the addressed content rather
+    than counting raw diff rows or inferring offsets. The mapping mirrors the
+    order of :func:`format_changed_locations` (sorted by path then line) and
+    is emitted only inside the untrusted-content section; it is never
+    published or echoed in diagnostics. Blank added lines are included with
+    an empty content line so the model can still see their coordinates.
+    """
+    entries = [
+        (path, line, contents_by_path[path][line])
+        for path in sorted(contents_by_path)
+        for line in sorted(contents_by_path[path])
+    ]
+    if not entries:
+        return "- No changed new-file lines are available."
+    rendered: list[str] = []
+    for path, line, content in entries:
+        rendered.append(f"- {path}:{line}")
+        rendered.append(f"  {content}")
+    return "\n".join(rendered)
 
 
 class DiffFile:
@@ -784,6 +813,9 @@ def main(argv: list[str] | None = None) -> int:
     line_contents = (
         changed_line_contents_by_path(input_text) if reviews_url else None
     )
+    formatted_line_contents = (
+        format_changed_line_contents(line_contents) if line_contents else None
+    )
     allowed_locations = format_changed_locations(changed_lines) if reviews_url else None
 
     pr_metadata: dict[str, object] = {}
@@ -806,7 +838,9 @@ def main(argv: list[str] | None = None) -> int:
             focus=args.focus,
             max_comments=effective_max_comments,
             allowed_locations=allowed_locations,
-            untrusted_content=_initial_pr_untrusted(input_text, pr_metadata),
+            untrusted_content=_initial_pr_untrusted(
+                input_text, pr_metadata, formatted_line_contents
+            ),
         )
     except PROMPTS.PromptError as error:
         print(f"::error::Prompt composition failed: {error}", file=sys.stderr)
@@ -1102,9 +1136,28 @@ def _run_opencode_integrated(
         shutil.rmtree(workspace, ignore_errors=True)
 
 
-def _initial_pr_untrusted(diff: str, metadata: dict[str, object]) -> str:
-    """Create Tier 0 data only; metadata and diff remain explicitly untrusted."""
-    return "PR metadata (untrusted):\n" + json.dumps(metadata, ensure_ascii=False) + "\n\nUnified diff (untrusted):\n" + diff
+def _initial_pr_untrusted(
+    diff: str,
+    metadata: dict[str, object],
+    formatted_line_contents: str | None = None,
+) -> str:
+    """Create Tier 0 data only; metadata and diff remain explicitly untrusted.
+
+    When ``formatted_line_contents`` is supplied it is inserted alongside the
+    unified diff inside this untrusted-content section. It pairs every added
+    line's repository path and new-file line number with that line's content
+    so the model can copy the exact coordinate beside the content each inline
+    comment addresses. The mapping stays inside the untrusted delimiters so
+    PR paths and line contents are never promoted to trusted instructions.
+    """
+    sections = ["PR metadata (untrusted):\n" + json.dumps(metadata, ensure_ascii=False)]
+    if formatted_line_contents:
+        sections.append(
+            "Changed new-file line contents paired with coordinates (untrusted):\n"
+            + formatted_line_contents
+        )
+    sections.append("Unified diff (untrusted):\n" + diff)
+    return "\n\n".join(sections)
 
 
 def _context_limits(policy: dict, args: argparse.Namespace) -> ContextLimits:
@@ -1150,7 +1203,7 @@ def _requested_context(request: dict, *, diff_files: dict[str, DiffFile], manife
 
 def review_with_context_loop(*, args: argparse.Namespace, resolved_bundle: dict, effective_policy: dict, changed_lines: dict[str, set[int]], input_text: str, pr_metadata: dict[str, object], effective_max_comments: int | None, provider_timeout: int) -> tuple[int, str, ContextAudit]:
     """Run bounded, stateless Tier 0–3 PR context requests."""
-    limits = _context_limits(effective_policy, args); audit = ContextAudit(); files = parse_diff_files(input_text); transcript = _initial_pr_untrusted(input_text, pr_metadata); manifest = None
+    limits = _context_limits(effective_policy, args); audit = ContextAudit(); files = parse_diff_files(input_text); line_contents = changed_line_contents_by_path(input_text); formatted_line_contents = format_changed_line_contents(line_contents); transcript = _initial_pr_untrusted(input_text, pr_metadata, formatted_line_contents); manifest = None
     for attempt in range(limits.max_rounds + 2):
         final_only = attempt > limits.max_rounds
         prompt = _compose_integrated_prompt(resolved_bundle=resolved_bundle, feedback_kind=args.feedback_kind, output_contract="pr-review-json-v1", repository=args.repository or "", author_login=args.author, pull_number=args.pull_number, target_title=None, focus=args.focus, max_comments=effective_max_comments, allowed_locations=format_changed_locations(changed_lines), untrusted_content=transcript + ("\n\nNo more context is available. Return final review JSON now." if final_only else ""))

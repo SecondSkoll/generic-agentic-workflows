@@ -150,6 +150,27 @@ class CompositionOrderTests(unittest.TestCase):
         self.assertIn("Workflow system constraints", composed.text)
         self.assertIn("Output contract:", composed.text)
 
+    def test_pr_review_suffix_requires_coordinate_beside_addressed_content(self):
+        # The immutable PR-review instructions must direct the model to copy
+        # the path/line displayed beside the exact changed content it
+        # addresses, rather than counting raw diff rows or inferring offsets.
+        suffix = PROMPTS._pr_review_suffix()
+        self.assertIn(
+            "select the `path` and `line` displayed beside the exact changed "
+            "content",
+            suffix,
+        )
+        self.assertIn("Do not count raw diff rows", suffix)
+        self.assertIn("infer offsets", suffix)
+
+    def test_pr_review_suffix_requires_independent_anchoring(self):
+        # Separate findings may sit in different hunks with unrelated
+        # structure; the suffix must prohibit reusing or shifting a
+        # coordinate from another finding.
+        suffix = PROMPTS._pr_review_suffix()
+        self.assertIn("Anchor each finding independently", suffix)
+        self.assertIn("line offsets are not interchangeable", suffix)
+
 
 class UntrustedContentTests(unittest.TestCase):
     def test_explicit_delimiters(self):
