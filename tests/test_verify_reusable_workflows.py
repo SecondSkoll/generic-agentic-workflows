@@ -118,6 +118,15 @@ class ReusableWorkflowVerificationTests(unittest.TestCase):
                     r'spec_from_file_location\([^\n]*,\s*"scripts/agentic_',
                 )
 
+    def test_documentation_review_fetches_private_pr_heads_with_job_token(self) -> None:
+        """The non-persisted checkout token is restored only for the PR fetch."""
+        text = (
+            REPO_ROOT / ".github/workflows/opencode-documentation-review.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("GH_TOKEN: ${{ github.token }}", text)
+        self.assertIn("http.https://github.com/.extraheader=$auth_header", text)
+        self.assertIn('fetch --no-tags --depth=1 origin "pull/$PR_NUMBER/head:pr-head"', text)
+
     def test_reusable_inputs_are_not_gated_by_event_name(self) -> None:
         """A called workflow honors ``with`` for every caller event type."""
         workflows_root = REPO_ROOT / ".github/workflows"

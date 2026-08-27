@@ -312,8 +312,14 @@ jobs:
         env:
           BASE_SHA: ${{ steps.pull-request.outputs.base_sha }}
           PR_NUMBER: ${{ steps.pull-request.outputs.number }}
+          # `actions/checkout` intentionally removes persisted credentials.
+          # Supply this read-scoped job token only to the fetch so reusable
+          # workflow invocations can retrieve private pull-request heads.
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git fetch --no-tags --depth=1 origin "pull/$PR_NUMBER/head:pr-head"
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0)"
+          git -c "http.https://github.com/.extraheader=$auth_header" \
+            fetch --no-tags --depth=1 origin "pull/$PR_NUMBER/head:pr-head"
           git diff "$BASE_SHA" pr-head -- > pr.diff
 
       - name: Set up Node.js 24
