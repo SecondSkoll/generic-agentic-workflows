@@ -125,7 +125,16 @@ class ReusableWorkflowVerificationTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("GH_TOKEN: ${{ github.token }}", text)
         self.assertIn("http.https://github.com/.extraheader=$auth_header", text)
-        self.assertIn('fetch --no-tags --depth=1 origin "pull/$PR_NUMBER/head:pr-head"', text)
+        self.assertIn('fetch --no-tags origin "pull/$PR_NUMBER/head:pr-head"', text)
+        merge_base_cmd = 'git merge-base "$BASE_SHA" pr-head'
+        diff_cmd = 'git diff "$merge_base" pr-head -- > pr.diff'
+        self.assertIn(merge_base_cmd, text)
+        self.assertIn(diff_cmd, text)
+        self.assertLess(
+            text.index(merge_base_cmd),
+            text.index(diff_cmd),
+            "merge-base must be computed before the diff command",
+        )
 
     def test_reusable_inputs_are_not_gated_by_event_name(self) -> None:
         """A called workflow honors ``with`` for every caller event type."""
