@@ -2,7 +2,7 @@
 name: changelog-writer
 description: Update a designated changelog file from pull-request changes
 mode: primary
-model: openai/gpt-5.6-terra
+model: openrouter/openai/gpt-5.6-terra
 temperature: 0.1
 permission:
   edit: allow
