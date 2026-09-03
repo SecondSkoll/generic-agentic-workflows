@@ -12,7 +12,7 @@ For authoring a local or central profile, see [creating a configuration bundle](
 
 | Workflow | Reusable workflow | Typical trigger | Required caller permissions |
 | --- | --- | --- | --- |
-| Documentation review | `opencode-documentation-review.yml` | `pull_request` | `contents: read`, `pull-requests: write` |
+| Documentation review | `opencode-documentation-review.yml` | `pull_request` | `contents: read`, `issues: read`, `pull-requests: write` |
 | Issue feedback | `opencode-issue-feedback.yml` | `issues` | `contents: read`, `issues: write` |
 | Release project review | `opencode-release-project-review.yml` | `workflow_dispatch`, schedule, or a release wrapper | `contents: read`, `issues: write` |
 | Changelog update | `opencode-changelog-update.yml` | `pull_request_target` with `types: [labeled]` | `contents: write`, `pull-requests: write` |
@@ -66,6 +66,7 @@ jobs:
     uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
     permissions:
       contents: read
+      issues: read
       pull-requests: write
     with:
       configuration_source: default
@@ -73,6 +74,7 @@ jobs:
       configuration_profile: documentation-review
       focus: documentation
       max_comments: 10
+      review_request_string: AI REVIEW REQUESTED
       validate_only: true
     secrets:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -91,6 +93,7 @@ jobs:
     uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
     permissions:
       contents: read
+      issues: read
       pull-requests: write
     with:
       configuration_source: local
@@ -119,6 +122,7 @@ jobs:
     uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
     permissions:
       contents: read
+      issues: read
       pull-requests: write
     with:
       configuration_source: central
@@ -131,6 +135,10 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       central_config_token: ${{ secrets.CENTRAL_CONFIG_TOKEN }} # Required only if central is private
 ```
+
+`review_request_string` is optional and defaults to `AI REVIEW REQUESTED`.
+Change it when the consumer repository uses a different case-sensitive phrase
+to request another review after matching feedback has already been published.
 
 ## 4. Add a wrapper workflow
 

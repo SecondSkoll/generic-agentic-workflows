@@ -15,7 +15,7 @@ feedback, and uploads redacted provenance.
 
 | Workflow | Interface | Required publication permissions |
 | --- | --- | --- |
-| Documentation review | Direct pull-request trigger or reusable call | `contents: read`, `pull-requests: write` |
+| Documentation review | Direct pull-request trigger or reusable call | `contents: read`, `issues: read`, `pull-requests: write` |
 | Issue feedback | Direct issue trigger or reusable call | `contents: read`, `issues: write` |
 | Issue implementation | Manual dispatch only | `contents: write`, `issues: write`, `pull-requests: write` |
 | Release project review | Manual dispatch or reusable call | `contents: read`, `issues: write` |
