@@ -234,6 +234,50 @@ BUILTIN_SAFETY_POLICY: dict[str, dict[str, Any]] = {
             "max_model_phases": 2,
         },
     },
+    "pr-changelog-update": {
+        "capabilities": {
+            "filesystem": "repository-workspace-allowlist",
+            "shell": DENY,
+            "network": "provider-only",
+            "github_write": "pr-target-file-commit-or-comment",
+            "delegation": DENY,
+        },
+        "required_output_contract": "pr-changelog-update-v1",
+        "required_source": "trusted-or-allowlisted",
+        "max_tokens": 16000,
+        "temperature_max": 0.2,
+        "timeout_seconds": 300,
+        "max_retries": 1,
+        "allowed_workflows": ("pr-changelog-update",),
+        "data_classification": "repository-content",
+        #: The changelog-update agent edits only the designated target file.
+        #: Workflow automation, agent/skill/configuration instructions, and
+        #: dependency lockfiles are denied; the runner additionally hard-
+        #: restricts the changed-path set to exactly the target file before
+        #: any same-repo commit or fork comment publication.
+        "deny_path_patterns": [
+            r"^\.github/workflows/",
+            r"^\.github/actions/",
+            r"^\.opencode/agents/",
+            r"^\.opencode/skills/",
+            r"^\.opencode/configuration/",
+            r"^\.opencode/policy/",
+            r"^package\.json$",
+            r"^package-lock\.json$",
+            r"^bun\.lock$",
+            r"^uv\.lock$",
+            r"^pyproject\.toml$",
+            r"^requirements\.txt$",
+            r"^Cargo\.toml$",
+            r"^Cargo\.lock$",
+            r"^go\.mod$",
+            r"^go\.sum$",
+            r"^pnpm-lock\.yaml$",
+            r"^yarn\.lock$",
+            r"^Gemfile$",
+            r"^Gemfile\.lock$",
+        ],
+    },
 }
 
 
@@ -280,6 +324,15 @@ MODEL_PROFILES: dict[str, dict[str, Any]] = {
         "timeout_seconds": 180,
         "max_retries": 1,
         "allowed_workflows": ["release-project-review"],
+        "data_classification": "repository-content",
+    },
+    "changelog-writer": {
+        "provider_model": "openrouter/openai/gpt-5.6-terra",
+        "max_tokens": 16000,
+        "temperature_max": 0.2,
+        "timeout_seconds": 300,
+        "max_retries": 1,
+        "allowed_workflows": ["pr-changelog-update"],
         "data_classification": "repository-content",
     },
 }

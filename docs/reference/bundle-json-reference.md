@@ -39,7 +39,7 @@ For the authoring sequence, see [creating a configuration bundle](../how-to/crea
 | --- | --- | --- | --- |
 | `schema_version` | Yes | integer | Must be `1` or `2`. Schema 1 is preserved for existing bundles; schema 2 is ID-based and is the only schema that may declare `midflight_commands`. |
 | `profile_name` | Yes | string | Must match `[a-z0-9][a-z0-9-]{0,62}` and exactly match the bundle directory name and selected `configuration_profile`. |
-| `allowed_workflows` | Yes | non-empty array of strings | Every value must be one of `pr-documentation-review`, `issue-feedback`, `issue-implementation`, or `release-project-review`. The current workflow must be present. |
+| `allowed_workflows` | Yes | non-empty array of strings | Every value must be one of `pr-documentation-review`, `issue-feedback`, `issue-implementation`, `release-project-review`, or `pr-changelog-update`. The current workflow must be present. |
 | `agent_file` | Yes | safe relative path | Primary agent Markdown file, for example `agent.md`. It requires front matter with a safe unique `name`. |
 | `additional_agent_files` | No | array of unique safe relative paths | Additional agent files, normally for implementation. They cannot repeat `agent_file`; each requires a unique front-matter `name`. |
 | `skill_files` | Yes | array of unique safe relative paths | Skill Markdown files. The array may be empty. Each file requires front matter with a unique `name`. |
@@ -83,6 +83,7 @@ These combinations are supported by the supplied profiles and policy registry.
 | `issue-feedback` | `issue-feedback-readonly` | `issue-feedback-markdown-v1` | Review agent cannot request edit permission. |
 | `issue-implementation` | `implementation-planner` | `issue-implementation-decision-v1` | May declare a delegated executor in `additional_agent_files`. |
 | `release-project-review` | `release-project-review-readonly` | `release-project-issue-v1` | May declare up to three `preflight_commands` and, on schema 2, up to three unique `midflight_commands`; review agent cannot request edit permission. |
+| `pr-changelog-update` | `changelog-writer` | `pr-changelog-update-v1` | Agent may edit the designated target file; runner rejects every other changed path. |
 
 The manifest parser recognizes all listed contracts. Effective-policy resolution
 enforces the workflow-specific contract and model-profile compatibility, so a

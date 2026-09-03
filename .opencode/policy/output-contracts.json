@@ -90,6 +90,17 @@
         "labels"
       ],
       "publication": "non-publication intermediate contract; phase 1 of the two-stage release-project-review. The handoff is validated by the workflow, inserted into the phase-2 prompt as delimited untrusted data, and never published or appended to system instructions. The model cannot select a command, endpoint, repository, or credentials."
+    },
+    "pr-changelog-update-v1": {
+      "kind": "text",
+      "required_fields": ["CHANGELOG_DECISION"],
+      "conditional_fields": {
+        "CHANGELOG_SUMMARY": "required when CHANGELOG_DECISION is UPDATED or NO_CHANGE",
+        "CHANGELOG_BLOCKER": "required when CHANGELOG_DECISION is BLOCKED"
+      },
+      "max_summary_bytes": 4096,
+      "max_blocker_bytes": 4096,
+      "publication": "same-repo commit of the designated target file (with marker) for non-fork PRs; one marker PR comment with the proposed content for fork PRs. Workflow owns publication; the model only edits the target file."
     }
   }
 }

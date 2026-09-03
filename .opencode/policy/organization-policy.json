@@ -11,7 +11,8 @@
     "review-readonly",
     "issue-feedback-readonly",
     "implementation-planner",
-    "release-project-review-readonly"
+    "release-project-review-readonly",
+    "changelog-writer"
   ],
   "organization_ceilings": {
     "max_tokens": 16000,

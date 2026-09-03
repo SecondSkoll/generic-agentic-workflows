@@ -11,17 +11,17 @@ failure behavior of the agentic workflows. For operational procedures, see the
 | Reusable workflows | Immutable commit pin in consumer `uses:` | Per release tag |
 | Bundle manifest schema | `bundle.json` `schema_version` | `1`, `2` |
 | Command registry | `scripts/agentic_commands.py` `REGISTRY_VERSION` | `1` |
-| Output contracts | Contract identifier suffix, such as `-v1` | `pr-review-json-v1`, `issue-feedback-markdown-v1`, `issue-implementation-decision-v1`, `release-project-issue-v1`, `release-project-analysis-handoff-v1` (non-publishing) |
+| Output contracts | Contract identifier suffix, such as `-v1` | `pr-review-json-v1`, `issue-feedback-markdown-v1`, `issue-implementation-decision-v1`, `release-project-issue-v1`, `release-project-analysis-handoff-v1` (non-publishing), `pr-changelog-update-v1` |
 | Policy schema | `.opencode/policy/organization-policy.json` `schema_version` | `1` |
 | Feedback marker | Marker schema version field | `v2` |
 
 ## Configuration provenance
 
-Every run writes `resolved-agentic-configuration.json`,
-`effective-policy.json`, and `resolved-agentic-provenance.json` to
-`$RUNNER_TEMP`, then uploads them as 14-day artifacts. Provenance is emitted on
-every path, including `validate_only`, resolution failures, contract failures,
-and provider failures.
+Runs upload the available configuration, policy, provenance, and preview files
+as 14-day artifacts. Files produced before a stop or failure are retained;
+later-stage files can be absent. In particular, changelog `validate_only`
+produces invocation and validation provenance without resolving configuration
+or policy, while an idempotency skip at its guard can have no provenance file.
 
 The provenance record contains:
 
@@ -56,6 +56,7 @@ controls as the target content.
 | Issue feedback | `<!-- agentic-workflow:issue-feedback:v2:<digest> -->` | Same digest |
 | Issue implementation status | `<!-- agentic-workflow:issue-implementation-status:v1 -->` | Records the result of an explicitly dispatched issue run |
 | Release project review | `<!-- agentic-workflow:release-project-review:v2:<idempotency_key>:<target_commit_sha> -->` | Same canonical target, release ID, target commit SHA, configuration digest, and workflow version |
+| Changelog update | `<!-- agentic-workflow:pr-changelog-update:v1 -->` | Same-repo: marker is the newest commit and no newer comment exists. Fork: marker is the newest comment and no newer commit followed it; a newer fork commit regenerates and PATCHes the existing marker comment in place. |
 
 A changed remote bundle SHA or changed local bundle content creates a new
 configuration digest. A new digest intentionally creates a new feedback
@@ -78,6 +79,8 @@ identity.
 | Release project review, same repository | At most one `release-readiness` issue; the immutable target commit is checked out read-only. |
 | Release project review, external target | Requires `release_target_token` with target-only `contents: read` and `issues: write`; access is verified before checkout and publication. |
 | Release project review idempotency | A matching marker suppresses duplicate issue creation with `result: "skipped"`. |
+| Changelog update, same repository | Commits only the validated target-file content to the PR source branch. |
+| Changelog update, fork | Does not push; creates or updates one marker comment containing the proposed target-file content. |
 
 ## Runtime reliability controls
 

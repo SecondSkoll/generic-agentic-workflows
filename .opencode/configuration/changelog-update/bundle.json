@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "profile_name": "changelog-update",
+  "allowed_workflows": ["pr-changelog-update"],
+  "agent_file": "agent.md",
+  "skill_files": ["skills/changelog/SKILL.md"],
+  "prompt_template": "prompts/update.md",
+  "model_profile": "changelog-writer",
+  "output_contract": "pr-changelog-update-v1",
+  "limits": {},
+  "policy": {
+    "capabilities": {
+      "filesystem": "repository-workspace-allowlist",
+      "shell": "deny",
+      "network": "provider-only",
+      "github_write": "pr-target-file-commit-or-comment",
+      "delegation": "deny"
+    }
+  }
+}

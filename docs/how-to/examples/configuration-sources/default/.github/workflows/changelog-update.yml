@@ -1,0 +1,41 @@
+# Example caller for the reusable changelog-update workflow.
+#
+# A consumer repository triggers the workflow when the configured label is
+# added to an open pull request. The reusable workflow authoritatively
+# re-validates the event, action, label, and PR state, so a mis-configured
+# caller cannot cause side effects.
+#
+# The all-zero values below are deliberately nonexistent placeholders, so this
+# file is not runnable as-is. Replace both with the exact reviewed commit SHA of
+# SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-changelog-update.yml
+# you have reviewed. The caller needs `contents: write` and `pull-requests:
+# write` so the reusable workflow can commit the target file (same-repo PRs)
+# or post a marker comment (fork PRs). Provide `OPENROUTER_API_KEY` as a
+# repository secret.
+name: Changelog update (supplied default configuration)
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  changelog:
+    if: github.event.pull_request.state == 'open' && github.event.label.name == 'update-changelog'
+    uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-changelog-update.yml@0000000000000000000000000000000000000000
+    permissions:
+      contents: write
+      pull-requests: write
+    with:
+      configuration_source: default
+      configuration_ref: 0000000000000000000000000000000000000000
+      configuration_profile: changelog-update
+      label: update-changelog
+      target_file: CHANGELOG.md
+      pull_number: ${{ github.event.pull_request.number }}
+      validate_only: false
+    secrets:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

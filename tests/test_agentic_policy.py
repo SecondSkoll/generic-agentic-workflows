@@ -484,5 +484,47 @@ class DelegatedAgentValidationTests(unittest.TestCase):
             POLICY.validate_delegated_agent(text, workflow="pr-documentation-review")
 
 
+class ChangelogUpdatePolicyTests(unittest.TestCase):
+    """Builtin policy and model profile for pr-changelog-update."""
+
+    def test_builtin_policy_registered(self):
+        policy = POLICY.BUILTIN_SAFETY_POLICY["pr-changelog-update"]
+        self.assertEqual(
+            policy["required_output_contract"], "pr-changelog-update-v1"
+        )
+        self.assertEqual(policy["capabilities"]["shell"], POLICY.DENY)
+        self.assertEqual(policy["capabilities"]["network"], "provider-only")
+        self.assertEqual(
+            policy["capabilities"]["github_write"],
+            "pr-target-file-commit-or-comment",
+        )
+        self.assertEqual(policy["capabilities"]["delegation"], POLICY.DENY)
+        self.assertEqual(policy["allowed_workflows"], ("pr-changelog-update",))
+        self.assertEqual(policy["data_classification"], "repository-content")
+        self.assertEqual(policy["max_tokens"], 16000)
+        self.assertGreater(len(policy["deny_path_patterns"]), 0)
+
+    def test_changelog_writer_model_profile_validates(self):
+        profile = POLICY.validate_model_profile(
+            "changelog-writer", workflow="pr-changelog-update"
+        )
+        self.assertEqual(profile["provider_model"], "openrouter/openai/gpt-5.6-terra")
+        self.assertEqual(profile["allowed_workflows"], ["pr-changelog-update"])
+
+    def test_changelog_writer_rejected_for_other_workflows(self):
+        with self.assertRaises(POLICY.PolicyError):
+            POLICY.validate_model_profile(
+                "changelog-writer", workflow="issue-implementation"
+            )
+
+    def test_enforce_changed_paths_uses_changelog_deny_patterns(self):
+        offenders = POLICY.enforce_changed_paths(
+            [".github/workflows/x.yml", "CHANGELOG.md"],
+            workflow="pr-changelog-update",
+        )
+        self.assertIn(".github/workflows/x.yml", offenders)
+        self.assertNotIn("CHANGELOG.md", offenders)
+
+
 if __name__ == "__main__":
     unittest.main()

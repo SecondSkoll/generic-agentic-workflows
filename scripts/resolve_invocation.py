@@ -36,6 +36,7 @@ SUPPORTED_WORKFLOWS: frozenset[str] = frozenset(
         "issue-feedback",
         "issue-implementation",
         "release-project-review",
+        "pr-changelog-update",
     }
 )
 
@@ -121,6 +122,16 @@ MAX_COMMENTS_MAX = 20
 MAX_ISSUES_MIN = 1
 MAX_ISSUES_MAX = 100
 
+#: Maximum length of a ``target_file`` POSIX path.
+TARGET_FILE_MAX = 512
+
+#: First path segments a ``target_file`` may never target: workflow automation
+#: and agent/skill/configuration instructions are workflow-owned and must not be
+#: the changelog update target.
+TARGET_FILE_FORBIDDEN_FIRST_SEGMENTS: frozenset[str] = frozenset(
+    {".github", ".opencode"}
+)
+
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -145,6 +156,7 @@ class ResolvedInvocation:
     target_repository: str | None = None
     release_id: int | None = None
     release_tag: str | None = None
+    target_file: str | None = None
 
     def to_json(self) -> str:
         """Serialize the resolved invocation as deterministic JSON."""
@@ -167,6 +179,7 @@ class ResolvedInvocation:
             "target_repository": self.target_repository,
             "release_id": self.release_id,
             "release_tag": self.release_tag,
+            "target_file": self.target_file,
         }
 
 
@@ -416,6 +429,56 @@ def _validate_request_label(label: Any) -> str | None:
     return normalized
 
 
+def _validate_target_file(target_file: Any) -> str | None:
+    """Validate an optional relative POSIX target file path.
+
+    Rejects empty, absolute, backslash, control characters, ``.``/``..``/empty
+    segments, trailing slashes, paths whose first segment is ``.github`` or
+    ``.opencode`` (workflow/agent-owned), and paths longer than
+    :data:`TARGET_FILE_MAX`. Returns a canonical POSIX-style relative path.
+    """
+    if target_file is None or target_file == "":
+        return None
+    if not isinstance(target_file, str):
+        raise InvocationError("target_file must be a string")
+    candidate = target_file.strip()
+    if not candidate:
+        raise InvocationError("target_file must not be empty")
+    if "\\" in candidate:
+        raise InvocationError(
+            f"target_file must not contain backslashes: {target_file!r}"
+        )
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in candidate):
+        raise InvocationError(
+            f"target_file must not contain control characters: {target_file!r}"
+        )
+    if candidate.startswith("/"):
+        raise InvocationError(
+            f"target_file must be a relative path, got absolute: {target_file!r}"
+        )
+    if candidate.endswith("/"):
+        raise InvocationError(f"target_file must not end with '/': {target_file!r}")
+    parts = candidate.split("/")
+    if any(part in {"", "."} for part in parts):
+        raise InvocationError(
+            f"target_file must not contain empty or '.' segments: {target_file!r}"
+        )
+    if any(part == ".." for part in parts):
+        raise InvocationError(
+            f"target_file must not contain '..' segments: {target_file!r}"
+        )
+    if parts[0] in TARGET_FILE_FORBIDDEN_FIRST_SEGMENTS:
+        raise InvocationError(
+            "target_file must not target workflow or agent-owned paths "
+            f"(.github/.opencode): {target_file!r}"
+        )
+    if len(candidate.encode("utf-8")) > TARGET_FILE_MAX:
+        raise InvocationError(
+            f"target_file must be at most {TARGET_FILE_MAX} bytes: {target_file!r}"
+        )
+    return candidate
+
+
 def _validate_workflow(workflow: Any) -> str:
     """Validate and normalize a supported workflow identifier."""
     if not isinstance(workflow, str):
@@ -449,6 +512,7 @@ def resolve_invocation(
     target_repository: str | None = None,
     release_id: int | str | None = None,
     release_tag: str | None = None,
+    target_file: str | None = None,
 ) -> ResolvedInvocation:
     """Validate and normalize all invocation inputs.
 
@@ -487,9 +551,12 @@ def resolve_invocation(
             raise InvocationError("max_issues is not supported for release-project-review")
         if request_label is not None and request_label != "":
             raise InvocationError("request_label is not supported for release-project-review")
+        if target_file is not None and target_file != "":
+            raise InvocationError("target_file is not supported for release-project-review")
         resolved_target = None
         resolved_label = None
         resolved_max_issues = None
+        resolved_target_file = None
     else:
         resolved_focus = _validate_focus(focus)
         resolved_max_comments = _optional_int(
@@ -500,6 +567,7 @@ def resolve_invocation(
         )
         resolved_target = _validate_target(target_number)
         resolved_label = _validate_request_label(request_label)
+        resolved_target_file = _validate_target_file(target_file)
         resolved_target_repository = None
         resolved_release_id = None
         resolved_release_tag = None
@@ -524,9 +592,13 @@ def resolve_invocation(
             )
         if resolved_max_issues is not None:
             raise InvocationError("max_issues is not supported for PR review")
+        if resolved_target_file is not None:
+            raise InvocationError("target_file is not supported for pr-documentation-review")
     elif resolved_workflow == "issue-feedback":
         if resolved_max_comments is not None:
             raise InvocationError("max_comments is not supported for issue feedback")
+        if resolved_target_file is not None:
+            raise InvocationError("target_file is not supported for issue-feedback")
     elif resolved_workflow == "issue-implementation":
         if resolved_target is None:
             raise InvocationError(
@@ -541,6 +613,31 @@ def resolve_invocation(
         if resolved_max_issues is not None:
             raise InvocationError(
                 "max_issues is not supported for issue implementation"
+            )
+        if resolved_target_file is not None:
+            raise InvocationError("target_file is not supported for issue implementation")
+    elif resolved_workflow == "pr-changelog-update":
+        if resolved_target is None:
+            raise InvocationError(
+                "pr-changelog-update requires a pull-request target number"
+            )
+        if resolved_label is None:
+            raise InvocationError(
+                "pr-changelog-update requires a request_label"
+            )
+        if resolved_target_file is None:
+            raise InvocationError(
+                "pr-changelog-update requires a target_file"
+            )
+        if resolved_focus is not None:
+            raise InvocationError("focus is not supported for pr-changelog-update")
+        if resolved_max_comments is not None:
+            raise InvocationError(
+                "max_comments is not supported for pr-changelog-update"
+            )
+        if resolved_max_issues is not None:
+            raise InvocationError(
+                "max_issues is not supported for pr-changelog-update"
             )
 
     # Remote sources are validated for shape only; configuration resolution
@@ -563,6 +660,7 @@ def resolve_invocation(
         target_repository=resolved_target_repository,
         release_id=resolved_release_id,
         release_tag=resolved_release_tag,
+        target_file=resolved_target_file,
     )
 
 
@@ -588,6 +686,7 @@ def resolve_from_env(env: dict[str, str]) -> ResolvedInvocation:
         target_repository=env.get("AGENTIC_TARGET_REPOSITORY") or None,
         release_id=env.get("AGENTIC_RELEASE_ID") or None,
         release_tag=env.get("AGENTIC_RELEASE_TAG") or None,
+        target_file=env.get("AGENTIC_TARGET_FILE") or None,
     )
 
 
@@ -619,6 +718,7 @@ def write_github_outputs(resolved: ResolvedInvocation, output_path: Path) -> Non
         f"target_repository={resolved.target_repository or ''}",
         f"release_id={resolved.release_id if resolved.release_id is not None else ''}",
         f"release_tag={resolved.release_tag or ''}",
+        f"target_file={resolved.target_file or ''}",
     ]
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -650,6 +750,8 @@ def write_job_summary(resolved: ResolvedInvocation, summary_path: Path) -> None:
         lines.append(f"- Release ID: `{resolved.release_id}`")
     if resolved.release_tag:
         lines.append(f"- Release tag: `{resolved.release_tag}`")
+    if resolved.target_file:
+        lines.append(f"- Target file: `{resolved.target_file}`")
     mode = (
         "validate-only"
         if resolved.validate_only
@@ -690,6 +792,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-repository", default=None)
     parser.add_argument("--release-id", default=None)
     parser.add_argument("--release-tag", default=None)
+    parser.add_argument("--target-file", default=None)
     parser.add_argument(
         "--github-output",
         default=None,
@@ -729,6 +832,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             target_repository=args.target_repository,
             release_id=args.release_id,
             release_tag=args.release_tag,
+            target_file=args.target_file,
         )
     except InvocationError as error:
         print(f"::error::Invocation validation failed: {error}", file=sys.stderr)
