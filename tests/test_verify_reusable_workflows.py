@@ -24,6 +24,7 @@ REMOTE_HELPER_WORKFLOWS = (
     "opencode-documentation-review.yml",
     "opencode-issue-feedback.yml",
     "opencode-release-project-review.yml",
+    "opencode-changelog-update.yml",
 )
 
 WORKFLOWS = (
@@ -31,6 +32,7 @@ WORKFLOWS = (
     "opencode-issue-feedback.yml",
     "opencode-issue-implementation.yml",
     "opencode-release-project-review.yml",
+    "opencode-changelog-update.yml",
     "verify-reusable-workflows.yml",
 )
 
@@ -179,6 +181,85 @@ class ReusableWorkflowVerificationTests(unittest.TestCase):
         for path in paths:
             with self.subTest(path=path.relative_to(REPO_ROOT)):
                 json.loads(path.read_text(encoding="utf-8"))
+
+    def test_changelog_update_workflow_wiring(self) -> None:
+        """The changelog reusable workflow has expected defaults and guard gating."""
+        path = REPO_ROOT / ".github/workflows/opencode-changelog-update.yml"
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        self.assertIn("workflow_call", data[True])
+        inputs = data[True]["workflow_call"]["inputs"]
+        self.assertEqual(inputs["label"]["default"], "update-changelog")
+        self.assertEqual(inputs["target_file"]["default"], "CHANGELOG.md")
+        self.assertEqual(inputs["configuration_source"]["default"], "default")
+        self.assertEqual(inputs["configuration_profile"]["default"], "changelog-update")
+        self.assertFalse(inputs["dry_run"]["default"])
+        self.assertFalse(inputs["validate_only"]["default"])
+        job = data["jobs"]["update"]
+        self.assertEqual(job["permissions"], {"contents": "write", "pull-requests": "write"})
+        self.assertIn("concurrency", job)
+        text = path.read_text(encoding="utf-8")
+        # Guard gating: only labeled open PRs proceed; skips without side effects.
+        self.assertIn('run_agentic_changelog_update.py" guard', text)
+        self.assertIn("steps.guard.outputs.action == 'skip'", text)
+        # Same-repo commit and fork comment publication paths.
+        self.assertIn("IS_FORK", text)
+        self.assertIn("repos/", text)
+
+    def test_changelog_update_workflow_url_encodes_target_file(self) -> None:
+        """Finding 6: the Contents API endpoint URL-encodes the target path."""
+        text = (
+            REPO_ROOT / ".github/workflows/opencode-changelog-update.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("from urllib.parse import quote", text)
+        self.assertIn('quote(target_file, safe="/")', text)
+        self.assertIn("encoded_path", text)
+
+    def test_changelog_update_workflow_uses_workflow_sha_for_provenance(self) -> None:
+        """Finding 7: provenance uses job.workflow_sha, not github.sha."""
+        text = (
+            REPO_ROOT / ".github/workflows/opencode-changelog-update.yml"
+        ).read_text(encoding="utf-8")
+        # The Generate step must use job.workflow_sha for the workflow version.
+        self.assertIn("AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}", text)
+        # mark-published is called after publication success.
+        self.assertIn("mark-published", text)
+
+    def test_changelog_update_workflow_mark_published_unreachable_in_dry_run(self) -> None:
+        """Finding 2: mark-published is unreachable in dry-run and only runs
+        after a successful GitHub API write (exit 0)."""
+        text = (
+            REPO_ROOT / ".github/workflows/opencode-changelog-update.yml"
+        ).read_text(encoding="utf-8")
+        # The Python publication block exits 42 for dry-run.
+        self.assertIn("sys.exit(42)", text)
+        # The shell wrapper captures the status and only promotes on 0.
+        self.assertIn("py_status=$?", text)
+        self.assertIn('py_status" -eq 42', text)
+        # mark-published appears only after the py_status gate, never inside
+        # the dry-run branch. Verify the gate precedes the mark-published call.
+        gate_idx = text.index("py_status=$?")
+        mark_idx = text.index("run_agentic_changelog_update.py\" mark-published")
+        self.assertLess(gate_idx, mark_idx, "py_status gate must precede mark-published")
+
+    def test_changelog_update_workflow_comment_limit_single_source(self) -> None:
+        """Finding 3: the workflow imports MAX_COMMENT_CHARS from the runner
+        (single source) instead of hardcoding 60000."""
+        text = (
+            REPO_ROOT / ".github/workflows/opencode-changelog-update.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("COMMENT_CAP = _runner.MAX_COMMENT_CHARS", text)
+        self.assertNotIn("60000", text)
+        # GitHub's hard limit is referenced as a named constant.
+        self.assertIn("GITHUB_HARD_LIMIT = 65535", text)
+
+    def test_changelog_update_workflow_seeds_target_from_pr_head(self) -> None:
+        """Finding 5: the workflow seeds the target from the fetched pr-head."""
+        text = (
+            REPO_ROOT / ".github/workflows/opencode-changelog-update.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--seed-target", text)
+        # The pr-head ref is fetched for diff and seeding.
+        self.assertIn('pull/$PR_NUMBER/head:pr-head', text)
 
     def test_central_pin_is_reachable_from_main(self) -> None:
         """The central configuration pin remains reachable from its main branch.

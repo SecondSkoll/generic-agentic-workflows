@@ -1,0 +1,536 @@
+name: OpenCode changelog update
+
+on:
+  workflow_call:
+    inputs:
+      label:
+        description: Pull-request label that triggers a changelog update
+        type: string
+        required: false
+        default: update-changelog
+      target_file:
+        description: Repository-relative target file to update (default CHANGELOG.md)
+        type: string
+        required: false
+        default: CHANGELOG.md
+      configuration_source:
+        description: default (supplied profile), local (caller repository), or an approved central alias
+        type: string
+        required: false
+        default: default
+      configuration_ref:
+        description: Full 40-character commit SHA for a remote bundle
+        type: string
+        required: false
+        default: ''
+      configuration_profile:
+        description: Bundle profile name
+        type: string
+        required: false
+        default: changelog-update
+      dry_run:
+        description: Resolve, validate, and generate output without publishing
+        type: boolean
+        required: false
+        default: false
+      validate_only:
+        description: Resolve and validate configuration only
+        type: boolean
+        required: false
+        default: false
+      pull_number:
+        description: Pull-request number to update when event context is unavailable
+        type: number
+        required: false
+        default: 0
+    secrets:
+      OPENROUTER_API_KEY:
+        required: true
+      central_config_token:
+        description: Optional read token for a private central configuration repository; falls back to github.token.
+        required: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: opencode-changelog-update-${{ github.repository }}-${{ inputs.pull_number || github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      # Keep the caller's trusted base at the workspace root for local
+      # configuration, policy overlays, and repository operations.
+      - name: Check out caller repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      # A reusable workflow loads only this YAML from the called repository.
+      # Fetch its implementation at the exact revision GitHub selected. Skip
+      # this checkout when a direct/local invocation already has that exact
+      # repository revision at the workspace root.
+      - name: Check out pinned workflow helpers
+        if: job.workflow_repository != github.repository || job.workflow_sha != github.sha
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .agentic-workflow
+          persist-credentials: false
+
+      - name: Select trusted workflow helpers
+        env:
+          WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          if [[ "$WORKFLOW_REPOSITORY" == "$GITHUB_REPOSITORY" && "$WORKFLOW_SHA" == "$GITHUB_SHA" ]]; then
+            echo "AGENTIC_WORKFLOW_ROOT=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          else
+            echo "AGENTIC_WORKFLOW_ROOT=$GITHUB_WORKSPACE/.agentic-workflow" >> "$GITHUB_ENV"
+          fi
+
+      - name: Resolve invocation
+        id: resolve
+        env:
+          AGENTIC_WORKFLOW: pr-changelog-update
+          AGENTIC_CONFIGURATION_SOURCE: ${{ inputs.configuration_source || 'local' }}
+          AGENTIC_CONFIGURATION_REF: ${{ inputs.configuration_ref || '' }}
+          AGENTIC_CONFIGURATION_PROFILE: ${{ inputs.configuration_profile || 'changelog-update' }}
+          AGENTIC_DRY_RUN: ${{ inputs.dry_run || false }}
+          AGENTIC_VALIDATE_ONLY: ${{ inputs.validate_only || false }}
+          AGENTIC_TARGET_NUMBER: ${{ inputs.pull_number || github.event.pull_request.number || '' }}
+          AGENTIC_REQUEST_LABEL: ${{ inputs.label || 'update-changelog' }}
+          AGENTIC_TARGET_FILE: ${{ inputs.target_file || 'CHANGELOG.md' }}
+        run: |
+          set -euo pipefail
+          python3 "$AGENTIC_WORKFLOW_ROOT/scripts/resolve_invocation.py" \
+            --workflow pr-changelog-update \
+            --configuration-source "$AGENTIC_CONFIGURATION_SOURCE" \
+            --configuration-ref "$AGENTIC_CONFIGURATION_REF" \
+            --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
+            --dry-run "$AGENTIC_DRY_RUN" \
+            --validate-only "$AGENTIC_VALIDATE_ONLY" \
+            --target-number "$AGENTIC_TARGET_NUMBER" \
+            --request-label "$AGENTIC_REQUEST_LABEL" \
+            --target-file "$AGENTIC_TARGET_FILE" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-step-summary "$GITHUB_STEP_SUMMARY" \
+            --result "$RUNNER_TEMP/resolved-invocation.json"
+
+      - name: Stop after validation-only
+        if: steps.resolve.outputs.validate_only == 'true'
+        env:
+          AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
+        run: |
+          echo "validate_only selected; no PR fetch, model invocation, or publication performed."
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          import importlib.util
+          spec = importlib.util.spec_from_file_location(
+              "agentic_provenance", Path(os.environ["AGENTIC_WORKFLOW_ROOT"]) / "scripts/agentic_provenance.py"
+          )
+          prov = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
+          record = prov.build_provenance(
+              workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
+              workflow_name="pr-changelog-update",
+              caller_repository=os.environ.get("GITHUB_REPOSITORY", ""),
+              target_kind="pull_request",
+              target_number=None,
+              target_head_sha=None,
+              bundle=None,
+              prompt_template_sha256=None,
+              output_contract=None,
+              model_profile=None,
+              effective_policy_sha256=None,
+              mode="validate-only",
+              result="validated",
+          )
+          out = Path(os.environ["RUNNER_TEMP"]) / "resolved-agentic-provenance.json"
+          out.write_text(record.to_json() + "\n", encoding="utf-8")
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          existing = summary.read_text() if summary.exists() else ""
+          if existing and not existing.endswith("\n"):
+              existing += "\n"
+          summary.write_text(existing + prov.job_summary(record), encoding="utf-8")
+          PY
+          echo "::notice::Resolved configuration written to job summary and artifact."
+
+      - name: Guard trigger and resolve pull request
+        if: steps.resolve.outputs.validate_only != 'true'
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.resolve.outputs.target_number }}
+          REQUEST_LABEL: ${{ steps.resolve.outputs.request_label }}
+          EVENT_PAYLOAD: ${{ github.event_path }}
+          AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "A positive pull-request number is required." >&2
+            exit 1
+          fi
+          gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr.json"
+          gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
+            | jq -s 'add // []' > "$RUNNER_TEMP/pr-comments.json"
+          gh api "repos/$REPOSITORY/pulls/$PR_NUMBER/commits" \
+            > "$RUNNER_TEMP/pr-commits.json"
+          python3 "$AGENTIC_WORKFLOW_ROOT/scripts/run_agentic_changelog_update.py" guard \
+            --event-payload "$EVENT_PAYLOAD" \
+            --pr-json "$RUNNER_TEMP/pr.json" \
+            --comments-json "$RUNNER_TEMP/pr-comments.json" \
+            --commits-json "$RUNNER_TEMP/pr-commits.json" \
+            --request-label "$REQUEST_LABEL" \
+            --target-number "$PR_NUMBER" \
+            --github-output "$GITHUB_OUTPUT" \
+            --result "$RUNNER_TEMP/guard-result.json" \
+            --provenance "$RUNNER_TEMP/resolved-agentic-provenance.json"
+
+      - name: Skip when guard reports idempotency
+        if: steps.resolve.outputs.validate_only != 'true' && steps.guard.outputs.action == 'skip'
+        run: |
+          echo "Most recent PR action is this workflow's own marker; skipping without side effects."
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        if: steps.resolve.outputs.validate_only != 'true' && steps.guard.outputs.action != 'skip'
+        with:
+          python-version: '3.12'
+
+      - name: Resolve agentic configuration
+        if: steps.resolve.outputs.validate_only != 'true' && steps.guard.outputs.action != 'skip'
+        id: config
+        env:
+          AGENTIC_WORKFLOW: pr-changelog-update
+          AGENTIC_CONFIGURATION_SOURCE: ${{ steps.resolve.outputs.configuration_source }}
+          AGENTIC_CONFIGURATION_REF: ${{ steps.resolve.outputs.configuration_ref }}
+          AGENTIC_CONFIGURATION_PROFILE: ${{ steps.resolve.outputs.configuration_profile }}
+          GITHUB_TOKEN: ${{ secrets.central_config_token || github.token }}
+          AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          if ! python3 "$AGENTIC_WORKFLOW_ROOT/scripts/agentic_configuration.py" \
+            --workflow pr-changelog-update \
+            --configuration-source "$AGENTIC_CONFIGURATION_SOURCE" \
+            --configuration-ref "$AGENTIC_CONFIGURATION_REF" \
+            --configuration-profile "$AGENTIC_CONFIGURATION_PROFILE" \
+            --result "$RUNNER_TEMP/resolved-agentic-configuration.json"; then
+            python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          import importlib.util
+          spec = importlib.util.spec_from_file_location("agentic_provenance", Path(os.environ["AGENTIC_WORKFLOW_ROOT"]) / "scripts/agentic_provenance.py")
+          prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
+          record = prov.failure_record(
+              workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
+              workflow_name="pr-changelog-update",
+              caller_repository=os.environ.get("GITHUB_REPOSITORY", ""),
+              mode="publish",
+              error=RuntimeError("configuration resolution failed"),
+          )
+          Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-provenance.json").write_text(record.to_json() + "\n")
+          PY
+            exit 1
+          fi
+          echo "model_profile=$(jq -r '.model_profile' "$RUNNER_TEMP/resolved-agentic-configuration.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve effective policy
+        if: steps.resolve.outputs.validate_only != 'true' && steps.guard.outputs.action != 'skip'
+        id: policy
+        env:
+          AGENTIC_WORKFLOW: pr-changelog-update
+          DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
+          AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          model_profile=$(jq -r '.model_profile' "$RUNNER_TEMP/resolved-agentic-configuration.json")
+          mode="publish"
+          if [[ "$DRY_RUN" == "true" ]]; then mode="dry-run"; fi
+          agent_caps=$(python3 - <<'PY'
+          import json, sys, os, importlib.util
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("agentic_policy", Path(os.environ["AGENTIC_WORKFLOW_ROOT"]) / "scripts/agentic_policy.py")
+          pol = importlib.util.module_from_spec(spec); sys.modules[spec.name] = pol; spec.loader.exec_module(pol)
+          data = json.loads(Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-configuration.json").read_text())
+          agent_text = (Path(data["bundle_root"]) / data["agent_file"]).read_text(encoding="utf-8")
+          print(json.dumps(pol.parse_agent_capabilities(agent_text)))
+          PY
+          )
+          overlay_arg=""
+          if [[ -f .github/agentic-policy-overlay.json ]]; then
+            overlay_arg="--overlay .github/agentic-policy-overlay.json"
+          fi
+          python3 "$AGENTIC_WORKFLOW_ROOT/scripts/agentic_policy.py" \
+            --workflow "$AGENTIC_WORKFLOW" \
+            --model-profile "$model_profile" \
+            --resolved-config "$RUNNER_TEMP/resolved-agentic-configuration.json" \
+            --agent-capabilities-json "$agent_caps" \
+            --mode "$mode" \
+            $overlay_arg \
+            --result "$RUNNER_TEMP/effective-policy.json" \
+            --github-step-summary "$GITHUB_STEP_SUMMARY" \
+          || {
+            python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          import importlib.util
+          spec = importlib.util.spec_from_file_location("agentic_provenance", Path(os.environ["AGENTIC_WORKFLOW_ROOT"]) / "scripts/agentic_provenance.py")
+          prov = importlib.util.module_from_spec(spec); sys.modules[spec.name] = prov; spec.loader.exec_module(prov)
+          bundle = json.loads(Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-configuration.json").read_text())
+          record = prov.failure_record(
+              workflow_version=os.environ.get("AGENTIC_WORKFLOW_VERSION", "dev"),
+              workflow_name="pr-changelog-update",
+              caller_repository=os.environ.get("GITHUB_REPOSITORY", ""),
+              mode="publish",
+              error=RuntimeError("policy resolution failed"),
+              bundle=bundle,
+          )
+          Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-provenance.json").write_text(record.to_json() + "\n")
+          PY
+            exit 1
+          }
+          echo "sha256=$(jq -r '.sha256' "$RUNNER_TEMP/effective-policy.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Get pull request diff
+        if: steps.resolve.outputs.validate_only != 'true' && steps.guard.outputs.action != 'skip'
+        env:
+          BASE_SHA: ${{ steps.guard.outputs.base_sha }}
+          PR_NUMBER: ${{ steps.guard.outputs.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 --wrap=0)"
+          git -c "http.https://github.com/.extraheader=$auth_header" \
+            fetch --no-tags origin "pull/$PR_NUMBER/head:pr-head"
+          merge_base="$(git merge-base "$BASE_SHA" pr-head)"
+          git diff "$merge_base" pr-head -- > "$RUNNER_TEMP/pr.diff"
+
+      - name: Set up Node.js 24
+        if: steps.resolve.outputs.validate_only != 'true' && steps.guard.outputs.action != 'skip'
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '24'
+
+      - name: Install OpenCode
+        if: steps.resolve.outputs.validate_only != 'true' && steps.guard.outputs.action != 'skip'
+        run: npm install -g opencode-ai@1.18.16
+
+      - name: Generate changelog update
+        if: steps.resolve.outputs.validate_only != 'true' && steps.guard.outputs.action != 'skip'
+        id: update
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
+          TARGET_FILE: ${{ steps.resolve.outputs.target_file }}
+          GUARD_MODE: ${{ steps.guard.outputs.mode }}
+          MARKER_COMMENT_ID: ${{ steps.guard.outputs.marker_comment_id }}
+          AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          args=(
+            --resolved-config "$RUNNER_TEMP/resolved-agentic-configuration.json"
+            --effective-policy "$RUNNER_TEMP/effective-policy.json"
+            --pr-json "$RUNNER_TEMP/pr.json"
+            --diff-file "$RUNNER_TEMP/pr.diff"
+            --target-file "$TARGET_FILE"
+            --repo-root "$GITHUB_WORKSPACE"
+            --mode "$GUARD_MODE"
+            --marker-comment-id "$MARKER_COMMENT_ID"
+            --seed-target
+            --github-output "$GITHUB_OUTPUT"
+            --publication-preview "$RUNNER_TEMP/agentic-publication-preview.json"
+            --provenance "$RUNNER_TEMP/resolved-agentic-provenance.json"
+          )
+          if [[ "$DRY_RUN" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+          python3 "$AGENTIC_WORKFLOW_ROOT/scripts/run_agentic_changelog_update.py" update "${args[@]}"
+
+      - name: Publish changelog update
+        if: steps.resolve.outputs.validate_only != 'true' && steps.guard.outputs.action != 'skip' && steps.update.outputs.decision == 'UPDATED'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.guard.outputs.number }}
+          HEAD_REF: ${{ steps.guard.outputs.head_ref }}
+          IS_FORK: ${{ steps.guard.outputs.is_fork }}
+          TARGET_FILE: ${{ steps.resolve.outputs.target_file }}
+          DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
+          MARKER_COMMENT_ID: ${{ steps.guard.outputs.marker_comment_id }}
+          PREVIEW: ${{ runner.temp }}/agentic-publication-preview.json
+          AGENTIC_WORKFLOW_ROOT: ${{ env.AGENTIC_WORKFLOW_ROOT }}
+        run: |
+          set -uo pipefail
+          # Run the publication block without -e so we can inspect its exit
+          # status and gate provenance promotion precisely.
+          python3 - <<'PY'
+          import base64, json, os, subprocess, sys
+          from pathlib import Path
+          from urllib.parse import quote
+          import importlib.util
+
+          # Single source of truth for the comment size cap: the runner module.
+          _root = Path(os.environ["AGENTIC_WORKFLOW_ROOT"])
+          _spec = importlib.util.spec_from_file_location(
+              "run_agentic_changelog_update", _root / "scripts/run_agentic_changelog_update.py"
+          )
+          _runner = importlib.util.module_from_spec(_spec)
+          sys.modules["run_agentic_changelog_update"] = _runner
+          _spec.loader.exec_module(_runner)
+          COMMENT_CAP = _runner.MAX_COMMENT_CHARS
+          GITHUB_HARD_LIMIT = 65535
+
+          preview = json.loads(Path(os.environ["PREVIEW"]).read_text(encoding="utf-8"))
+          marker = preview["marker"]
+          target_file = os.environ["TARGET_FILE"]
+          proposed = preview.get("proposed_content") or ""
+          dry_run = os.environ.get("DRY_RUN") == "true"
+          repo = os.environ["REPOSITORY"]
+          pr_number = os.environ["PR_NUMBER"]
+          head_ref = os.environ["HEAD_REF"]
+          is_fork = os.environ.get("IS_FORK") == "true"
+          marker_comment_id = os.environ.get("MARKER_COMMENT_ID") or ""
+          # URL-encode the target path for the Contents API endpoint so spaces,
+          # '#', '?', and other reserved characters cannot corrupt the URL.
+          # 'safe' keeps path separators intact.
+          encoded_path = quote(target_file, safe="/")
+
+          def gh(*args: str, input_data: str | None = None) -> str:
+              proc = subprocess.run(
+                  ["gh", "api", *args],
+                  input=input_data,
+                  capture_output=True,
+                  text=True,
+                  check=True,
+              )
+              return proc.stdout
+
+          if dry_run:
+              print("Dry run: would publish the proposed changelog update.")
+              print(f"  target_file={target_file} fork={is_fork} bytes={len(proposed.encode())}")
+              # Exit with a distinct status so the shell wrapper can skip
+              # provenance promotion. mark-published must never run in dry-run.
+              sys.exit(42)
+
+          if not is_fork:
+              # Same-repo: commit only the target file to the PR source branch
+              # via the GitHub Contents API with an optimistic blob SHA.
+              encoded = base64.b64encode(proposed.encode("utf-8")).decode("ascii")
+              commit_message = f"Update changelog for #{pr_number}\n\n{marker}"
+              # Fetch the current file SHA at the PR head ref (may not exist).
+              current_sha = ""
+              try:
+                  meta = gh(f"repos/{repo}/contents/{encoded_path}", "-f", f"ref={head_ref}")
+                  current_sha = json.loads(meta).get("sha") or ""
+              except subprocess.CalledProcessError:
+                  pass
+              payload = {
+                  "message": commit_message,
+                  "branch": head_ref,
+                  "content": encoded,
+              }
+              if current_sha:
+                  payload["sha"] = current_sha
+              gh(
+                  "--method", "PUT", f"repos/{repo}/contents/{encoded_path}",
+                  "--input", "-",
+                  input_data=json.dumps(payload),
+              )
+              print(f"Committed {target_file} to {head_ref} on {repo}.")
+          else:
+              # Fork: never push. Post or update a single marker comment with
+              # the proposed content under a safe fenced block, bounded below
+              # GitHub's 65,536-character comment limit.
+              wrapper_prefix = (
+                  f"{marker}\n"
+                  f"## Proposed changelog update for `{target_file}`\n\n"
+                  "The pull request head is on a fork, so no commit was pushed. "
+                  "The proposed target-file content is below for review.\n\n"
+                  "```markdown\n"
+              )
+              wrapper_suffix = "\n```\n"
+              cap = COMMENT_CAP - len(wrapper_prefix) - len(wrapper_suffix)
+              if cap < 0:
+                  # Pathologically large wrapper: keep marker + truncation note.
+                  body = (
+                      f"{marker}\n## Proposed changelog update for `{target_file}`\n\n"
+                      "The proposed content exceeds the comment size limit and is "
+                      "available in the workflow artifact.\n"
+                  )
+              else:
+                  if len(proposed) > cap:
+                      proposed = proposed[:cap] + "\n...[truncated by workflow]\n"
+                  body = wrapper_prefix + proposed + wrapper_suffix
+              if len(body) > GITHUB_HARD_LIMIT:
+                  body = body[:GITHUB_HARD_LIMIT]
+              if marker_comment_id:
+                  gh(
+                      "--method", "PATCH",
+                      f"repos/{repo}/issues/comments/{marker_comment_id}",
+                      "-f", f"body={body}",
+                  )
+                  print(f"Updated marker comment {marker_comment_id}.")
+              else:
+                  gh(
+                      "--method", "POST",
+                      f"repos/{repo}/issues/{pr_number}/comments",
+                      "-f", f"body={body}",
+                  )
+                  print(f"Posted marker comment to #{pr_number}.")
+          PY
+          # The Python block exits 42 for dry-run (no write performed) and 0
+          # after a successful GitHub API write. Promote provenance to
+          # "published" ONLY after a real write; mark-published is unreachable
+          # in dry-run and on any failure (set -e aborts before reaching here).
+          py_status=$?
+          if [[ "$py_status" -eq 42 ]]; then
+            exit 0
+          fi
+          if [[ "$py_status" -ne 0 ]]; then
+            exit "$py_status"
+          fi
+          python3 "$AGENTIC_WORKFLOW_ROOT/scripts/run_agentic_changelog_update.py" mark-published \
+            --provenance "$RUNNER_TEMP/resolved-agentic-provenance.json"
+
+      - name: Provenance job summary
+        if: always() && steps.resolve.outputs.validate_only != 'true'
+        run: |
+          if [[ -f "$RUNNER_TEMP/resolved-agentic-provenance.json" ]]; then
+            python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          record = json.loads(Path(os.environ["RUNNER_TEMP"] + "/resolved-agentic-provenance.json").read_text())
+          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          existing = summary_path.read_text() if summary_path.exists() else ""
+          if existing and not existing.endswith("\n"):
+              existing += "\n"
+          lines = ["### Agentic workflow provenance", ""]
+          for k in ("workflow_name", "mode", "result", "output_contract", "model_profile", "configuration_digest"):
+              if record.get(k):
+                  lines.append(f"- {k}: `{record[k]}`")
+          summary_path.write_text(existing + "\n".join(lines) + "\n")
+          PY
+          fi
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: resolved-invocation-pr-changelog-update
+          path: |
+            ${{ runner.temp }}/resolved-invocation.json
+            ${{ runner.temp }}/guard-result.json
+            ${{ runner.temp }}/pr.json
+            ${{ runner.temp }}/resolved-agentic-configuration.json
+            ${{ runner.temp }}/effective-policy.json
+            ${{ runner.temp }}/resolved-agentic-provenance.json
+            ${{ runner.temp }}/agentic-publication-preview.json
+          retention-days: 14
+          if-no-files-found: ignore

@@ -1,8 +1,9 @@
 # Configuration-source workflow examples
 
-Each directory is a complete, copy-ready set of reusable workflow wrappers
-for pull-request documentation review, issue feedback, and release project
-review. Copy the contents of one directory into the root of a consumer
+Each directory contains reusable workflow wrappers for pull-request
+documentation review, issue feedback, and release project review. The
+`default` directory also contains a changelog-update caller with deliberately
+invalid SHA placeholders. Copy the needed contents into the root of a consumer
 repository; in particular, retain its `.github/` path. All wrappers call their
 reusable workflows at commit
 `186fc769bdcc2a711b8321df7c2949a09c48578b`.
@@ -15,10 +16,12 @@ reusable workflows at commit
 
 Each directory contains `documentation-review.yml`, `issue-feedback.yml`,
 `release-project-review-self.yml`, and `external-release-project-review.yml`.
-Keep only the workflows needed by the consumer repository.
+The `default` directory additionally contains `changelog-update.yml`. Keep only
+the workflows needed by the consumer repository.
 
-All three examples start in `validate_only` mode so they can be enabled
-safely. After verifying the resolution artifact, change `validate_only: true`
+The established source examples start in `validate_only` mode so they can be
+enabled safely. Set `validate_only: true` on the changelog caller for the same
+staged rollout. After verifying the resolution artifact, change `validate_only: true`
 to `dry_run: true`, and then remove the flag to publish feedback. The
 repository must define the `OPENROUTER_API_KEY` Actions secret before leaving
 validation-only mode. Documentation review needs `pull-requests: write`;

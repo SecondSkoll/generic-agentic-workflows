@@ -496,5 +496,127 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 1)
 
 
+class ChangelogUpdateInvocationTests(unittest.TestCase):
+    """pr-changelog-update input validation and target_file constraints."""
+
+    def _resolve(self, **overrides):
+        kwargs = {
+            "workflow": "pr-changelog-update",
+            "configuration_profile": "changelog-update",
+            "target_number": 12,
+            "request_label": "update-changelog",
+            "target_file": "CHANGELOG.md",
+        }
+        kwargs.update(overrides)
+        return RESOLVER.resolve_invocation(**kwargs)
+
+    def test_minimum_inputs_resolve(self) -> None:
+        resolved = self._resolve()
+        self.assertEqual(resolved.workflow, "pr-changelog-update")
+        self.assertEqual(resolved.target_number, 12)
+        self.assertEqual(resolved.request_label, "update-changelog")
+        self.assertEqual(resolved.target_file, "CHANGELOG.md")
+
+    def test_target_number_is_required(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_number=None)
+
+    def test_request_label_is_required(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(request_label=None)
+
+    def test_target_file_is_required(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_file=None)
+
+    def test_focus_max_comments_max_issues_rejected(self) -> None:
+        for kwarg in ("focus", "max_comments", "max_issues"):
+            with self.subTest(kwarg=kwarg):
+                with self.assertRaises(RESOLVER.InvocationError):
+                    self._resolve(**{kwarg: 1 if kwarg != "focus" else "security"})
+
+    def test_release_fields_rejected(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(release_id=1)
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(release_tag="v1")
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_repository="a/b")
+
+    def test_target_file_rejects_absolute(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_file="/etc/passwd")
+
+    def test_target_file_rejects_backslash(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_file="docs\\CHANGELOG.md")
+
+    def test_target_file_rejects_traversal(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_file="../CHANGELOG.md")
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_file="docs/../CHANGELOG.md")
+
+    def test_target_file_rejects_dot_segments_and_trailing_slash(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_file="./CHANGELOG.md")
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_file="docs/")
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_file="")
+
+    def test_target_file_rejects_github_and_opencode_first_segment(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_file=".github/workflows/x.yml")
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_file=".opencode/agents/x.md")
+
+    def test_target_file_allows_nested_relative(self) -> None:
+        resolved = self._resolve(target_file="docs/CHANGELOG.md")
+        self.assertEqual(resolved.target_file, "docs/CHANGELOG.md")
+
+    def test_target_file_rejects_control_characters(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_file="CHANGELOG.md\nmalicious")
+
+    def test_target_file_rejects_oversize(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            self._resolve(target_file="a" * 600)
+
+    def test_target_file_rejected_for_other_workflows(self) -> None:
+        for workflow, profile in (
+            ("pr-documentation-review", "documentation-review"),
+            ("issue-feedback", "issue-feedback"),
+            ("issue-implementation", "default-implementation"),
+            ("release-project-review", "release-project-review"),
+        ):
+            with self.subTest(workflow=workflow):
+                kwargs = {
+                    "workflow": workflow,
+                    "configuration_source": "local",
+                    "configuration_profile": profile,
+                    "target_file": "CHANGELOG.md",
+                }
+                if workflow in ("pr-documentation-review", "issue-implementation"):
+                    kwargs["target_number"] = 1
+                elif workflow == "release-project-review":
+                    kwargs["target_repository"] = "a/b"
+                    kwargs["release_tag"] = "v1.0"
+                with self.assertRaises(RESOLVER.InvocationError):
+                    RESOLVER.resolve_invocation(**kwargs)
+
+    def test_env_resolves_target_file(self) -> None:
+        resolved = RESOLVER.resolve_from_env(
+            {
+                "AGENTIC_WORKFLOW": "pr-changelog-update",
+                "AGENTIC_CONFIGURATION_PROFILE": "changelog-update",
+                "AGENTIC_TARGET_NUMBER": "5",
+                "AGENTIC_REQUEST_LABEL": "update-changelog",
+                "AGENTIC_TARGET_FILE": "docs/CHANGELOG.md",
+            }
+        )
+        self.assertEqual(resolved.target_file, "docs/CHANGELOG.md")
+
+
 if __name__ == "__main__":
     unittest.main()

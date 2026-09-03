@@ -1,10 +1,10 @@
 # generic-agentic-workflows
 
-Reusable GitHub Actions workflows that use **read only** OpenCode agents
+Reusable GitHub Actions workflows that use narrowly permissioned OpenCode agents
 to provide pull-request documentation reviews, issue feedback, a manually
 dispatched issue-to-pull-request implementation path, and a manually
 dispatched/reusable release project-review that creates at most one
-release-readiness issue.
+release-readiness issue, and a label-requested changelog update.
 
 Note: Issue implementation is not currently set up for calling as a remote action.
 See [Run issue implementation](docs/developer/running-issue-implementation.md) for the
@@ -50,6 +50,7 @@ commit SHA; resolution failures fail closed.
 | `.github/workflows/opencode-issue-feedback.yml` | Direct issue trigger or reusable call | `contents: read`, `issues: write` |
 | `.github/workflows/opencode-issue-implementation.yml` | Manual dispatch only | `contents: write`, `issues: write`, `pull-requests: write` |
 | `.github/workflows/opencode-release-project-review.yml` | Manual dispatch or reusable call only | `contents: read`, `issues: write` (plus a target-scoped `release_target_token` for cross-repository reviews) |
+| `.github/workflows/opencode-changelog-update.yml` | Reusable call only (label added to an open PR) | `contents: write`, `pull-requests: write` |
 
 The reusable caller owns triggers, concurrency, permissions, and secret
 forwarding. The callee validates configuration, composes prompts, invokes the
@@ -132,23 +133,21 @@ Stack](https://github.com/canonical/sphinx-stack) (tag 2.0). The Sphinx
 configuration lives in [`docs/conf.py`](docs/conf.py) and the entry point is
 [`docs/index.md`](docs/index.md).
 
-Use the Canonical Sphinx Stack Makefile from the repository root. It creates
-`docs/.venv` and installs `docs/requirements.txt`. Read the Docs instead uses
-uv to install the locked `docs` extra from `pyproject.toml`.
+Use the locked `docs` extra from the repository root.
 
 ```
-make -C docs install
+uv sync --extra docs
 ```
 
 Build the HTML documentation (treats warnings as errors and keeps going to
 report all of them):
 
 ```
-make -C docs html
+uv run --extra docs sphinx-build -W --keep-going -b html docs docs/_build/html
 ```
 
 Check external links:
 
 ```
-make -C docs linkcheck
+uv run --extra docs sphinx-build -b linkcheck docs docs/_build/linkcheck
 ```

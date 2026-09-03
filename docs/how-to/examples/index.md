@@ -34,12 +34,14 @@ declares.
 For complete pull-request documentation-review and issue-feedback workflows
 for each supported configuration source, copy one of the directories described
 in the [configuration-source examples](configuration-sources/index.md).
-These examples use this repository as the reusable workflow source and contain
-real full commit-SHA pins. See the [configuration-source examples directory
+The established review and feedback examples contain real full commit-SHA
+pins. The changelog example deliberately uses an invalid all-zero placeholder
+that must be replaced before use. See the [configuration-source examples directory
 table](configuration-sources/index.md) to choose the files to copy.
 
-Each starts with `validate_only: true`. Follow the rollout instructions in the
-configuration-source examples before enabling model invocation or
+The established examples start with `validate_only: true`; set that explicitly
+on the changelog example for a staged rollout. Follow the rollout instructions
+in the configuration-source examples before enabling model invocation or
 publication. See the [configuration reference](../../reference/configuration-reference.md)
 for exact input definitions.
 

@@ -97,6 +97,7 @@ SUPPORTED_OUTPUT_CONTRACTS: frozenset[str] = frozenset(
         "issue-feedback-markdown-v1",
         "issue-implementation-decision-v1",
         "release-project-issue-v1",
+        "pr-changelog-update-v1",
     }
 )
 
@@ -109,6 +110,7 @@ SUPPORTED_WORKFLOWS: frozenset[str] = frozenset(
         "issue-feedback",
         "issue-implementation",
         "release-project-review",
+        "pr-changelog-update",
     }
 )
 

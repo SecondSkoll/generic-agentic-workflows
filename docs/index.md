@@ -1,9 +1,10 @@
 # Generic Agentic Workflows
 
-Generic Agentic Workflows provides reusable GitHub Actions workflows that use
-read-only OpenCode agents for pull-request documentation reviews, issue
-feedback, a manually dispatched issue-to-pull-request implementation path, and
-a manually dispatched or reusable release project review.
+Generic Agentic Workflows provides GitHub Actions workflows that use narrowly
+permissioned OpenCode agents for pull-request documentation reviews, issue
+feedback, a manually dispatched issue-to-pull-request implementation path, a
+manually dispatched or reusable release project review, and a reusable
+changelog update triggered by a label on an open pull request.
 
 The reusable caller owns triggers, concurrency, permissions, and secret
 forwarding. The called workflow validates configuration, composes prompts,
@@ -18,6 +19,7 @@ feedback, and uploads redacted provenance.
 | Issue feedback | Direct issue trigger or reusable call | `contents: read`, `issues: write` |
 | Issue implementation | Manual dispatch only | `contents: write`, `issues: write`, `pull-requests: write` |
 | Release project review | Manual dispatch or reusable call | `contents: read`, `issues: write` |
+| Changelog update | Reusable call only (label added to an open PR) | `contents: write`, `pull-requests: write` |
 
 Configuration comes from one of three trusted sources: a supplied `default`
 profile, a repository-owned `local` bundle, or an organization-managed

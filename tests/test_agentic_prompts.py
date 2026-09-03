@@ -616,5 +616,67 @@ class CompositionValidationTests(unittest.TestCase):
             _compose(profile_template="{{untrusted_content}}", untrusted_content=None)
 
 
+class ChangelogUpdateContractTests(unittest.TestCase):
+    """pr-changelog-update-v1 contract suffix and parser."""
+
+    def test_suffix_registered_and_mentions_decision(self):
+        suffix = PROMPTS.contract_suffix("pr-changelog-update-v1")
+        self.assertIn("CHANGELOG_DECISION", suffix)
+        self.assertIn("UPDATED", suffix)
+        self.assertIn("NO_CHANGE", suffix)
+        self.assertIn("BLOCKED", suffix)
+
+    def test_parse_updated_with_summary(self):
+        decision, detail = PROMPTS.parse_changelog_update_output(
+            "CHANGELOG_DECISION: UPDATED\nCHANGELOG_SUMMARY: Added entry for PR 12\n"
+        )
+        self.assertEqual(decision, "UPDATED")
+        self.assertEqual(detail, "Added entry for PR 12")
+
+    def test_parse_no_change_with_summary(self):
+        decision, detail = PROMPTS.parse_changelog_update_output(
+            "CHANGELOG_DECISION: NO_CHANGE\nCHANGELOG_SUMMARY: No user-facing change\n"
+        )
+        self.assertEqual(decision, "NO_CHANGE")
+        self.assertIn("No user-facing", detail)
+
+    def test_parse_blocked_with_blocker(self):
+        decision, detail = PROMPTS.parse_changelog_update_output(
+            "CHANGELOG_DECISION: BLOCKED\nCHANGELOG_BLOCKER: PR scope is unclear\n"
+        )
+        self.assertEqual(decision, "BLOCKED")
+        self.assertEqual(detail, "PR scope is unclear")
+
+    def test_parse_rejects_missing_decision(self):
+        with self.assertRaises(PROMPTS.ContractError):
+            PROMPTS.parse_changelog_update_output("nothing useful here")
+
+    def test_parse_rejects_invalid_decision_value(self):
+        with self.assertRaises(PROMPTS.ContractError):
+            PROMPTS.parse_changelog_update_output("CHANGELOG_DECISION: MAYBE\n")
+
+    def test_parse_blocked_rejects_missing_blocker(self):
+        with self.assertRaises(PROMPTS.ContractError):
+            PROMPTS.parse_changelog_update_output("CHANGELOG_DECISION: BLOCKED\n")
+
+    def test_parse_updated_rejects_missing_summary(self):
+        with self.assertRaises(PROMPTS.ContractError):
+            PROMPTS.parse_changelog_update_output("CHANGELOG_DECISION: UPDATED\n")
+
+    def test_parse_rejects_oversize_summary(self):
+        summary = "x" * (PROMPTS.MAX_CHANGELOG_SUMMARY_BYTES + 1)
+        with self.assertRaises(PROMPTS.ContractError):
+            PROMPTS.parse_changelog_update_output(
+                f"CHANGELOG_DECISION: UPDATED\nCHANGELOG_SUMMARY: {summary}\n"
+            )
+
+    def test_dispatch_routes_changelog_contract(self):
+        decision, detail = PROMPTS.parse_output(
+            "pr-changelog-update-v1",
+            "CHANGELOG_DECISION: NO_CHANGE\nCHANGELOG_SUMMARY: none\n",
+        )
+        self.assertEqual(decision, "NO_CHANGE")
+
+
 if __name__ == "__main__":
     unittest.main()

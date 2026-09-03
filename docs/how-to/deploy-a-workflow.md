@@ -15,6 +15,7 @@ For authoring a local or central profile, see [creating a configuration bundle](
 | Documentation review | `opencode-documentation-review.yml` | `pull_request` | `contents: read`, `pull-requests: write` |
 | Issue feedback | `opencode-issue-feedback.yml` | `issues` | `contents: read`, `issues: write` |
 | Release project review | `opencode-release-project-review.yml` | `workflow_dispatch`, schedule, or a release wrapper | `contents: read`, `issues: write` |
+| Changelog update | `opencode-changelog-update.yml` | `pull_request_target` with `types: [labeled]` | `contents: write`, `pull-requests: write` |
 
 The issue-implementation workflow is manual-dispatch only. It is not available
 as a remote reusable call. To use it in this repository, follow [Run issue
@@ -155,6 +156,8 @@ Promote the wrapper through these stages:
    and effective policy and validates them—including any `midflight_commands`
    IDs, counts, phases, and overlap—without calling a model, fetching a
    release, checking out a target, running commands, or writing to GitHub.
+   For changelog update, validation-only is narrower: it validates invocation
+   inputs and stops before fetching the PR or resolving the bundle.
 2. Review the run summary and redacted configuration/provenance artifacts.
 3. Replace `validate_only: true` with `dry_run: true`. This can invoke the
    model (both phases when `midflight_commands` is configured), run the
@@ -171,9 +174,64 @@ guide](../developer/operations-guide.md).
 
 ## 6. Verify ongoing operation
 
-Each run uploads short-retention (14-day) redacted artifacts, including the
-resolved configuration, effective policy, and provenance record. Use them to
-confirm the selected profile, remote SHA, output contract, model profile, and
-result without exposing credentials, full prompts, raw model output, or full
-untrusted content. See the [operations guide](../developer/operations-guide.md)
-for rollback, incident response, and reliability limits.
+Each run uploads its available short-retention (14-day) redacted artifacts.
+Configuration and policy files are absent when the run stops before those
+stages, including changelog `validate_only`. Use the available files to confirm
+the selected profile, remote SHA, output contract, model profile, and result
+without exposing credentials, full prompts, raw model output, or full untrusted
+content. See the [operations guide](../developer/operations-guide.md) for
+rollback, incident response, and reliability limits.
+
+## 7. Changelog update from a labelled pull request
+
+The `opencode-changelog-update.yml` reusable workflow updates a designated
+changelog file from an open pull request when a configurable label is added.
+A consumer caller uses `pull_request_target: types: [labeled]`. Unlike
+`pull_request`, this event makes the base repository's token and configured
+secret available for fork PRs, which is necessary to publish the proposed
+content as a comment. The workflow remains safe because it checks out the
+trusted base, loads helper code from the pinned reusable-workflow revision,
+and treats the PR head as data; it never checks out or executes PR-controlled
+code or configuration.
+
+The caller supports these changelog-specific defaults and selectors:
+
+| Input | Default | Behavior |
+| --- | --- | --- |
+| `label` | `update-changelog` | Exact label required on the `labeled` event. |
+| `target_file` | `CHANGELOG.md` | Repository-relative file that the agent may edit. |
+| `configuration_source` | `default` | `default`, `local`, or the allowlisted `central` source. |
+| `configuration_ref` | Empty | Required full commit SHA for `default` and `central`; omit for `local`. |
+| `configuration_profile` | `changelog-update` | Bundle that selects the reviewed prompt, agent, skills, model profile, contract, and policy. Use a custom reviewed local or central profile to customize that combination. |
+| `pull_number` | `0` | Optional override when event context does not provide a PR number; the labelled-PR caller normally supplies the event number. |
+| `dry_run` | `false` | Runs the guard, model, and output validation and creates a preview artifact, but does not commit or comment. |
+| `validate_only` | `false` | Validates invocation inputs only, without fetching the PR, resolving the bundle, invoking the model, or publishing. |
+
+The job requires `contents: write` and `pull-requests: write`, plus the required
+`OPENROUTER_API_KEY` secret. Forward the optional `central_config_token` only
+when a private central bundle needs it. See
+`docs/how-to/examples/configuration-sources/default/.github/workflows/changelog-update.yml`
+for a minimal caller. Its all-zero SHA values are deliberately invalid: the
+example is not runnable until both are replaced with a reviewed 40-character
+commit SHA.
+
+The reusable workflow re-validates the event, action, exact label, PR number,
+and open PR state authoritatively. Ordinary issues, other event actions,
+closed PRs, and label mismatches are rejected before model invocation or
+publication; the reusable workflow has no direct event trigger of its own.
+
+* **Same-repo PRs**: the workflow commits only the designated target file to
+  the PR source branch through the GitHub Contents API, with the workflow
+  marker in the commit message. Any extraneous edit fails before publication.
+* **Fork PRs**: the workflow never pushes. It posts (or updates) a single
+  marker PR comment containing the proposed target-file content for review.
+* **Re-adding the label**: the workflow exits safely when, for a same-repo PR,
+  its marker commit is the latest commit with no newer comment, or, for a fork
+  PR, its marker comment is the newest comment and no newer fork commit
+  followed it. Otherwise, it incorporates the current PR head: same-repo PRs
+  receive another target-file commit and fork PRs regenerate the proposal and
+  update the existing marker comment in place. A newer fork commit after the
+  marker comment triggers a regeneration that PATCHes the existing marker
+  comment.
+* `dry_run` produces a publication preview only; `dry_run` and `validate_only`
+  are mutually exclusive.

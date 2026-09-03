@@ -765,5 +765,22 @@ class CacheSlotRobustnessTests(unittest.TestCase):
         return files, "a" * 40
 
 
+class ChangelogUpdateBundleTests(unittest.TestCase):
+    """The checked-in changelog-update bundle resolves and validates."""
+
+    def test_bundle_resolves_for_pr_changelog_update(self) -> None:
+        resolved = CFG.resolve_local_bundle(
+            bundle_root=REPO_ROOT / ".opencode" / "configuration",
+            profile="changelog-update",
+            workflow="pr-changelog-update",
+        )
+        self.assertEqual(resolved.profile_name, "changelog-update")
+        self.assertEqual(resolved.workflow, "pr-changelog-update")
+        self.assertEqual(resolved.manifest.output_contract, "pr-changelog-update-v1")
+        self.assertEqual(resolved.manifest.model_profile, "changelog-writer")
+        self.assertTrue(resolved.manifest.manifest_sha256)
+        self.assertTrue(resolved.prompt_template_sha256)
+
+
 if __name__ == "__main__":
     unittest.main()

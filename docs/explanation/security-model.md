@@ -184,10 +184,29 @@ Output contracts reject malformed JSON, unknown fields or labels, empty or
 oversize content, and unsupported findings. The runner creates at most one
 release-readiness issue for a matching release-review identity.
 
+The `pr-changelog-update` workflow widens the editing surface to a single
+designated target file but keeps every other control: the reusable workflow
+re-validates the exact label, `labeled` action, and open PR state; the agent
+may edit only the target file and the runner hard-restricts changed paths to
+that file before publication. Same-repo PRs receive a target-file commit with
+the workflow marker; fork PRs never push and instead receive a single marker
+comment with the proposed content. Re-adding the label skips safely when the
+workflow's same-repo marker commit is newest with no newer comment, or when a
+fork marker is the newest comment and no newer fork commit followed it. A
+newer fork commit regenerates the proposal and PATCHes the existing marker
+comment in place.
+
+Its consumer wrapper uses `pull_request_target` so the base repository can
+comment on fork PRs and provide the model credential. The elevated event does
+not make fork code trusted: the workspace starts from the trusted base, helper
+code comes from the pinned called-workflow revision, and only the designated
+target blob and bounded PR diff are read from the head as data. PR-controlled
+scripts, workflows, and configuration are not executed.
+
 ## Logging, provenance, and incident response
 
-Every execution path emits redacted provenance, including validation-only and
-configuration failures. Artifacts retain enough information to investigate:
+Runs upload available redacted provenance, including validation-only and
+handled configuration failures. Artifacts retain enough information to investigate:
 workflow version, target metadata, selected source/profile/SHA, manifest and
 prompt hashes, output contract, model profile, effective-policy hash, mode,
 and result.
