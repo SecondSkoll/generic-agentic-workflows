@@ -9,6 +9,11 @@ on:
         description: Pull-request number to review
         required: true
         type: string
+      review_request_string:
+        description: Comment substring that requests an additional review after prior feedback
+        required: false
+        type: string
+        default: 'AI REVIEW REQUESTED'
   workflow_call:
     inputs:
       configuration_source:
@@ -50,6 +55,11 @@ on:
         type: number
         required: false
         default: 0
+      review_request_string:
+        description: Comment substring that requests an additional review after prior feedback
+        type: string
+        required: false
+        default: 'AI REVIEW REQUESTED'
     secrets:
       OPENROUTER_API_KEY:
         required: true
@@ -62,6 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: read
       pull-requests: write
     env:
       FEEDBACK_KIND: pr-documentation-review
@@ -115,6 +126,7 @@ jobs:
           AGENTIC_DRY_RUN: ${{ inputs.dry_run || false }}
           AGENTIC_VALIDATE_ONLY: ${{ inputs.validate_only || false }}
           AGENTIC_TARGET_NUMBER: ${{ inputs.pull_number || github.event.pull_request.number || '' }}
+          AGENTIC_REVIEW_REQUEST_STRING: ${{ inputs.review_request_string || 'AI REVIEW REQUESTED' }}
         run: |
           set -euo pipefail
           python3 "$AGENTIC_WORKFLOW_ROOT/scripts/resolve_invocation.py" \
@@ -127,6 +139,7 @@ jobs:
             --dry-run "$AGENTIC_DRY_RUN" \
             --validate-only "$AGENTIC_VALIDATE_ONLY" \
             --target-number "$AGENTIC_TARGET_NUMBER" \
+            --review-request-string "$AGENTIC_REVIEW_REQUEST_STRING" \
             --github-output "$GITHUB_OUTPUT" \
             --github-step-summary "$GITHUB_STEP_SUMMARY" \
             --result "$RUNNER_TEMP/resolved-invocation.json"
@@ -334,7 +347,14 @@ jobs:
         if: steps.resolve.outputs.validate_only != 'true'
         # Keep CLI parsing stable; `--file` accepts multiple paths in current
         # OpenCode releases, so unpinned updates can change invocation behavior.
-        run: npm install -g opencode-ai@1.18.16
+        # The postinstall script creates the real platform binary
+        # (bin/opencode.exe); npm's allow-scripts gate blocks it unless the
+        # exact-pinned package is allow-listed. The scoped flag permits only
+        # opencode-ai, with no wildcard or persistent npm config.
+        run: |
+          set -euo pipefail
+          npm install -g --allow-scripts=opencode-ai opencode-ai@1.18.16
+          opencode --version
 
       - name: Review documentation impact
         if: steps.resolve.outputs.validate_only != 'true'
@@ -345,6 +365,7 @@ jobs:
           DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
           FOCUS: ${{ steps.resolve.outputs.focus }}
           MAX_COMMENTS: ${{ steps.resolve.outputs.max_comments }}
+          REVIEW_REQUEST_STRING: ${{ steps.resolve.outputs.review_request_string }}
         run: |
           review_args=(
             --input pr.diff
@@ -364,6 +385,7 @@ jobs:
             --response-diagnostics "$RUNNER_TEMP/opencode-response-diagnostics.json"
             --publication-preview "$RUNNER_TEMP/agentic-publication-preview.json"
           )
+          review_args+=(--review-request-string "$REVIEW_REQUEST_STRING")
           if [[ "$FAIL_IF_REVIEWED" == "true" ]]; then
             review_args+=(--fail-if-reviewed)
           fi

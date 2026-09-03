@@ -31,6 +31,7 @@ Fields not applicable to the selected workflow are rejected.
 | `dry_run` | boolean | Both | `false` | Resolves configuration, invokes the model, and validates output, but does not publish feedback. Cannot be `true` with `validate_only`. |
 | `validate_only` | boolean | All workflows | `false` | Validates without invoking a model or publishing. Changelog update validates invocation inputs and stops before PR fetch and bundle resolution; other reusable workflows also resolve and validate configuration. Cannot be `true` with `dry_run`. |
 | `pull_number` | number | PR review, changelog update | `0` | Optional positive PR number when no pull-request event provides the target. Changelog update requires an effective PR number, normally from the caller's event context. |
+| `review_request_string` | string | PR review | `'AI REVIEW REQUESTED'` | Whitespace is stripped. The result must be non-empty, contain no control characters, and be at most 128 characters. When matching prior feedback exists, a non-bot issue comment containing this substring case-sensitively and created strictly after the bot's latest issue comment or PR review authorizes a new review. Rejected for other workflows. |
 | `issue_number` | number | Issue feedback | `0` | Optional positive issue number when no issue event provides the target. |
 | `target_repository` | string | Release project review | `${{ github.repository }}` | Strict canonical `owner/repo` of the release to review. Required for `workflow_call`; a direct dispatch defaults to the caller repository. Rejects URLs, `owner/repo@ref`/`owner/repo:ref` syntax, paths, and expressions. |
 | `release_id` | string | Release project review | Empty | Positive decimal GitHub release ID. The reusable workflow accepts a string because workflow-job outputs are strings; it validates the value as a positive integer. Exactly one of `release_id`/`release_tag` is required. |
@@ -53,6 +54,7 @@ jobs:
     uses: organization/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@<reviewed-workflow-sha>
     permissions:
       contents: read
+      issues: read
       pull-requests: write
     with:
       configuration_source: default

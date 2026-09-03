@@ -628,6 +628,8 @@ class IntegratedRunTests(unittest.TestCase):
                 mock.patch.object(RUNNER.subprocess, "run") as mock_run,
                 mock.patch.object(RUNNER, "github_request") as mock_gh,
                 mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=True),
+                mock.patch.object(RUNNER, "_bot_login", return_value="github-actions[bot]"),
+                mock.patch.object(RUNNER, "_review_request_eligible", return_value=False) as mock_eligible,
             ):
                 rc = RUNNER.main(
                     [
@@ -656,8 +658,146 @@ class IntegratedRunTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             mock_run.assert_not_called()
             mock_gh.assert_not_called()
+            mock_eligible.assert_called_once()
             record = json.loads(provenance_path.read_text(encoding="utf-8"))
             self.assertEqual(record["result"], "skipped")
+
+    def test_issue_feedback_duplicate_marker_never_consults_review_request_gate(self):
+        # The re-review override is scoped to pr-documentation-review; an
+        # issue-feedback duplicate run must retain the unconditional skip and
+        # never perform the bot-identity lookup or eligibility scan, even
+        # though --review-request-string defaults to a non-empty string.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
+            provenance_path = tmp_path / "provenance.json"
+            with (
+                mock.patch.object(RUNNER.subprocess, "run") as mock_run,
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=True),
+                mock.patch.object(RUNNER, "_bot_login") as mock_bot,
+                mock.patch.object(RUNNER, "_review_request_eligible") as mock_eligible,
+            ):
+                rc = RUNNER.main(
+                    [
+                        "--input",
+                        str(diff_path),
+                        "--comments-url",
+                        "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--feedback-kind",
+                        "issue-feedback",
+                        "--author",
+                        "octocat",
+                        "--resolved-config",
+                        str(bundle_path),
+                        "--effective-policy",
+                        str(policy_path),
+                        "--provenance",
+                        str(provenance_path),
+                    ]
+                )
+            self.assertEqual(rc, 0)
+            mock_run.assert_not_called()
+            mock_gh.assert_not_called()
+            mock_bot.assert_not_called()
+            mock_eligible.assert_not_called()
+            record = json.loads(provenance_path.read_text(encoding="utf-8"))
+            self.assertEqual(record["result"], "skipped")
+
+    def test_existing_marker_with_post_boundary_request_proceeds(self):
+        # A prior v2 marker alone no longer suppresses the run when an
+        # eligible non-bot comment was created after the bot's latest
+        # action: the review re-runs and publishes.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
+            provenance_path = tmp_path / "provenance.json"
+            valid_output = json.dumps(
+                {
+                    "summary": "Looks good.",
+                    "comments": [
+                        {"path": "test-script.py", "line": 1, "body": "Note."}
+                    ],
+                }
+            )
+            with (
+                mock.patch.object(RUNNER.subprocess, "run") as mock_run,
+                mock.patch.object(RUNNER, "github_request") as mock_gh,
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=True),
+                mock.patch.object(RUNNER, "_bot_login", return_value="github-actions[bot]"),
+                mock.patch.object(RUNNER, "_review_request_eligible", return_value=True),
+            ):
+                mock_run.return_value = FakeSubprocessResult(_opencode_text_event(valid_output))
+                rc = RUNNER.main(
+                    [
+                        "--input",
+                        str(diff_path),
+                        "--comments-url",
+                        "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository",
+                        "o/r",
+                        "--pull-number",
+                        "1",
+                        "--head-sha",
+                        "abc123",
+                        "--feedback-kind",
+                        "pr-documentation-review",
+                        "--author",
+                        "octocat",
+                        "--resolved-config",
+                        str(bundle_path),
+                        "--effective-policy",
+                        str(policy_path),
+                        "--provenance",
+                        str(provenance_path),
+                    ]
+                )
+            self.assertEqual(rc, 0)
+            mock_run.assert_called()
+            self.assertEqual(mock_gh.call_count, 1)
+            record = json.loads(provenance_path.read_text(encoding="utf-8"))
+            self.assertEqual(record["result"], "published")
+
+    def test_review_request_scan_short_circuits_when_no_prior_feedback(self):
+        # Without a matching prior marker the re-review scanner must never
+        # be consulted; the first review proceeds exactly as before.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            bundle_path, policy_path, diff_path = self._write_inputs(tmp_path)
+            valid_output = json.dumps({"summary": "s", "comments": []})
+            with (
+                mock.patch.object(RUNNER.subprocess, "run") as mock_run,
+                mock.patch.object(RUNNER, "github_request"),
+                mock.patch.object(RUNNER, "_has_v2_marker_match", return_value=False),
+                mock.patch.object(RUNNER, "_bot_login") as mock_bot,
+                mock.patch.object(RUNNER, "_review_request_eligible") as mock_eligible,
+            ):
+                mock_run.return_value = FakeSubprocessResult(_opencode_text_event(valid_output))
+                rc = RUNNER.main(
+                    [
+                        "--input",
+                        str(diff_path),
+                        "--comments-url",
+                        "https://api.github.com/repos/o/r/issues/1/comments",
+                        "--repository",
+                        "o/r",
+                        "--pull-number",
+                        "1",
+                        "--head-sha",
+                        "abc123",
+                        "--feedback-kind",
+                        "pr-documentation-review",
+                        "--author",
+                        "octocat",
+                        "--resolved-config",
+                        str(bundle_path),
+                        "--effective-policy",
+                        str(policy_path),
+                    ]
+                )
+            self.assertEqual(rc, 0)
+            mock_bot.assert_not_called()
+            mock_eligible.assert_not_called()
 
     def test_dry_run_does_not_publish(self):
         with tempfile.TemporaryDirectory() as tmp:

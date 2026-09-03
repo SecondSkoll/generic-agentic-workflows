@@ -51,6 +51,11 @@ MAX_PREVIEW_BYTES = 256 * 1024
 #: hardcoding the limit.
 MAX_COMMENT_CHARS = 60_000
 
+#: Maximum characters of OpenCode diagnostic output surfaced when a run fails.
+#: Keeps the Actions log readable while retaining the actionable tail of the
+#: process output.
+MAX_DIAGNOSTIC_CHARS = 4_000
+
 #: Known untracked helper subtree produced by the pinned-workflow checkout. It
 #: is workflow-owned infrastructure, never an agent edit, and must not appear
 #: as a changed path in changed-path enforcement.
@@ -452,6 +457,20 @@ def _truncate_chars(text: str, max_chars: int) -> str:
     return text[:budget] + marker
 
 
+def _diagnostic_tail(text: str) -> str:
+    """Bound diagnostic ``text`` to at most ``MAX_DIAGNOSTIC_CHARS`` characters,
+    preserving the tail. OpenCode failures put the actionable error lines at
+    the end of the output, so oversized diagnostics keep their final characters
+    under a leading truncation marker."""
+    if len(text) <= MAX_DIAGNOSTIC_CHARS:
+        return text
+    marker = "...[earlier output truncated by workflow]\n"
+    budget = MAX_DIAGNOSTIC_CHARS - len(marker)
+    if budget <= 0:
+        return text[-MAX_DIAGNOSTIC_CHARS:]
+    return marker + text[-budget:]
+
+
 def seed_target_from_pr_head(
     *,
     repo_root: Path,
@@ -607,9 +626,16 @@ def run_update(
         CFG.cleanup_staged(staged)
 
     raw_output = getattr(proc, "stdout", "") or ""
-    if getattr(proc, "returncode", 0) != 0:
+    returncode = getattr(proc, "returncode", 0)
+    if returncode != 0:
+        detail = (getattr(proc, "stderr", "") or "").strip()
+        if not detail:
+            detail = raw_output.strip()
+        if not detail:
+            detail = "No diagnostic output was returned."
         raise RuntimeError(
-            f"OpenCode exited with status {getattr(proc, 'returncode', 0)}"
+            f"OpenCode exited with status {returncode}. "
+            f"{_diagnostic_tail(detail)}"
         )
 
     decision, detail = PROMPTS.parse_changelog_update_output(raw_output)

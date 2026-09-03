@@ -7,6 +7,7 @@ import argparse
 import contextlib
 import io
 import json
+import urllib.parse
 from pathlib import Path
 import unittest
 from unittest import mock
@@ -252,6 +253,263 @@ new file mode 100644
         self.assertIn(
             "OpenCode response violated the PR review contract", stderr.getvalue()
         )
+
+
+class ReviewRequestGateTests(unittest.TestCase):
+    """Verify the re-review boundary and eligibility algorithm."""
+
+    def _entry(
+        self,
+        login: str,
+        timestamp: str | None,
+        body: str = "",
+        *,
+        review: bool = False,
+    ) -> dict:
+        entry: dict = {"user": {"login": login}, "body": body}
+        if review:
+            entry["submitted_at"] = timestamp
+        else:
+            entry["created_at"] = timestamp
+        return entry
+
+    def test_entry_timestamp_prefers_review_submitted_at(self) -> None:
+        entry = {
+            "submitted_at": "2026-01-02T00:00:00Z",
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+        parsed = RUNNER._entry_timestamp(entry)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.year, 2026)
+        self.assertEqual(parsed.month, 1)
+        self.assertEqual(parsed.day, 2)
+
+    def test_entry_timestamp_uses_comment_created_at(self) -> None:
+        entry = {"created_at": "2026-02-03T04:05:06+02:00"}
+        parsed = RUNNER._entry_timestamp(entry)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.hour, 4)
+
+    def test_entry_timestamp_falls_back_to_updated_at(self) -> None:
+        entry = {"updated_at": "2026-03-04T00:00:00Z"}
+        parsed = RUNNER._entry_timestamp(entry)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.month, 3)
+
+    def test_entry_timestamp_malformed_is_none(self) -> None:
+        self.assertIsNone(RUNNER._entry_timestamp({"created_at": "not-a-date"}))
+        self.assertIsNone(RUNNER._entry_timestamp({}))
+        self.assertIsNone(RUNNER._entry_timestamp({"created_at": ""}))
+
+    def test_entry_timestamp_is_offset_aware(self) -> None:
+        # The same instant expressed with different offsets compares equal.
+        zulu = RUNNER._entry_timestamp({"created_at": "2026-01-01T12:00:00Z"})
+        offset = RUNNER._entry_timestamp(
+            {"created_at": "2026-01-01T14:00:00+02:00"}
+        )
+        self.assertIsNotNone(zulu)
+        self.assertIsNotNone(offset)
+        self.assertEqual(zulu, offset)
+        self.assertTrue(offset > RUNNER._entry_timestamp({"created_at": "2026-01-01T11:59:59Z"}))
+
+    def _eligible(
+        self,
+        comment_entries: list[dict],
+        review_entries: list[dict] | None = None,
+        *,
+        bot_login: str = "github-actions[bot]",
+        request_string: str = "AI REVIEW REQUESTED",
+    ) -> bool:
+        review_entries = review_entries or []
+        entries_by_url = {
+            "https://api.github.com/repos/o/r/issues/1/comments": comment_entries,
+            "https://api.github.com/repos/o/r/pulls/1/reviews": review_entries,
+        }
+
+        def fake_iter(url, token):
+            yield from entries_by_url.get(url, [])
+
+        with mock.patch.object(RUNNER, "_iter_json_entries", side_effect=fake_iter):
+            return RUNNER._review_request_eligible(
+                "https://api.github.com/repos/o/r/issues/1/comments",
+                "https://api.github.com/repos/o/r/pulls/1/reviews",
+                "token",
+                bot_login=bot_login,
+                request_string=request_string,
+            )
+
+    def test_eligible_comment_after_boundary_returns_true(self) -> None:
+        comments = [
+            self._entry("github-actions[bot]", "2026-01-01T10:00:00Z", "prior review"),
+            self._entry(
+                "octocat",
+                "2026-01-01T11:00:00Z",
+                "Please look again: AI REVIEW REQUESTED",
+            ),
+        ]
+        self.assertTrue(self._eligible(comments, [self._entry("octocat", "2026-01-01T09:00:00Z", "ok", review=True)]))
+
+    def test_request_older_than_bot_action_returns_false(self) -> None:
+        comments = [
+            self._entry("octocat", "2026-01-01T10:00:00Z", "AI REVIEW REQUESTED"),
+            self._entry("github-actions[bot]", "2026-01-01T11:00:00Z", "review posted"),
+        ]
+        self.assertFalse(self._eligible(comments))
+
+    def test_request_authored_by_bot_returns_false(self) -> None:
+        comments = [
+            self._entry("github-actions[bot]", "2026-01-01T10:00:00Z", "review"),
+            self._entry(
+                "github-actions[bot]",
+                "2026-01-01T11:00:00Z",
+                "echoes AI REVIEW REQUESTED",
+            ),
+        ]
+        self.assertFalse(self._eligible(comments))
+
+    def test_no_boundary_returns_false(self) -> None:
+        comments = [
+            self._entry("octocat", "2026-01-01T11:00:00Z", "AI REVIEW REQUESTED"),
+        ]
+        self.assertFalse(self._eligible(comments))
+
+    def test_boundary_spans_reviews_and_comments(self) -> None:
+        # The newest bot artifact is a review; a comment request older than
+        # that review must not authorize a re-run even though it is newer
+        # than an earlier bot comment.
+        comments = [
+            self._entry("github-actions[bot]", "2026-01-01T08:00:00Z", "comment"),
+            self._entry("octocat", "2026-01-01T09:00:00Z", "AI REVIEW REQUESTED"),
+        ]
+        reviews = [
+            self._entry(
+                "github-actions[bot]",
+                "2026-01-01T10:00:00Z",
+                "review body",
+                review=True,
+            ),
+        ]
+        self.assertFalse(self._eligible(comments, reviews))
+        # A request strictly after the newest review becomes eligible.
+        comments.append(
+            self._entry("octocat", "2026-01-01T10:00:01Z", "AI REVIEW REQUESTED again")
+        )
+        self.assertTrue(self._eligible(comments, reviews))
+
+    def test_request_at_exact_boundary_is_not_eligible(self) -> None:
+        comments = [
+            self._entry("github-actions[bot]", "2026-01-01T10:00:00Z", "review"),
+            self._entry("octocat", "2026-01-01T10:00:00Z", "AI REVIEW REQUESTED"),
+        ]
+        self.assertFalse(self._eligible(comments))
+
+    def test_substring_match_is_case_sensitive(self) -> None:
+        comments = [
+            self._entry("github-actions[bot]", "2026-01-01T10:00:00Z", "review"),
+            self._entry("octocat", "2026-01-01T11:00:00Z", "ai review requested"),
+        ]
+        self.assertFalse(self._eligible(comments))
+
+    def test_iter_json_entries_forces_per_page_100(self) -> None:
+        # A bare URL gains per_page=100, and an existing smaller per_page
+        # parameter is overridden, matching _has_v2_marker_match.
+        requests_made: list[str] = []
+
+        def fake_request(url, token):
+            requests_made.append(url)
+            return ([{"id": 1}], {})
+
+        with mock.patch.object(RUNNER, "github_request", side_effect=fake_request):
+            entries = list(
+                RUNNER._iter_json_entries(
+                    "https://api.github.com/repos/o/r/issues/1/comments", "token"
+                )
+            )
+        self.assertEqual(entries, [{"id": 1}])
+        self.assertEqual(requests_made, ["https://api.github.com/repos/o/r/issues/1/comments?per_page=100"])
+
+        requests_made.clear()
+        with mock.patch.object(RUNNER, "github_request", side_effect=fake_request):
+            list(
+                RUNNER._iter_json_entries(
+                    "https://api.github.com/repos/o/r/issues/1/comments?per_page=5&since=2026-01-01",
+                    "token",
+                )
+            )
+        forced = urllib.parse.parse_qs(urllib.parse.urlparse(requests_made[0]).query)
+        self.assertEqual(forced["per_page"], ["100"])
+        self.assertEqual(forced["since"], ["2026-01-01"])
+
+    def test_iter_json_entries_follows_next_links_until_exhausted(self) -> None:
+        # rel="next" Link headers are followed; pagination stops when a page
+        # has no next link. Non-object entries are filtered out.
+        first_url = "https://api.github.com/repos/o/r/issues/1/comments?per_page=100"
+        second_url = "https://api.github.com/repos/o/r/issues/1/comments?page=2&per_page=100"
+        pages = {
+            first_url: (
+                [{"id": 1}, "not-an-object"],
+                {
+                    "Link": (
+                        f'<{second_url}>; rel="next", '
+                        f'<{first_url}>; rel="first"'
+                    )
+                },
+            ),
+            second_url: ([{"id": 2}, {"id": 3}], {}),
+        }
+        requests_made: list[str] = []
+
+        def fake_request(url, token):
+            requests_made.append(url)
+            return pages[url]
+
+        with mock.patch.object(RUNNER, "github_request", side_effect=fake_request):
+            entries = list(
+                RUNNER._iter_json_entries(
+                    "https://api.github.com/repos/o/r/issues/1/comments", "token"
+                )
+            )
+        self.assertEqual([entry["id"] for entry in entries], [1, 2, 3])
+        self.assertEqual(requests_made, [first_url, second_url])
+
+    def test_bot_login_resolves_from_user_endpoint(self) -> None:
+        with mock.patch.object(
+            RUNNER,
+            "github_request",
+            return_value=({"login": "custom-bot"}, {}),
+        ) as mock_gh:
+            login = RUNNER._bot_login(
+                "token", "https://api.github.com/repos/o/r/issues/1/comments"
+            )
+        self.assertEqual(login, "custom-bot")
+        mock_gh.assert_called_once_with(
+            "https://api.github.com/user", "token"
+        )
+
+    def test_bot_login_falls_back_on_error(self) -> None:
+        stderr = io.StringIO()
+        with mock.patch.object(
+            RUNNER,
+            "github_request",
+            side_effect=RuntimeError("lookup failed"),
+        ):
+            with contextlib.redirect_stderr(stderr):
+                login = RUNNER._bot_login(
+                    "token", "https://api.github.com/repos/o/r/issues/1/comments"
+                )
+        self.assertEqual(login, "github-actions[bot]")
+        self.assertIn("::warning::", stderr.getvalue())
+
+    def test_bot_login_falls_back_on_missing_login(self) -> None:
+        with mock.patch.object(
+            RUNNER,
+            "github_request",
+            return_value=({}, {}),
+        ):
+            login = RUNNER._bot_login(
+                "token", "https://api.github.com/repos/o/r/issues/1/comments"
+            )
+        self.assertEqual(login, "github-actions[bot]")
 
 
 if __name__ == "__main__":

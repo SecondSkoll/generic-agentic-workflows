@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  issues: read
   pull-requests: write
 
 jobs:
@@ -13,6 +14,7 @@ jobs:
     uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-documentation-review.yml@186fc769bdcc2a711b8321df7c2949a09c48578b
     permissions:
       contents: read
+      issues: read
       pull-requests: write
     with:
       configuration_source: central

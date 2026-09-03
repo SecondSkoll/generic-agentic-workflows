@@ -496,6 +496,253 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 1)
 
 
+class ReviewRequestStringTests(unittest.TestCase):
+    """review_request_string validation, scoping, and wiring."""
+
+    def test_pr_review_accepts_normal_string(self) -> None:
+        resolved = RESOLVER.resolve_invocation(
+            workflow="pr-documentation-review",
+            configuration_profile="documentation-review",
+            target_number=42,
+            review_request_string="AI REVIEW REQUESTED",
+        )
+        self.assertEqual(resolved.review_request_string, "AI REVIEW REQUESTED")
+
+    def test_pr_review_strips_surrounding_whitespace(self) -> None:
+        resolved = RESOLVER.resolve_invocation(
+            workflow="pr-documentation-review",
+            configuration_profile="documentation-review",
+            target_number=42,
+            review_request_string="  AI REVIEW REQUESTED  ",
+        )
+        self.assertEqual(resolved.review_request_string, "AI REVIEW REQUESTED")
+
+    def test_default_none_stays_none(self) -> None:
+        resolved = RESOLVER.resolve_invocation(
+            workflow="pr-documentation-review",
+            configuration_profile="documentation-review",
+            target_number=42,
+        )
+        self.assertIsNone(resolved.review_request_string)
+        self.assertNotIn(
+            "AI REVIEW REQUESTED", json.dumps(resolved.to_dict())
+        )
+
+    def test_empty_string_is_none(self) -> None:
+        resolved = RESOLVER.resolve_invocation(
+            workflow="pr-documentation-review",
+            configuration_profile="documentation-review",
+            target_number=42,
+            review_request_string="",
+        )
+        self.assertIsNone(resolved.review_request_string)
+
+    def test_whitespace_only_is_rejected(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            RESOLVER.resolve_invocation(
+                workflow="pr-documentation-review",
+                configuration_profile="documentation-review",
+                target_number=42,
+                review_request_string="   ",
+            )
+
+    def test_control_characters_are_rejected(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            RESOLVER.resolve_invocation(
+                workflow="pr-documentation-review",
+                configuration_profile="documentation-review",
+                target_number=42,
+                review_request_string="AI REVIEW\nREQUESTED",
+            )
+        with self.assertRaises(RESOLVER.InvocationError):
+            RESOLVER.resolve_invocation(
+                workflow="pr-documentation-review",
+                configuration_profile="documentation-review",
+                target_number=42,
+                review_request_string="AI REVIEW\x7fREQUESTED",
+            )
+
+    def test_oversize_is_rejected(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            RESOLVER.resolve_invocation(
+                workflow="pr-documentation-review",
+                configuration_profile="documentation-review",
+                target_number=42,
+                review_request_string="A" * 129,
+            )
+
+    def test_non_string_is_rejected(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            RESOLVER.resolve_invocation(
+                workflow="pr-documentation-review",
+                configuration_profile="documentation-review",
+                target_number=42,
+                review_request_string=1337,
+            )
+
+    def test_max_length_boundary_is_accepted(self) -> None:
+        value = "A" * 128
+        resolved = RESOLVER.resolve_invocation(
+            workflow="pr-documentation-review",
+            configuration_profile="documentation-review",
+            target_number=42,
+            review_request_string=value,
+        )
+        self.assertEqual(resolved.review_request_string, value)
+
+    def test_rejected_for_other_workflows(self) -> None:
+        cases = (
+            {
+                "workflow": "issue-feedback",
+                "configuration_profile": "issue-feedback",
+            },
+            {
+                "workflow": "issue-implementation",
+                "configuration_profile": "default-implementation",
+                "target_number": 7,
+            },
+            {
+                "workflow": "release-project-review",
+                "configuration_profile": "release-project-review",
+                "target_repository": "a/b",
+                "release_tag": "v1.0.0",
+            },
+            {
+                "workflow": "pr-changelog-update",
+                "configuration_profile": "changelog-update",
+                "target_number": 12,
+                "request_label": "update-changelog",
+                "target_file": "CHANGELOG.md",
+            },
+        )
+        for kwargs in cases:
+            with self.subTest(workflow=kwargs["workflow"]):
+                with self.assertRaises(RESOLVER.InvocationError):
+                    RESOLVER.resolve_invocation(
+                        review_request_string="AI REVIEW REQUESTED",
+                        **kwargs,
+                    )
+
+    def test_env_round_trip_resolves_string(self) -> None:
+        resolved = RESOLVER.resolve_from_env(
+            {
+                "AGENTIC_WORKFLOW": "pr-documentation-review",
+                "AGENTIC_CONFIGURATION_PROFILE": "documentation-review",
+                "AGENTIC_TARGET_NUMBER": "42",
+                "AGENTIC_REVIEW_REQUEST_STRING": "REVIEW AGAIN PLEASE",
+            }
+        )
+        self.assertEqual(resolved.review_request_string, "REVIEW AGAIN PLEASE")
+
+    def test_env_round_trip_without_string_stays_none(self) -> None:
+        resolved = RESOLVER.resolve_from_env(
+            {
+                "AGENTIC_WORKFLOW": "pr-documentation-review",
+                "AGENTIC_CONFIGURATION_PROFILE": "documentation-review",
+                "AGENTIC_TARGET_NUMBER": "42",
+            }
+        )
+        self.assertIsNone(resolved.review_request_string)
+
+    def test_env_rejects_invalid_string(self) -> None:
+        with self.assertRaises(RESOLVER.InvocationError):
+            RESOLVER.resolve_from_env(
+                {
+                    "AGENTIC_WORKFLOW": "pr-documentation-review",
+                    "AGENTIC_CONFIGURATION_PROFILE": "documentation-review",
+                    "AGENTIC_TARGET_NUMBER": "42",
+                    "AGENTIC_REVIEW_REQUEST_STRING": "bad\nstring",
+                }
+            )
+
+    def test_write_github_outputs_emits_review_request_string(self) -> None:
+        resolved = RESOLVER.resolve_invocation(
+            workflow="pr-documentation-review",
+            configuration_profile="documentation-review",
+            target_number=42,
+            review_request_string="AI REVIEW REQUESTED",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "outputs.txt"
+            RESOLVER.write_github_outputs(resolved, output_path)
+            content = output_path.read_text(encoding="utf-8")
+        self.assertIn("review_request_string=AI REVIEW REQUESTED", content)
+
+    def test_write_github_outputs_empty_when_unset(self) -> None:
+        resolved = RESOLVER.resolve_invocation(
+            workflow="pr-documentation-review",
+            configuration_profile="documentation-review",
+            target_number=42,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "outputs.txt"
+            RESOLVER.write_github_outputs(resolved, output_path)
+            content = output_path.read_text(encoding="utf-8")
+        self.assertIn("review_request_string=\n", content)
+
+    def test_job_summary_lists_review_request_string_when_set(self) -> None:
+        resolved = RESOLVER.resolve_invocation(
+            workflow="pr-documentation-review",
+            configuration_profile="documentation-review",
+            target_number=42,
+            review_request_string="REVIEW AGAIN",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            summary_path = Path(tmp) / "summary.md"
+            RESOLVER.write_job_summary(resolved, summary_path)
+            content = summary_path.read_text(encoding="utf-8")
+        self.assertIn("- Review request string: `REVIEW AGAIN`", content)
+
+    def test_cli_accepts_review_request_string_for_docs_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result_path = Path(tmp) / "result.json"
+            rc = RESOLVER.main(
+                [
+                    "--workflow",
+                    "pr-documentation-review",
+                    "--configuration-profile",
+                    "documentation-review",
+                    "--target-number",
+                    "42",
+                    "--review-request-string",
+                    "REVIEW AGAIN",
+                    "--result",
+                    str(result_path),
+                ]
+            )
+            self.assertEqual(rc, 0)
+            payload = json.loads(result_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["review_request_string"], "REVIEW AGAIN")
+
+    def test_cli_rejects_review_request_string_for_other_workflows(self) -> None:
+        rc = RESOLVER.main(
+            [
+                "--workflow",
+                "issue-feedback",
+                "--configuration-profile",
+                "issue-feedback",
+                "--review-request-string",
+                "REVIEW AGAIN",
+            ]
+        )
+        self.assertEqual(rc, 1)
+
+    def test_cli_rejects_invalid_review_request_string(self) -> None:
+        rc = RESOLVER.main(
+            [
+                "--workflow",
+                "pr-documentation-review",
+                "--configuration-profile",
+                "documentation-review",
+                "--target-number",
+                "42",
+                "--review-request-string",
+                "   ",
+            ]
+        )
+        self.assertEqual(rc, 1)
+
+
 class ChangelogUpdateInvocationTests(unittest.TestCase):
     """pr-changelog-update input validation and target_file constraints."""
 

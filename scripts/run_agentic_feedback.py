@@ -29,6 +29,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 
@@ -649,6 +650,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Fail instead of skipping when feedback for this pull-request commit already exists",
     )
     parser.add_argument(
+        "--review-request-string",
+        default="AI REVIEW REQUESTED",
+        help="Substring a non-bot comment must contain after the bot's latest action to override duplicate-feedback suppression",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Generate feedback without posting comments or pull-request reviews",
@@ -721,6 +727,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("GITHUB_TOKEN must be set")
     if not args.author.strip() or args.author.startswith("@"):
         parser.error("--author must be a non-empty GitHub login without a leading @")
+    request_string = (args.review_request_string or "").strip()
+    if not request_string:
+        parser.error("--review-request-string must not be empty")
+    if len(request_string) > 128:
+        parser.error("--review-request-string must be at most 128 characters")
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in request_string):
+        parser.error("--review-request-string must not contain control characters")
+    args.review_request_string = request_string
     pr_arguments = (args.repository, args.pull_number, args.head_sha)
     if any(pr_arguments) and not all(pr_arguments):
         parser.error(
@@ -784,29 +798,47 @@ def main(argv: list[str] | None = None) -> int:
         reviews_url = f"https://api.github.com/repos/{args.repository}/pulls/{args.pull_number}/reviews"
         marker_url = reviews_url
 
-    if _existing_feedback_match(
+    already_reviewed = _existing_feedback_match(
         marker_url,
         token,
         feedback_kind=args.feedback_kind,
         head_sha=args.head_sha,
         config_digest=config_digest,
-    ):
-        if args.fail_if_reviewed:
-            print(
-                "This pull-request commit has already received feedback from this workflow.",
-                file=sys.stderr,
+    )
+    if already_reviewed:
+        override = False
+        # The re-review override is scoped to PR documentation review only;
+        # every other feedback kind retains the unconditional skip/fail.
+        if args.feedback_kind == "pr-documentation-review" and args.review_request_string:
+            bot_login = _bot_login(token, args.comments_url)
+            override = _review_request_eligible(
+                args.comments_url,
+                reviews_url or None,
+                token,
+                bot_login=bot_login,
+                request_string=args.review_request_string,
             )
-            return 1
-        print("Feedback from this workflow already exists; skipping.")
-        _maybe_write_provenance(
-            args,
-            resolved_bundle,
-            effective_policy,
-            output_contract,
-            config_digest,
-            "skipped",
-        )
-        return 0
+        if override:
+            print(
+                "Re-review requested by a comment after the latest bot action; proceeding."
+            )
+        else:
+            if args.fail_if_reviewed:
+                print(
+                    "This pull-request commit has already received feedback from this workflow.",
+                    file=sys.stderr,
+                )
+                return 1
+            print("Feedback from this workflow already exists; skipping.")
+            _maybe_write_provenance(
+                args,
+                resolved_bundle,
+                effective_policy,
+                output_contract,
+                config_digest,
+                "skipped",
+            )
+            return 0
 
     input_text = args.input.read_text(encoding="utf-8")
     changed_lines = changed_lines_by_path(input_text) if reviews_url else {}
@@ -1368,6 +1400,125 @@ def _has_v2_marker_match(
         links = headers.get("Link", "")
         next_link = re.search(r'<([^>]+)>;\s*rel="next"', links)
         url = next_link.group(1) if next_link else ""
+    return False
+
+
+def _bot_login(token: str, comments_url: str) -> str:
+    """Resolve the authenticated bot identity for boundary detection.
+
+    Queries ``GET <api-root>/user`` with the run token. On any lookup failure
+    or missing login, warns and falls back to ``github-actions[bot]`` so an
+    attacker-authored comment is never misclassified as bot-authored when
+    GitHub identity lookup errors.
+    """
+    parsed = urllib.parse.urlparse(comments_url)
+    try:
+        response, _ = github_request(f"{parsed.scheme}://{parsed.netloc}/user", token)
+        login = response.get("login") if isinstance(response, dict) else None
+        if login:
+            return str(login)
+    except Exception:
+        pass
+    print(
+        "::warning::Could not resolve the bot identity; "
+        "falling back to github-actions[bot].",
+        file=sys.stderr,
+    )
+    return "github-actions[bot]"
+
+
+def _iter_json_entries(url: str, token: str):
+    """Yield object entries from a paginated GitHub JSON list endpoint.
+
+    Paginates exactly like :func:`_has_v2_marker_match`: forces
+    ``per_page=100`` and follows ``rel="next"`` Link headers. Comment and
+    review bodies are never logged; callers consume them as inert data.
+    """
+    parsed_url = urllib.parse.urlparse(url)
+    parameters = urllib.parse.parse_qs(parsed_url.query)
+    parameters["per_page"] = ["100"]
+    page = urllib.parse.urlunparse(
+        parsed_url._replace(query=urllib.parse.urlencode(parameters, doseq=True))
+    )
+    while page:
+        entries, headers = github_request(page, token)
+        for entry in entries:
+            if isinstance(entry, dict):
+                yield entry
+        links = headers.get("Link", "")
+        next_link = re.search(r'<([^>]+)>;\s*rel="next"', links)
+        page = next_link.group(1) if next_link else ""
+
+
+def _entry_timestamp(entry: dict) -> datetime | None:
+    """Parse an entry's timestamp, preferring review submission time.
+
+    Review entries carry ``submitted_at``; issue comments carry
+    ``created_at``. Missing or malformed values return ``None``, as do
+    naive timestamps that cannot be compared safely against offset-aware
+    ones. Trailing ``Z`` is normalized to ``+00:00`` before parsing.
+    """
+    value: str | None = None
+    for key in ("submitted_at", "created_at", "updated_at"):
+        candidate = entry.get(key)
+        if isinstance(candidate, str) and candidate.strip():
+            value = candidate.strip()
+            break
+    if value is None:
+        return None
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed
+
+
+def _review_request_eligible(
+    comments_url: str,
+    reviews_url: str | None,
+    token: str,
+    *,
+    bot_login: str,
+    request_string: str,
+) -> bool:
+    """Return whether a non-bot comment requests a re-review after the boundary.
+
+    The boundary is the latest parseable timestamp among bot-authored issue
+    comments and pull-request reviews; with no bot artifact there is no
+    boundary, so no override is granted. A comment is eligible only when it
+    is authored by a different user, contains the request substring
+    (case-sensitive), and was created strictly after the boundary. Only the
+    boolean decision is ever logged; comment and review bodies never enter
+    logs, summaries, artifacts, or provenance.
+    """
+    comment_entries = list(_iter_json_entries(comments_url, token)) if comments_url else []
+    review_entries = list(_iter_json_entries(reviews_url, token)) if reviews_url else []
+    boundary: datetime | None = None
+    for entry in comment_entries + review_entries:
+        user = entry.get("user")
+        login = user.get("login") if isinstance(user, dict) else None
+        if login != bot_login:
+            continue
+        timestamp = _entry_timestamp(entry)
+        if timestamp is not None and (boundary is None or timestamp > boundary):
+            boundary = timestamp
+    if boundary is None:
+        return False
+    for entry in comment_entries:
+        user = entry.get("user")
+        login = user.get("login") if isinstance(user, dict) else None
+        if login == bot_login:
+            continue
+        body = entry.get("body")
+        if not isinstance(body, str) or request_string not in body:
+            continue
+        timestamp = _entry_timestamp(entry)
+        if timestamp is not None and timestamp > boundary:
+            return True
     return False
 
 

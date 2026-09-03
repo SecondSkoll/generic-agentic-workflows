@@ -46,7 +46,7 @@ commit SHA; resolution failures fail closed.
 
 | Workflow | Interface | Required publication permissions |
 | --- | --- | --- |
-| `.github/workflows/opencode-documentation-review.yml` | Direct PR trigger or reusable call | `contents: read`, `pull-requests: write` |
+| `.github/workflows/opencode-documentation-review.yml` | Direct PR trigger or reusable call | `contents: read`, `issues: read`, `pull-requests: write` |
 | `.github/workflows/opencode-issue-feedback.yml` | Direct issue trigger or reusable call | `contents: read`, `issues: write` |
 | `.github/workflows/opencode-issue-implementation.yml` | Manual dispatch only | `contents: write`, `issues: write`, `pull-requests: write` |
 | `.github/workflows/opencode-release-project-review.yml` | Manual dispatch or reusable call only | `contents: read`, `issues: write` (plus a target-scoped `release_target_token` for cross-repository reviews) |

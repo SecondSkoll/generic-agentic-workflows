@@ -52,11 +52,17 @@ controls as the target content.
 
 | Workflow | Marker | Suppression rule |
 | --- | --- | --- |
-| PR review | `<!-- agentic-workflow:pr-documentation-review:v2:<digest>:<head_sha> -->` | Same digest and head SHA |
+| PR review | `<!-- agentic-workflow:pr-documentation-review:v2:<digest>:<head_sha> -->` | Same digest and head SHA, unless a non-bot comment containing the configured review request string (`AI REVIEW REQUESTED` by default) exists after the bot's most recent review or comment |
 | Issue feedback | `<!-- agentic-workflow:issue-feedback:v2:<digest> -->` | Same digest |
 | Issue implementation status | `<!-- agentic-workflow:issue-implementation-status:v1 -->` | Records the result of an explicitly dispatched issue run |
 | Release project review | `<!-- agentic-workflow:release-project-review:v2:<idempotency_key>:<target_commit_sha> -->` | Same canonical target, release ID, target commit SHA, configuration digest, and workflow version |
 | Changelog update | `<!-- agentic-workflow:pr-changelog-update:v1 -->` | Same-repo: marker is the newest commit and no newer comment exists. Fork: marker is the newest comment and no newer commit followed it; a newer fork commit regenerates and PATCHes the existing marker comment in place. |
+
+The documentation-review workflow scans for a re-review request only after it
+finds a matching PR-review marker. A first review proceeds without scanning
+issue comments or PR reviews. The request match is case-sensitive and must be
+in a non-bot issue comment created strictly after the latest bot-authored issue
+comment or PR review.
 
 A changed remote bundle SHA or changed local bundle content creates a new
 configuration digest. A new digest intentionally creates a new feedback
@@ -117,5 +123,5 @@ refetched. The cache lasts for one workflow run.
 | Resolution or validation | Fails closed without falling back to another ref, local profile, or stale configuration. |
 | Provider | Records a redacted operational failure and posts no partial feedback. |
 | Publication | Preserves provenance with `result: "failed"` for investigation. |
-| Duplicate feedback | Skips publication and records `result: "skipped"`. |
+| Duplicate feedback | Skips publication and records `result: "skipped"`, unless a non-bot comment containing the configured review request string (`AI REVIEW REQUESTED` by default) was created after the bot's most recent review or comment; then the review re-runs. |
 | Rollback | Requires a maintainer-controlled pinned SHA change; automatic unreviewed rollback is unsupported. |

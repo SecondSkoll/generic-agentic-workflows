@@ -24,7 +24,8 @@ enabled safely. Set `validate_only: true` on the changelog caller for the same
 staged rollout. After verifying the resolution artifact, change `validate_only: true`
 to `dry_run: true`, and then remove the flag to publish feedback. The
 repository must define the `OPENROUTER_API_KEY` Actions secret before leaving
-validation-only mode. Documentation review needs `pull-requests: write`;
+validation-only mode. Documentation review needs `issues: read` and
+`pull-requests: write`;
 issue feedback needs `issues: write`; release project review needs
 `issues: write` and, for cross-repository reviews, a target-scoped
 `release_target_token` with `contents: read` and `issues: write` on the target

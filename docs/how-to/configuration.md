@@ -17,7 +17,7 @@ For field-by-field definitions and complete bundle-file examples, see the
 
    | Workflow | Publication permissions |
    | --- | --- |
-   | PR review | `contents: read`, `pull-requests: write` |
+   | PR review | `contents: read`, `issues: read`, `pull-requests: write` |
    | Issue feedback | `contents: read`, `issues: write` |
 
 `validate_only` does not invoke a model or write to GitHub. `dry_run` can

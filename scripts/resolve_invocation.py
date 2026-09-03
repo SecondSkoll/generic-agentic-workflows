@@ -125,6 +125,12 @@ MAX_ISSUES_MAX = 100
 #: Maximum length of a ``target_file`` POSIX path.
 TARGET_FILE_MAX = 512
 
+#: Maximum length of a ``review_request_string``.
+REVIEW_REQUEST_STRING_MAX = 128
+
+#: Default substring that authorizes an additional review after prior feedback.
+DEFAULT_REVIEW_REQUEST_STRING = "AI REVIEW REQUESTED"
+
 #: First path segments a ``target_file`` may never target: workflow automation
 #: and agent/skill/configuration instructions are workflow-owned and must not be
 #: the changelog update target.
@@ -157,6 +163,7 @@ class ResolvedInvocation:
     release_id: int | None = None
     release_tag: str | None = None
     target_file: str | None = None
+    review_request_string: str | None = None
 
     def to_json(self) -> str:
         """Serialize the resolved invocation as deterministic JSON."""
@@ -180,6 +187,7 @@ class ResolvedInvocation:
             "release_id": self.release_id,
             "release_tag": self.release_tag,
             "target_file": self.target_file,
+            "review_request_string": self.review_request_string,
         }
 
 
@@ -429,6 +437,34 @@ def _validate_request_label(label: Any) -> str | None:
     return normalized
 
 
+def _validate_review_request_string(value: Any) -> str | None:
+    """Validate an optional re-review request substring.
+
+    The value is compared as inert data against comment bodies; it is never
+    executed or interpolated into prompts. Rejects empty-after-strip values,
+    control characters, and lengths beyond
+    :data:`REVIEW_REQUEST_STRING_MAX` so log/argument injection shapes fail
+    early.
+    """
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise InvocationError("review_request_string must be a string")
+    normalized = value.strip()
+    if not normalized:
+        raise InvocationError("review_request_string must not be empty")
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in normalized):
+        raise InvocationError(
+            f"review_request_string must not contain control characters: {value!r}"
+        )
+    if len(normalized) > REVIEW_REQUEST_STRING_MAX:
+        raise InvocationError(
+            "review_request_string must be at most "
+            f"{REVIEW_REQUEST_STRING_MAX} characters: {value!r}"
+        )
+    return normalized
+
+
 def _validate_target_file(target_file: Any) -> str | None:
     """Validate an optional relative POSIX target file path.
 
@@ -513,6 +549,7 @@ def resolve_invocation(
     release_id: int | str | None = None,
     release_tag: str | None = None,
     target_file: str | None = None,
+    review_request_string: str | None = None,
 ) -> ResolvedInvocation:
     """Validate and normalize all invocation inputs.
 
@@ -553,10 +590,15 @@ def resolve_invocation(
             raise InvocationError("request_label is not supported for release-project-review")
         if target_file is not None and target_file != "":
             raise InvocationError("target_file is not supported for release-project-review")
+        if review_request_string is not None and review_request_string != "":
+            raise InvocationError(
+                "review_request_string is not supported for release-project-review"
+            )
         resolved_target = None
         resolved_label = None
         resolved_max_issues = None
         resolved_target_file = None
+        resolved_review_request_string = None
     else:
         resolved_focus = _validate_focus(focus)
         resolved_max_comments = _optional_int(
@@ -568,6 +610,9 @@ def resolve_invocation(
         resolved_target = _validate_target(target_number)
         resolved_label = _validate_request_label(request_label)
         resolved_target_file = _validate_target_file(target_file)
+        resolved_review_request_string = _validate_review_request_string(
+            review_request_string
+        )
         resolved_target_repository = None
         resolved_release_id = None
         resolved_release_tag = None
@@ -599,6 +644,10 @@ def resolve_invocation(
             raise InvocationError("max_comments is not supported for issue feedback")
         if resolved_target_file is not None:
             raise InvocationError("target_file is not supported for issue-feedback")
+        if resolved_review_request_string is not None:
+            raise InvocationError(
+                "review_request_string is only supported for pr-documentation-review"
+            )
     elif resolved_workflow == "issue-implementation":
         if resolved_target is None:
             raise InvocationError(
@@ -616,6 +665,10 @@ def resolve_invocation(
             )
         if resolved_target_file is not None:
             raise InvocationError("target_file is not supported for issue implementation")
+        if resolved_review_request_string is not None:
+            raise InvocationError(
+                "review_request_string is only supported for pr-documentation-review"
+            )
     elif resolved_workflow == "pr-changelog-update":
         if resolved_target is None:
             raise InvocationError(
@@ -639,6 +692,10 @@ def resolve_invocation(
             raise InvocationError(
                 "max_issues is not supported for pr-changelog-update"
             )
+        if resolved_review_request_string is not None:
+            raise InvocationError(
+                "review_request_string is only supported for pr-documentation-review"
+            )
 
     # Remote sources are validated for shape only; configuration resolution
     # fetches them by their allowlisted alias.
@@ -661,6 +718,7 @@ def resolve_invocation(
         release_id=resolved_release_id,
         release_tag=resolved_release_tag,
         target_file=resolved_target_file,
+        review_request_string=resolved_review_request_string,
     )
 
 
@@ -687,6 +745,7 @@ def resolve_from_env(env: dict[str, str]) -> ResolvedInvocation:
         release_id=env.get("AGENTIC_RELEASE_ID") or None,
         release_tag=env.get("AGENTIC_RELEASE_TAG") or None,
         target_file=env.get("AGENTIC_TARGET_FILE") or None,
+        review_request_string=env.get("AGENTIC_REVIEW_REQUEST_STRING") or None,
     )
 
 
@@ -719,6 +778,7 @@ def write_github_outputs(resolved: ResolvedInvocation, output_path: Path) -> Non
         f"release_id={resolved.release_id if resolved.release_id is not None else ''}",
         f"release_tag={resolved.release_tag or ''}",
         f"target_file={resolved.target_file or ''}",
+        f"review_request_string={resolved.review_request_string or ''}",
     ]
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -752,6 +812,8 @@ def write_job_summary(resolved: ResolvedInvocation, summary_path: Path) -> None:
         lines.append(f"- Release tag: `{resolved.release_tag}`")
     if resolved.target_file:
         lines.append(f"- Target file: `{resolved.target_file}`")
+    if resolved.review_request_string:
+        lines.append(f"- Review request string: `{resolved.review_request_string}`")
     mode = (
         "validate-only"
         if resolved.validate_only
@@ -793,6 +855,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--release-id", default=None)
     parser.add_argument("--release-tag", default=None)
     parser.add_argument("--target-file", default=None)
+    parser.add_argument("--review-request-string", default=None)
     parser.add_argument(
         "--github-output",
         default=None,
@@ -833,6 +896,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             release_id=args.release_id,
             release_tag=args.release_tag,
             target_file=args.target_file,
+            review_request_string=args.review_request_string,
         )
     except InvocationError as error:
         print(f"::error::Invocation validation failed: {error}", file=sys.stderr)
