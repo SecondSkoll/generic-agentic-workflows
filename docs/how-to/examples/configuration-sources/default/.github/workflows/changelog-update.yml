@@ -36,6 +36,6 @@ jobs:
       label: update-changelog
       target_file: CHANGELOG.md
       pull_number: ${{ github.event.pull_request.number }}
-      validate_only: false
+validate_only: true
     secrets:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
