@@ -149,6 +149,46 @@ class ReusableWorkflowVerificationTests(unittest.TestCase):
                     r"github\.event_name\s*==\s*['\"]workflow_call['\"]\s*&&\s*inputs\.",
                 )
 
+    def test_workflows_install_pinned_opencode_with_scoped_allow_scripts(self) -> None:
+        """All six workflows install the exact-pinned OpenCode CLI, allow only
+        its required postinstall, and fail fast when the binary is unusable."""
+        workflows_root = REPO_ROOT / ".github/workflows"
+        matching = sorted(
+            path.name
+            for path in workflows_root.glob("*.yml")
+            if "opencode-ai@1.18.16" in path.read_text(encoding="utf-8")
+        )
+        self.assertEqual(len(matching), 6)
+        self.assertEqual(matching, sorted(WORKFLOWS))
+        install_command = (
+            "npm install -g --allow-scripts=opencode-ai opencode-ai@1.18.16"
+        )
+        for filename in matching:
+            with self.subTest(filename=filename):
+                text = (workflows_root / filename).read_text(encoding="utf-8")
+                data = yaml.safe_load(text)
+                install_steps = [
+                    step
+                    for job in data["jobs"].values()
+                    for step in job.get("steps", [])
+                    if install_command in str(step.get("run", ""))
+                ]
+                self.assertEqual(len(install_steps), 1)
+                lines = [line.strip() for line in install_steps[0]["run"].splitlines()]
+                self.assertIn("set -euo pipefail", lines)
+                self.assertLess(
+                    lines.index("set -euo pipefail"), lines.index(install_command)
+                )
+                self.assertLess(
+                    lines.index(install_command), lines.index("opencode --version")
+                )
+                # No bare install remains (npm's allow-scripts gate would block
+                # the postinstall and leave a dead bin shim), and no wildcard
+                # or persistent global npm permission is granted.
+                self.assertNotRegex(text, r"npm install -g opencode-ai@")
+                self.assertNotIn("--allow-scripts=*", text)
+                self.assertNotIn("npm config set allow-scripts", text)
+
     def test_release_dispatch_and_call_have_independent_source_defaults(self) -> None:
         """Direct release runs use local config while calls default remotely."""
         path = REPO_ROOT / ".github/workflows/opencode-release-project-review.yml"

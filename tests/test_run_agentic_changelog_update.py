@@ -534,6 +534,81 @@ class UpdateTests(unittest.TestCase):
             self.assertEqual(result["changed_files"], [])
 
 
+class UpdateDiagnosticsTests(unittest.TestCase):
+    """A failed OpenCode run must surface bounded, useful diagnostics."""
+
+    @staticmethod
+    def _init_git(root: Path) -> None:
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        subprocess.run(["git", "-C", str(root), "config", "user.email", "t@t"], check=True)
+        subprocess.run(["git", "-C", str(root), "config", "user.name", "t"], check=True)
+
+    def _failing_update_message(self, *, stderr_text: str, stdout_text: str = "") -> str:
+        bundle = _resolved_bundle()
+        policy = _effective_policy(bundle)
+
+        def failing_run(*, opencode_args, prompt, provider_timeout):
+            class Proc:
+                returncode = 1
+                stdout = stdout_text
+                stderr = stderr_text
+
+            return Proc()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._init_git(root)
+            with self.assertRaises(RuntimeError) as raised:
+                RUNNER.run_update(
+                    resolved_bundle=bundle,
+                    effective_policy=policy,
+                    pr=_pr(),
+                    diff_text="",
+                    target_file="CHANGELOG.md",
+                    repo_root=root,
+                    opencode_runner=failing_run,
+                )
+        return str(raised.exception)
+
+    def test_nonzero_exit_includes_stderr(self):
+        message = self._failing_update_message(
+            stderr_text="Error: Model not found: provider/model\n"
+        )
+        self.assertTrue(message.startswith("OpenCode exited with status 1."))
+        self.assertIn("Model not found: provider/model", message)
+
+    def test_nonzero_exit_falls_back_to_stdout(self):
+        message = self._failing_update_message(
+            stderr_text="", stdout_text="Error: no configuration found\n"
+        )
+        self.assertTrue(message.startswith("OpenCode exited with status 1."))
+        self.assertIn("Error: no configuration found", message)
+
+    def test_nonzero_exit_without_output_uses_fixed_note(self):
+        message = self._failing_update_message(stderr_text="", stdout_text="")
+        self.assertTrue(message.startswith("OpenCode exited with status 1."))
+        self.assertIn("No diagnostic output was returned.", message)
+
+    def test_oversized_stderr_is_bounded_and_tail_preserved(self):
+        stderr = (
+            "BEGIN-SENTINEL\n"
+            + "x" * (RUNNER.MAX_DIAGNOSTIC_CHARS * 3)
+            + "\nError: provider quota exhausted\n"
+        )
+        message = self._failing_update_message(stderr_text=stderr)
+        self.assertTrue(message.startswith("OpenCode exited with status 1."))
+        # The actionable tail is preserved and truncation is marked.
+        self.assertIn("Error: provider quota exhausted", message)
+        self.assertIn("truncated by workflow", message)
+        # The dropped head (beginning of the stream) is not included.
+        self.assertNotIn("BEGIN-SENTINEL", message)
+        # The diagnostic portion stays within the named cap.
+        prefix = "OpenCode exited with status 1. "
+        self.assertLessEqual(
+            len(message), len(prefix) + RUNNER.MAX_DIAGNOSTIC_CHARS
+        )
+
+
 class GuardRegressionTests(unittest.TestCase):
     """Regression tests for reviewer findings 2 and 3 (same-repo skip and
     newest marker commit selection)."""

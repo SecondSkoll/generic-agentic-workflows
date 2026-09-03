@@ -319,7 +319,14 @@ jobs:
 
       - name: Install OpenCode
         if: steps.resolve.outputs.validate_only != 'true' && steps.guard.outputs.action != 'skip'
-        run: npm install -g opencode-ai@1.18.16
+        # The postinstall script creates the real platform binary
+        # (bin/opencode.exe); npm's allow-scripts gate blocks it unless the
+        # exact-pinned package is allow-listed. The scoped flag permits only
+        # opencode-ai, with no wildcard or persistent npm config.
+        run: |
+          set -euo pipefail
+          npm install -g --allow-scripts=opencode-ai opencode-ai@1.18.16
+          opencode --version
 
       - name: Generate changelog update
         if: steps.resolve.outputs.validate_only != 'true' && steps.guard.outputs.action != 'skip'
