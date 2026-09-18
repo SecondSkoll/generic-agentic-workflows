@@ -353,6 +353,7 @@ jobs:
             --seed-target
             --github-output "$GITHUB_OUTPUT"
             --publication-preview "$RUNNER_TEMP/agentic-publication-preview.json"
+            --response-diagnostics "$RUNNER_TEMP/opencode-response-diagnostics.json"
             --provenance "$RUNNER_TEMP/resolved-agentic-provenance.json"
           )
           if [[ "$DRY_RUN" == "true" ]]; then
@@ -538,6 +539,7 @@ jobs:
             ${{ runner.temp }}/resolved-agentic-configuration.json
             ${{ runner.temp }}/effective-policy.json
             ${{ runner.temp }}/resolved-agentic-provenance.json
+            ${{ runner.temp }}/opencode-response-diagnostics.json
             ${{ runner.temp }}/agentic-publication-preview.json
           retention-days: 14
           if-no-files-found: ignore

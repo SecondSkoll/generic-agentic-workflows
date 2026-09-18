@@ -20,9 +20,11 @@ they run inside a GitHub Actions runner without a package install.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -87,6 +89,14 @@ OPENCODE_PROMPT_MESSAGE = (
 
 class GuardError(ValueError):
     """Raised when the guard rejects the triggering event or PR state."""
+
+
+class ChangelogResponseError(PROMPTS.ContractError):
+    """A changelog contract failure with safe OpenCode diagnostics."""
+
+    def __init__(self, message: str, diagnostics: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.diagnostics = diagnostics
 
 
 # ---------------------------------------------------------------------------
@@ -408,6 +418,8 @@ def _run_opencode_with_prompt_file(
                 "opencode",
                 "run",
                 *opencode_args,
+                "--format",
+                "json",
                 "--file",
                 str(prompt_path),
                 "--",
@@ -469,6 +481,101 @@ def _diagnostic_tail(text: str) -> str:
     if budget <= 0:
         return text[-MAX_DIAGNOSTIC_CHARS:]
     return marker + text[-budget:]
+
+
+def _safe_opencode_error(error: object) -> dict[str, str]:
+    """Return bounded provider-error metadata without retaining credentials."""
+    if not isinstance(error, dict):
+        return {"name": type(error).__name__}
+    name = error.get("name")
+    data = error.get("data")
+    message = data.get("message") if isinstance(data, dict) else None
+    result = {"name": str(name)[:128] if name else "unknown"}
+    if isinstance(message, str) and message:
+        safe_message = re.sub(
+            r"(?i)(bearer\s+|api[_-]?key\s*[=:]\s*|sk-)[^\s,;]+",
+            r"\1[REDACTED]",
+            message,
+        )
+        result["message"] = safe_message.replace("\n", " ")[:512]
+    return result
+
+
+def _opencode_json_response(output: str, stderr: str) -> tuple[str, dict[str, Any]]:
+    """Extract completed assistant text and safe metadata from OpenCode JSONL."""
+    text_parts: list[str] = []
+    event_types: dict[str, int] = {}
+    errors: list[dict[str, str]] = []
+    incomplete_text_count = 0
+    diagnostics: dict[str, Any] = {
+        "format": "opencode-jsonl-v1",
+        "stdout_chars": len(output),
+        "stdout_sha256": hashlib.sha256(output.encode("utf-8")).hexdigest(),
+        "stderr_chars": len(stderr),
+        "stderr_sha256": hashlib.sha256(stderr.encode("utf-8")).hexdigest(),
+    }
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as error:
+            diagnostics.update({"event_types": event_types, "errors": errors})
+            raise ChangelogResponseError(
+                "OpenCode emitted malformed JSONL output", diagnostics
+            ) from error
+        if not isinstance(event, dict):
+            diagnostics.update({"event_types": event_types, "errors": errors})
+            raise ChangelogResponseError(
+                "OpenCode emitted a non-object JSONL event", diagnostics
+            )
+        event_type = str(event.get("type"))
+        event_types[event_type] = event_types.get(event_type, 0) + 1
+        if event_type == "error":
+            errors.append(_safe_opencode_error(event.get("error")))
+            continue
+        if event_type != "text":
+            continue
+        part = event.get("part")
+        if not isinstance(part, dict) or part.get("type") != "text":
+            diagnostics.update({"event_types": event_types, "errors": errors})
+            raise ChangelogResponseError(
+                "OpenCode text event did not contain a text part", diagnostics
+            )
+        if not isinstance(part.get("time"), dict) or part["time"].get("end") is None:
+            incomplete_text_count += 1
+            continue
+        text = part.get("text")
+        if not isinstance(text, str):
+            diagnostics.update({"event_types": event_types, "errors": errors})
+            raise ChangelogResponseError(
+                "OpenCode text event did not contain string text", diagnostics
+            )
+        text_parts.append(text)
+    response = "\n".join(text_parts)
+    diagnostics.update(
+        {
+            "event_types": event_types,
+            "completed_text_count": len(text_parts),
+            "incomplete_text_count": incomplete_text_count,
+            "errors": errors,
+            "assistant_response_chars": len(response),
+            "assistant_response_sha256": hashlib.sha256(response.encode("utf-8")).hexdigest(),
+        }
+    )
+    if errors:
+        details = "; ".join(
+            f"{item['name']}: {item.get('message', 'no provider message')}"
+            for item in errors
+        )
+        raise ChangelogResponseError(
+            f"OpenCode emitted error event(s): {details}", diagnostics
+        )
+    if not response:
+        raise ChangelogResponseError(
+            "OpenCode returned no completed assistant text", diagnostics
+        )
+    return response, diagnostics
 
 
 def seed_target_from_pr_head(
@@ -626,9 +733,10 @@ def run_update(
         CFG.cleanup_staged(staged)
 
     raw_output = getattr(proc, "stdout", "") or ""
+    stderr_output = getattr(proc, "stderr", "") or ""
     returncode = getattr(proc, "returncode", 0)
     if returncode != 0:
-        detail = (getattr(proc, "stderr", "") or "").strip()
+        detail = stderr_output.strip()
         if not detail:
             detail = raw_output.strip()
         if not detail:
@@ -638,7 +746,11 @@ def run_update(
             f"{_diagnostic_tail(detail)}"
         )
 
-    decision, detail = PROMPTS.parse_changelog_update_output(raw_output)
+    response, response_diagnostics = _opencode_json_response(raw_output, stderr_output)
+    try:
+        decision, detail = PROMPTS.parse_changelog_update_output(response)
+    except PROMPTS.ContractError as error:
+        raise ChangelogResponseError(str(error), response_diagnostics) from error
 
     changed = _collect_changed_paths(repo_root)
     # Hard restriction: no file other than the designated target may change,
@@ -691,6 +803,7 @@ def run_update(
         "mode": mode,
         "marker_comment_id": marker_comment_id,
         "dry_run": dry_run,
+        "response_diagnostics": response_diagnostics,
     }
 
 
@@ -720,9 +833,21 @@ def _cmd_update(args: argparse.Namespace) -> int:
             seed_target=args.seed_target,
         )
     except (PROMPTS.ContractError, RuntimeError) as error:
+        if args.response_diagnostics:
+            diagnostics = getattr(error, "diagnostics", {"outcome": "runner-error"})
+            args.response_diagnostics.write_text(
+                json.dumps(diagnostics, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
         print(f"::error::changelog update failed: {error}", file=sys.stderr)
         _write_update_provenance(args, resolved_bundle, effective_policy, "failed", mode)
         return 1
+
+    if args.response_diagnostics:
+        args.response_diagnostics.write_text(
+            json.dumps(result["response_diagnostics"], sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     if args.github_output:
         lines = [
@@ -852,6 +977,12 @@ def _build_parser() -> argparse.ArgumentParser:
     update.add_argument("--github-output", type=Path, default=None)
     update.add_argument("--result", type=Path, default=None)
     update.add_argument("--publication-preview", type=Path, default=None)
+    update.add_argument(
+        "--response-diagnostics",
+        type=Path,
+        default=None,
+        help="Write safe OpenCode transport metadata for troubleshooting.",
+    )
     update.add_argument("--provenance", type=Path, default=None)
     update.set_defaults(func=_cmd_update)
 

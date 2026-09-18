@@ -721,6 +721,15 @@ def merge_policy(
                 effective_caps[axis] = DENY
             elif request == current:
                 pass
+            elif (
+                request == "allow"
+                and current == "repository-workspace-allowlist"
+                and axis == "filesystem"
+            ):
+                # OpenCode exposes edit permission as a boolean. Preserve the
+                # workflow's narrower workspace allowlist rather than treating
+                # a generic editor request as an incompatible broad grant.
+                pass
             else:
                 # The agent requested a broader or different capability than
                 # the builtin allows. Deny and record.

@@ -131,6 +131,19 @@ class MergePolicyTests(unittest.TestCase):
         self.assertEqual(policy.capabilities["filesystem"], "deny")
         self.assertTrue(any("filesystem" in c for c in policy.rejected_conflicts))
 
+    def test_changelog_editor_receives_scoped_workspace_capability(self):
+        agent_caps = POLICY.parse_agent_capabilities(
+            "---\nname: x\nmode: primary\npermission:\n  edit: allow\n  read: allow\n---\n"
+        )
+        policy = POLICY.merge_policy(
+            workflow="pr-changelog-update",
+            model_profile="changelog-writer",
+            agent_capabilities=agent_caps,
+        )
+        self.assertEqual(
+            policy.capabilities["filesystem"], "repository-workspace-allowlist"
+        )
+
     def test_agent_requesting_unknown_axis_recorded(self):
         policy = POLICY.merge_policy(
             workflow="pr-documentation-review",

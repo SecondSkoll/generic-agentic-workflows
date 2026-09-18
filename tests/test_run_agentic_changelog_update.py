@@ -370,7 +370,7 @@ class UpdateTests(unittest.TestCase):
         def fake_run(*, opencode_args, prompt, provider_timeout):
             class Proc:
                 returncode = 0
-                stdout = (
+                response = (
                     f"CHANGELOG_DECISION: {decision}\n"
                     + (
                         f"CHANGELOG_BLOCKER: {detail}\n"
@@ -378,6 +378,14 @@ class UpdateTests(unittest.TestCase):
                         else f"CHANGELOG_SUMMARY: {detail}\n"
                     )
                 )
+                stdout = json.dumps({
+                    "type": "text",
+                    "part": {
+                        "type": "text",
+                        "text": response,
+                        "time": {"start": 1, "end": 2},
+                    },
+                }) + "\n"
                 stderr = ""
 
             if edit_target is not None and decision == "UPDATED":
@@ -476,7 +484,7 @@ class UpdateTests(unittest.TestCase):
             def bad_run(*, opencode_args, prompt, provider_timeout):
                 class Proc:
                     returncode = 0
-                    stdout = "no decision here"
+                    stdout = json.dumps({"type": "text", "part": {"type": "text", "text": "no decision here", "time": {"start": 1, "end": 2}}}) + "\n"
                     stderr = ""
 
                 return Proc()
@@ -491,6 +499,33 @@ class UpdateTests(unittest.TestCase):
                     repo_root=root,
                     opencode_runner=bad_run,
                 )
+
+    def test_update_rejects_tool_only_response_with_diagnostics(self):
+        bundle = _resolved_bundle()
+        policy = _effective_policy(bundle)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._init_git(root)
+
+            def tool_only(*, opencode_args, prompt, provider_timeout):
+                class Proc:
+                    returncode = 0
+                    stdout = json.dumps({"type": "tool_use", "part": {}}) + "\n"
+                    stderr = ""
+                return Proc()
+
+            with self.assertRaises(RUNNER.ChangelogResponseError) as raised:
+                RUNNER.run_update(
+                    resolved_bundle=bundle,
+                    effective_policy=policy,
+                    pr=_pr(),
+                    diff_text="",
+                    target_file="CHANGELOG.md",
+                    repo_root=root,
+                    opencode_runner=tool_only,
+                )
+            self.assertEqual(raised.exception.diagnostics["event_types"], {"tool_use": 1})
+            self.assertEqual(raised.exception.diagnostics["completed_text_count"], 0)
 
     def test_update_dry_run_marks_result(self):
         bundle = _resolved_bundle()
@@ -861,7 +896,7 @@ class UpdateSeedTargetIntegrationTests(unittest.TestCase):
         def fake_run(*, opencode_args, prompt, provider_timeout):
             class Proc:
                 returncode = 0
-                stdout = (
+                response = (
                     f"CHANGELOG_DECISION: {decision}\n"
                     + (
                         f"CHANGELOG_BLOCKER: {detail}\n"
@@ -869,6 +904,10 @@ class UpdateSeedTargetIntegrationTests(unittest.TestCase):
                         else f"CHANGELOG_SUMMARY: {detail}\n"
                     )
                 )
+                stdout = json.dumps({"type": "text", "part": {
+                    "type": "text", "text": response,
+                    "time": {"start": 1, "end": 2},
+                }}) + "\n"
                 stderr = ""
 
             if edit_target is not None and decision == "UPDATED":
@@ -1124,7 +1163,7 @@ class SeedTargetBaselineTests(unittest.TestCase):
         def fake_run(*, opencode_args, prompt, provider_timeout):
             class Proc:
                 returncode = 0
-                stdout = (
+                response = (
                     f"CHANGELOG_DECISION: {decision}\n"
                     + (
                         f"CHANGELOG_BLOCKER: {detail}\n"
@@ -1132,6 +1171,10 @@ class SeedTargetBaselineTests(unittest.TestCase):
                         else f"CHANGELOG_SUMMARY: {detail}\n"
                     )
                 )
+                stdout = json.dumps({"type": "text", "part": {
+                    "type": "text", "text": response,
+                    "time": {"start": 1, "end": 2},
+                }}) + "\n"
                 stderr = ""
 
             return Proc()
@@ -1143,7 +1186,7 @@ class SeedTargetBaselineTests(unittest.TestCase):
         def fake_run(*, opencode_args, prompt, provider_timeout):
             class Proc:
                 returncode = 0
-                stdout = (
+                response = (
                     f"CHANGELOG_DECISION: {decision}\n"
                     + (
                         f"CHANGELOG_BLOCKER: {detail}\n"
@@ -1151,6 +1194,10 @@ class SeedTargetBaselineTests(unittest.TestCase):
                         else f"CHANGELOG_SUMMARY: {detail}\n"
                     )
                 )
+                stdout = json.dumps({"type": "text", "part": {
+                    "type": "text", "text": response,
+                    "time": {"start": 1, "end": 2},
+                }}) + "\n"
                 stderr = ""
 
             target.parent.mkdir(parents=True, exist_ok=True)
