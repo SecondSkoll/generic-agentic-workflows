@@ -254,6 +254,38 @@ class ReusableWorkflowVerificationTests(unittest.TestCase):
         self.assertIn('quote(target_file, safe="/")', text)
         self.assertIn("encoded_path", text)
 
+    def test_changelog_update_metadata_lookup_explicitly_uses_get(self) -> None:
+        """Fields must not make gh turn the Contents metadata GET into POST."""
+        text = (
+            REPO_ROOT / ".github/workflows/opencode-changelog-update.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            '"--method", "GET",\n'
+            '                      f"repos/{repo}/contents/{encoded_path}",\n'
+            '                      "-f", f"ref={head_ref}"',
+            text,
+        )
+
+    def test_changelog_update_metadata_errors_are_not_silenced(self) -> None:
+        """Only an HTTP 404 may be interpreted as a missing target file."""
+        text = (
+            REPO_ROOT / ".github/workflows/opencode-changelog-update.yml"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("except subprocess.CalledProcessError:\n                  pass", text)
+        self.assertIn("if error.status != 404:", text)
+        self.assertIn("raise GhApiError(proc.returncode, status)", text)
+
+    def test_changelog_update_surfaces_bounded_redacted_api_diagnostics(self) -> None:
+        """Publication failures expose API context without leaking credentials."""
+        text = (
+            REPO_ROOT / ".github/workflows/opencode-changelog-update.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("GH_DIAGNOSTIC_LIMIT = 2_000", text)
+        self.assertIn('os.environ.get("GH_TOKEN")', text)
+        self.assertIn('text.replace(token, "[REDACTED]")', text)
+        self.assertIn("proc.stderr or proc.stdout", text)
+        self.assertIn("::error::GitHub API request failed", text)
+
     def test_changelog_update_workflow_uses_workflow_sha_for_provenance(self) -> None:
         """Finding 7: provenance uses job.workflow_sha, not github.sha."""
         text = (

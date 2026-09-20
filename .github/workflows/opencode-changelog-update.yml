@@ -379,7 +379,7 @@ jobs:
           # Run the publication block without -e so we can inspect its exit
           # status and gate provenance promotion precisely.
           python3 - <<'PY'
-          import base64, json, os, subprocess, sys
+          import base64, json, os, re, subprocess, sys
           from pathlib import Path
           from urllib.parse import quote
           import importlib.util
@@ -394,6 +394,7 @@ jobs:
           _spec.loader.exec_module(_runner)
           COMMENT_CAP = _runner.MAX_COMMENT_CHARS
           GITHUB_HARD_LIMIT = 65535
+          GH_DIAGNOSTIC_LIMIT = 2_000
 
           preview = json.loads(Path(os.environ["PREVIEW"]).read_text(encoding="utf-8"))
           marker = preview["marker"]
@@ -410,14 +411,44 @@ jobs:
           # 'safe' keeps path separators intact.
           encoded_path = quote(target_file, safe="/")
 
+          class GhApiError(RuntimeError):
+              def __init__(self, returncode: int, status: int | None):
+                  super().__init__(f"GitHub API request failed with exit code {returncode}")
+                  self.status = status
+
+          def _safe_gh_diagnostic(text: str) -> str:
+              token = os.environ.get("GH_TOKEN") or ""
+              if token:
+                  text = text.replace(token, "[REDACTED]")
+              text = re.sub(
+                  r"(?i)(bearer\s+|authorization\s*[:=]\s*|gh[pousr]_)[^\s,;]+",
+                  r"\1[REDACTED]",
+                  text,
+              )
+              text = " ".join(text.split())
+              if len(text) > GH_DIAGNOSTIC_LIMIT:
+                  text = "...[truncated] " + text[-GH_DIAGNOSTIC_LIMIT:]
+              return text or "no diagnostic output"
+
           def gh(*args: str, input_data: str | None = None) -> str:
               proc = subprocess.run(
                   ["gh", "api", *args],
                   input=input_data,
                   capture_output=True,
                   text=True,
-                  check=True,
+                  check=False,
               )
+              if proc.returncode:
+                  raw_diagnostic = proc.stderr or proc.stdout
+                  status_match = re.search(r"\bHTTP\s+([1-5][0-9]{2})\b", raw_diagnostic)
+                  status = int(status_match.group(1)) if status_match else None
+                  print(
+                      "::error::GitHub API request failed "
+                      f"(HTTP {status or 'unknown'}, exit {proc.returncode}): "
+                      f"{_safe_gh_diagnostic(raw_diagnostic)}",
+                      file=sys.stderr,
+                  )
+                  raise GhApiError(proc.returncode, status)
               return proc.stdout
 
           if dry_run:
@@ -435,10 +466,19 @@ jobs:
               # Fetch the current file SHA at the PR head ref (may not exist).
               current_sha = ""
               try:
-                  meta = gh(f"repos/{repo}/contents/{encoded_path}", "-f", f"ref={head_ref}")
+                  # gh changes its default method from GET to POST when fields
+                  # are supplied, so force GET to send ref as a query parameter.
+                  meta = gh(
+                      "--method", "GET",
+                      f"repos/{repo}/contents/{encoded_path}",
+                      "-f", f"ref={head_ref}",
+                  )
                   current_sha = json.loads(meta).get("sha") or ""
-              except subprocess.CalledProcessError:
-                  pass
+              except GhApiError as error:
+                  # Only a missing file is a create operation. Permission,
+                  # branch, and transport failures must stop publication.
+                  if error.status != 404:
+                      raise
               payload = {
                   "message": commit_message,
                   "branch": head_ref,
