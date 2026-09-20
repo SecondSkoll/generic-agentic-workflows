@@ -113,6 +113,13 @@ set an axis to `deny` or repeat the applicable scoped grant, but it may not
 substitute a broader or different non-deny grant. Numeric limits similarly
 cannot exceed the built-in or model-profile ceilings.
 
+OpenCode agent front matter and bundle policy use different vocabularies for
+editing. An agent requests editing with `permission.edit: allow`; for the
+`pr-changelog-update` workflow, policy interprets that boolean request within
+the narrower `repository-workspace-allowlist` ceiling. The runner still rejects
+every changed path except the designated target. This compatibility does not
+apply to other capability axes or scoped grants.
+
 ## `preflight_commands`
 
 A release review can request up to three reviewed preflight commands. Schema 2

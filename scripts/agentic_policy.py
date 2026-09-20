@@ -416,6 +416,24 @@ def parse_agent_capabilities(text: str) -> dict[str, str]:
     return requested
 
 
+def agent_request_fits_capability(axis: str, request: str, ceiling: str) -> bool:
+    """Return whether an agent request fits within an internal policy ceiling.
+
+    OpenCode represents filesystem editing as the boolean ``edit: allow``,
+    while workflow policy expresses the narrower authorization boundary as a
+    scoped capability. This compatibility is deliberately limited to that one
+    vocabulary mismatch; generic requests on other axes remain incompatible
+    with scoped grants.
+    """
+    if request == ceiling:
+        return True
+    return (
+        axis == "filesystem"
+        and request == "allow"
+        and ceiling == "repository-workspace-allowlist"
+    )
+
+
 def validate_delegated_agent(text: str, *, workflow: str) -> dict[str, str]:
     """Validate a delegated (subagent) agent's front matter against policy.
 
@@ -719,13 +737,7 @@ def merge_policy(
             # matches the current value or is denied.
             if request == DENY:
                 effective_caps[axis] = DENY
-            elif request == current:
-                pass
-            elif (
-                request == "allow"
-                and current == "repository-workspace-allowlist"
-                and axis == "filesystem"
-            ):
+            elif agent_request_fits_capability(axis, request, current):
                 # OpenCode exposes edit permission as a boolean. Preserve the
                 # workflow's narrower workspace allowlist rather than treating
                 # a generic editor request as an incompatible broad grant.

@@ -16,6 +16,17 @@ POLICY = importlib.util.module_from_spec(SPEC)
 sys.modules["agentic_policy"] = POLICY
 SPEC.loader.exec_module(POLICY)
 
+CONFIGURATION_PATH = Path(__file__).parents[1] / "scripts" / "agentic_configuration.py"
+CONFIGURATION_SPEC = importlib.util.spec_from_file_location(
+    "agentic_configuration_for_policy_tests", CONFIGURATION_PATH
+)
+assert CONFIGURATION_SPEC and CONFIGURATION_SPEC.loader
+CONFIGURATION = importlib.util.module_from_spec(CONFIGURATION_SPEC)
+sys.modules[CONFIGURATION_SPEC.name] = CONFIGURATION
+CONFIGURATION_SPEC.loader.exec_module(CONFIGURATION)
+
+REPO_ROOT = Path(__file__).parents[1]
+
 
 class CapabilityIntersectionTests(unittest.TestCase):
     def test_deny_always_wins(self):
@@ -143,6 +154,16 @@ class MergePolicyTests(unittest.TestCase):
         self.assertEqual(
             policy.capabilities["filesystem"], "repository-workspace-allowlist"
         )
+        self.assertEqual(policy.rejected_conflicts, ())
+
+    def test_scoped_compatibility_does_not_apply_to_network(self):
+        policy = POLICY.merge_policy(
+            workflow="pr-changelog-update",
+            model_profile="changelog-writer",
+            agent_capabilities={"network": "allow"},
+        )
+        self.assertEqual(policy.capabilities["network"], "deny")
+        self.assertTrue(any("network" in c for c in policy.rejected_conflicts))
 
     def test_agent_requesting_unknown_axis_recorded(self):
         policy = POLICY.merge_policy(
@@ -444,6 +465,47 @@ class CliTests(unittest.TestCase):
             self.assertEqual(policy["capabilities"]["github_write"], "deny")
             # Dry-run disables publication.
             self.assertFalse(policy["publication_allowed"])
+
+    def test_cli_accepts_checked_in_changelog_agent_and_scoped_policy(self):
+        import tempfile
+
+        resolved = CONFIGURATION.resolve_local_bundle(
+            bundle_root=REPO_ROOT / ".opencode" / "configuration",
+            profile="changelog-update",
+            workflow="pr-changelog-update",
+        )
+        data = json.loads(json.dumps(resolved.to_dict(), sort_keys=True))
+        agent_text = (Path(data["bundle_root"]) / data["agent_file"]).read_text(
+            encoding="utf-8"
+        )
+        agent_caps = POLICY.parse_agent_capabilities(agent_text)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            resolved_path = Path(tmp) / "resolved.json"
+            result_path = Path(tmp) / "policy.json"
+            resolved_path.write_text(json.dumps(data), encoding="utf-8")
+            rc = POLICY.main(
+                [
+                    "--workflow",
+                    "pr-changelog-update",
+                    "--model-profile",
+                    data["model_profile"],
+                    "--resolved-config",
+                    str(resolved_path),
+                    "--agent-capabilities-json",
+                    json.dumps(agent_caps),
+                    "--result",
+                    str(result_path),
+                ]
+            )
+
+            self.assertEqual(rc, 0)
+            policy = json.loads(result_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                policy["capabilities"]["filesystem"],
+                "repository-workspace-allowlist",
+            )
+            self.assertEqual(policy["rejected_conflicts"], [])
 
     def test_cli_rejects_bundle_escalation(self):
         import tempfile
