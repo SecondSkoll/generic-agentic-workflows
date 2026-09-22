@@ -1,9 +1,9 @@
 # Example caller for the reusable changelog-update workflow.
 #
 # A consumer repository triggers the workflow when the configured label is
-# added to an open pull request. The reusable workflow authoritatively
-# re-validates the event, action, label, and PR state, so a mis-configured
-# caller cannot cause side effects.
+# added to an open pull request, or runs it manually with a pull-request
+# number. The reusable workflow authoritatively re-validates the request and
+# PR state, so a mis-configured caller cannot cause side effects.
 #
 # The all-zero values below are deliberately nonexistent placeholders, so this
 # file is not runnable as-is. Replace both with the exact reviewed commit SHA of
@@ -17,6 +17,12 @@ name: Changelog update (supplied default configuration)
 on:
   pull_request_target:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      pull_number:
+        description: Pull-request number to update
+        required: true
+        type: number
 
 permissions:
   contents: write
@@ -24,7 +30,7 @@ permissions:
 
 jobs:
   changelog:
-    if: github.event.pull_request.state == 'open' && github.event.label.name == 'update-changelog'
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.state == 'open' && github.event.label.name == 'update-changelog')
     uses: SecondSkoll/generic-agentic-workflows/.github/workflows/opencode-changelog-update.yml@0000000000000000000000000000000000000000
     permissions:
       contents: write
@@ -35,7 +41,9 @@ jobs:
       configuration_profile: changelog-update
       label: update-changelog
       target_file: CHANGELOG.md
-      pull_number: ${{ github.event.pull_request.number }}
-validate_only: true
+      # workflow_dispatch values in github.event.inputs are strings. Convert
+      # the selected value to the number required by the reusable workflow.
+      pull_number: ${{ fromJSON(format('{0}', github.event.inputs.pull_number || github.event.pull_request.number)) }}
+      validate_only: true
     secrets:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

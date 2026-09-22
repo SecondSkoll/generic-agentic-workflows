@@ -74,6 +74,47 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(result["mode"], "comment")
         self.assertTrue(result["is_fork"])
 
+    def test_proceed_for_manual_dispatch_with_matching_pr_number(self):
+        result = RUNNER.run_guard(
+            event_payload={"inputs": {"pull_number": "12"}},
+            event_name="workflow_dispatch",
+            pr=_pr(),
+            request_label="update-changelog",
+            target_number=12,
+        )
+        self.assertEqual(result["action"], "proceed")
+        self.assertEqual(result["number"], 12)
+
+    def test_rejects_manual_dispatch_without_pull_number(self):
+        with self.assertRaisesRegex(RUNNER.GuardError, "manual dispatch with a pull_number"):
+            RUNNER.run_guard(
+                event_payload={"inputs": {}},
+                event_name="workflow_dispatch",
+                pr=_pr(),
+                request_label="update-changelog",
+                target_number=12,
+            )
+
+    def test_rejects_manual_dispatch_with_mismatched_target_number(self):
+        with self.assertRaisesRegex(RUNNER.GuardError, "does not match target_number"):
+            RUNNER.run_guard(
+                event_payload={"inputs": {"pull_number": "12"}},
+                event_name="workflow_dispatch",
+                pr=_pr(number=99),
+                request_label="update-changelog",
+                target_number=99,
+            )
+
+    def test_rejects_non_dispatch_event_with_manual_inputs(self):
+        with self.assertRaisesRegex(RUNNER.GuardError, "or workflow_dispatch"):
+            RUNNER.run_guard(
+                event_payload={"inputs": {"pull_number": "12"}},
+                event_name="repository_dispatch",
+                pr=_pr(),
+                request_label="update-changelog",
+                target_number=12,
+            )
+
     def test_rejects_non_pull_request_event(self):
         with self.assertRaises(RUNNER.GuardError):
             RUNNER.run_guard(

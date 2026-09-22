@@ -238,12 +238,24 @@ class ReusableWorkflowVerificationTests(unittest.TestCase):
         self.assertEqual(job["permissions"], {"contents": "write", "pull-requests": "write"})
         self.assertIn("concurrency", job)
         text = path.read_text(encoding="utf-8")
-        # Guard gating: only labeled open PRs proceed; skips without side effects.
+        # Guard gating: labeled or explicitly targeted manual open PRs proceed;
+        # idempotent reruns skip without side effects.
         self.assertIn('run_agentic_changelog_update.py" guard', text)
         self.assertIn("steps.guard.outputs.action == 'skip'", text)
         # Same-repo commit and fork comment publication paths.
         self.assertIn("IS_FORK", text)
         self.assertIn("repos/", text)
+
+    def test_changelog_example_converts_manual_pull_number(self) -> None:
+        """The manual dispatch string is converted for the numeric call input."""
+        path = (
+            REPO_ROOT
+            / "docs/how-to/examples/configuration-sources/default/.github/workflows/changelog-update.yml"
+        )
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("github.event.inputs.pull_number", text)
+        self.assertIn("fromJSON(format('{0}',", text)
+        self.assertNotIn("pull_number: ${{ inputs.pull_number", text)
 
     def test_changelog_update_workflow_url_encodes_target_file(self) -> None:
         """Finding 6: the Contents API endpoint URL-encodes the target path."""

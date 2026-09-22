@@ -4,9 +4,10 @@
 This script has two subcommands:
 
 * ``guard`` validates the triggering event (a label added to an open pull
-  request), confirms the pull request is open, and decides whether to skip
-  (idempotency), commit to the same-repo source branch (non-fork), or post a
-  marker comment (fork). It emits the PR metadata and the chosen action.
+    request, or a manual dispatch with a pull-request number), confirms the pull
+    request is open, and decides whether to skip (idempotency), commit to the
+    same-repo source branch (non-fork), or post a marker comment (fork). It emits
+    the PR metadata and the chosen action.
 * ``update`` composes the workflow prompt with the untrusted PR title, body, and
   a bounded diff, runs the configured OpenCode agent, parses the
   ``pr-changelog-update-v1`` contract, hard-restricts changed paths to the
@@ -130,6 +131,30 @@ def _event_label(event: dict[str, Any]) -> str:
     return ""
 
 
+def _manual_target_number(event: dict[str, Any]) -> int | None:
+    """Return a validated workflow-dispatch PR input, if present.
+
+    GitHub stores manual-dispatch values in the event payload's ``inputs``
+    object. Requiring that value, rather than accepting every non-PR event,
+    keeps the guard scoped to the intended manual trigger.
+    """
+    inputs = event.get("inputs")
+    if not isinstance(inputs, dict) or "pull_number" not in inputs:
+        return None
+    value = inputs.get("pull_number")
+    if isinstance(value, bool):
+        raise GuardError("manual pull_number must be a positive integer")
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, str) and value.isascii() and value.isdigit():
+        number = int(value)
+    else:
+        raise GuardError("manual pull_number must be a positive integer")
+    if number <= 0:
+        raise GuardError("manual pull_number must be a positive integer")
+    return number
+
+
 def _parse_pr(pr: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(pr, dict):
         raise GuardError("pull request payload must be a JSON object")
@@ -245,6 +270,7 @@ def _parse_iso8601(value: str | None) -> datetime | None:
 def run_guard(
     *,
     event_payload: dict[str, Any],
+    event_name: str | None = None,
     pr: dict[str, Any],
     request_label: str,
     target_number: int | None,
@@ -258,20 +284,34 @@ def run_guard(
     """
     if not request_label:
         raise GuardError("request_label is required")
-    if not _is_pull_request_event(event_payload):
-        raise GuardError(
-            "pr-changelog-update only triggers on pull_request or pull_request_target events"
-        )
-    if _event_action(event_payload) != "labeled":
-        raise GuardError(
-            "pr-changelog-update only triggers on the 'labeled' action; "
-            f"got action={_event_action(event_payload)!r}"
-        )
-    if _event_label(event_payload) != request_label:
-        raise GuardError(
-            f"event label {_event_label(event_payload)!r} does not match "
-            f"configured label {request_label!r}"
-        )
+    if _is_pull_request_event(event_payload):
+        if _event_action(event_payload) != "labeled":
+            raise GuardError(
+                "pr-changelog-update only triggers on the 'labeled' action; "
+                f"got action={_event_action(event_payload)!r}"
+            )
+        if _event_label(event_payload) != request_label:
+            raise GuardError(
+                f"event label {_event_label(event_payload)!r} does not match "
+                f"configured label {request_label!r}"
+            )
+    else:
+        if event_name != "workflow_dispatch":
+            raise GuardError(
+                "pr-changelog-update only triggers on a labeled pull request "
+                "or workflow_dispatch"
+            )
+        manual_number = _manual_target_number(event_payload)
+        if manual_number is None:
+            raise GuardError(
+                "pr-changelog-update only triggers on a labeled pull request "
+                "or a manual dispatch with a pull_number input"
+            )
+        if target_number is None or manual_number != target_number:
+            raise GuardError(
+                f"manual pull_number {manual_number} does not match "
+                f"target_number {target_number}"
+            )
     parsed = _parse_pr(pr)
     if target_number is not None and parsed["number"] != target_number:
         raise GuardError(
@@ -354,6 +394,7 @@ def _cmd_guard(args: argparse.Namespace) -> int:
     try:
         result = run_guard(
             event_payload=event,
+            event_name=args.event_name,
             pr=pr,
             request_label=args.request_label,
             target_number=args.target_number,
@@ -945,6 +986,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     guard = sub.add_parser("guard", help="Validate the trigger and decide action/mode.")
     guard.add_argument("--event-payload", type=Path, required=True)
+    guard.add_argument("--event-name", required=True)
     guard.add_argument("--pr-json", type=Path, required=True)
     guard.add_argument("--request-label", required=True)
     guard.add_argument("--target-number", type=int, default=None)

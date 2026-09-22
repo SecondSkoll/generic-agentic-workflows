@@ -170,6 +170,7 @@ jobs:
           PR_NUMBER: ${{ steps.resolve.outputs.target_number }}
           REQUEST_LABEL: ${{ steps.resolve.outputs.request_label }}
           EVENT_PAYLOAD: ${{ github.event_path }}
+          EVENT_NAME: ${{ github.event_name }}
           AGENTIC_WORKFLOW_VERSION: ${{ job.workflow_sha }}
         run: |
           set -euo pipefail
@@ -184,6 +185,7 @@ jobs:
             > "$RUNNER_TEMP/pr-commits.json"
           python3 "$AGENTIC_WORKFLOW_ROOT/scripts/run_agentic_changelog_update.py" guard \
             --event-payload "$EVENT_PAYLOAD" \
+            --event-name "$EVENT_NAME" \
             --pr-json "$RUNNER_TEMP/pr.json" \
             --comments-json "$RUNNER_TEMP/pr-comments.json" \
             --commits-json "$RUNNER_TEMP/pr-commits.json" \
