@@ -11,7 +11,7 @@ failure behavior of the agentic workflows. For operational procedures, see the
 | Reusable workflows | Immutable commit pin in consumer `uses:` | Per release tag |
 | Bundle manifest schema | `bundle.json` `schema_version` | `1`, `2` |
 | Command registry | `scripts/agentic_commands.py` `REGISTRY_VERSION` | `1` |
-| Output contracts | Contract identifier suffix, such as `-v1` | `pr-review-json-v1`, `issue-feedback-markdown-v1`, `issue-implementation-decision-v1`, `release-project-issue-v1`, `release-project-analysis-handoff-v1` (non-publishing), `pr-changelog-update-v1` |
+| Output contracts | Contract identifier suffix, such as `-v1` | `pr-review-json-v1`, `issue-feedback-markdown-v1`, `release-project-issue-v1`, `release-project-analysis-handoff-v1` (non-publishing), `pr-changelog-update-v1` |
 | Policy schema | `.opencode/policy/organization-policy.json` `schema_version` | `1` |
 | Feedback marker | Marker schema version field | `v2` |
 
@@ -54,7 +54,6 @@ controls as the target content.
 | --- | --- | --- |
 | PR review | `<!-- agentic-workflow:pr-documentation-review:v2:<digest>:<head_sha> -->` | Same digest and head SHA, unless a non-bot comment containing the configured review request string (`AI REVIEW REQUESTED` by default) exists after the bot's most recent review or comment |
 | Issue feedback | `<!-- agentic-workflow:issue-feedback:v2:<digest> -->` | Same digest |
-| Issue implementation status | `<!-- agentic-workflow:issue-implementation-status:v1 -->` | Records the result of an explicitly dispatched issue run |
 | Release project review | `<!-- agentic-workflow:release-project-review:v2:<idempotency_key>:<target_commit_sha> -->` | Same canonical target, release ID, target commit SHA, configuration digest, and workflow version |
 | Changelog update | `<!-- agentic-workflow:pr-changelog-update:v1 -->` | Same-repo: marker is the newest commit and no newer comment exists. Fork: marker is the newest comment and no newer commit followed it; a newer fork commit regenerates and PATCHes the existing marker comment in place. |
 
@@ -81,7 +80,6 @@ identity.
 | Policy escalation attempt | Rejected with a redacted `PolicyError`; no publication. |
 | Provider or API transient error | Bounded retry for network and 5xx errors; failed run is diagnosable; no partial feedback. |
 | Configuration rollback | The next run uses only the explicitly updated pinned SHA. |
-| Implementation modifies denied paths | `enforce_changed_paths` blocks push and PR creation; the status comment reports failure. |
 | Release project review, same repository | At most one `release-readiness` issue; the immutable target commit is checked out read-only. |
 | Release project review, external target | Requires `release_target_token` with target-only `contents: read` and `issues: write`; access is verified before checkout and publication. |
 | Release project review idempotency | A matching marker suppresses duplicate issue creation with `result: "skipped"`. |

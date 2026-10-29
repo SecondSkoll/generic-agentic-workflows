@@ -2,8 +2,8 @@
 """Normalize and validate reusable-workflow invocation inputs.
 
 This module is intentionally dependency-free so it can run in a GitHub Actions
-runner. It is shared by the review, issue-feedback, and issue-implementation
-workflows. It normalizes direct-trigger values and ``workflow_call`` inputs
+runner. It is shared by the review, issue-feedback, release-project-review,
+and changelog-update workflows. It normalizes direct-trigger values and ``workflow_call`` inputs
 into a single set of environment variables, validates them before any checkout
 or model invocation, and writes a JSON result that downstream steps consume.
 
@@ -34,7 +34,6 @@ SUPPORTED_WORKFLOWS: frozenset[str] = frozenset(
     {
         "pr-documentation-review",
         "issue-feedback",
-        "issue-implementation",
         "release-project-review",
         "pr-changelog-update",
     }
@@ -644,27 +643,6 @@ def resolve_invocation(
             raise InvocationError("max_comments is not supported for issue feedback")
         if resolved_target_file is not None:
             raise InvocationError("target_file is not supported for issue-feedback")
-        if resolved_review_request_string is not None:
-            raise InvocationError(
-                "review_request_string is only supported for pr-documentation-review"
-            )
-    elif resolved_workflow == "issue-implementation":
-        if resolved_target is None:
-            raise InvocationError(
-                "issue-implementation requires an issue target number"
-            )
-        if resolved_focus is not None:
-            raise InvocationError("focus is not supported for issue implementation")
-        if resolved_max_comments is not None:
-            raise InvocationError(
-                "max_comments is not supported for issue implementation"
-            )
-        if resolved_max_issues is not None:
-            raise InvocationError(
-                "max_issues is not supported for issue implementation"
-            )
-        if resolved_target_file is not None:
-            raise InvocationError("target_file is not supported for issue implementation")
         if resolved_review_request_string is not None:
             raise InvocationError(
                 "review_request_string is only supported for pr-documentation-review"

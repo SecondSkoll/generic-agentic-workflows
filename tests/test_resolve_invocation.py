@@ -43,14 +43,6 @@ class ResolveInvocationTests(unittest.TestCase):
         self.assertEqual(resolved.workflow, "issue-feedback")
         self.assertIsNone(resolved.target_number)
 
-    def test_issue_implementation_minimum_inputs_resolve(self) -> None:
-        resolved = RESOLVER.resolve_invocation(
-            workflow="issue-implementation",
-            configuration_profile="default-implementation",
-            target_number=7,
-        )
-        self.assertEqual(resolved.target_number, 7)
-
     def test_string_target_number_is_normalized(self) -> None:
         resolved = RESOLVER.resolve_invocation(
             workflow="pr-documentation-review",
@@ -228,13 +220,6 @@ class ResolveInvocationTests(unittest.TestCase):
                 configuration_profile="documentation-review",
             )
 
-    def test_issue_implementation_requires_target_number(self) -> None:
-        with self.assertRaises(RESOLVER.InvocationError):
-            RESOLVER.resolve_invocation(
-                workflow="issue-implementation",
-                configuration_profile="default-implementation",
-            )
-
     def test_pr_review_rejects_max_issues(self) -> None:
         with self.assertRaises(RESOLVER.InvocationError):
             RESOLVER.resolve_invocation(
@@ -252,39 +237,12 @@ class ResolveInvocationTests(unittest.TestCase):
                 max_comments=5,
             )
 
-    def test_issue_implementation_rejects_focus(self) -> None:
-        with self.assertRaises(RESOLVER.InvocationError):
-            RESOLVER.resolve_invocation(
-                workflow="issue-implementation",
-                configuration_profile="default-implementation",
-                target_number=1,
-                focus="documentation",
-            )
-
     def test_non_positive_target_is_rejected(self) -> None:
         with self.assertRaises(RESOLVER.InvocationError):
             RESOLVER.resolve_invocation(
                 workflow="pr-documentation-review",
                 configuration_profile="documentation-review",
                 target_number=0,
-            )
-
-    def test_request_label_is_validated(self) -> None:
-        resolved = RESOLVER.resolve_invocation(
-            workflow="issue-implementation",
-            configuration_profile="default-implementation",
-            target_number=1,
-            request_label="ai-review-requested",
-        )
-        self.assertEqual(resolved.request_label, "ai-review-requested")
-
-    def test_invalid_request_label_is_rejected(self) -> None:
-        with self.assertRaises(RESOLVER.InvocationError):
-            RESOLVER.resolve_invocation(
-                workflow="issue-implementation",
-                configuration_profile="default-implementation",
-                target_number=1,
-                request_label="AI Review Requested!",
             )
 
     def test_to_json_is_deterministic(self) -> None:
@@ -378,11 +336,6 @@ class CliTests(unittest.TestCase):
             ["--target-number", "1"],
         ),
         ("issue-feedback", "issue-feedback", []),
-        (
-            "issue-implementation",
-            "default-implementation",
-            ["--target-number", "1"],
-        ),
         (
             "release-project-review",
             "release-project-review",
@@ -595,11 +548,6 @@ class ReviewRequestStringTests(unittest.TestCase):
             {
                 "workflow": "issue-feedback",
                 "configuration_profile": "issue-feedback",
-            },
-            {
-                "workflow": "issue-implementation",
-                "configuration_profile": "default-implementation",
-                "target_number": 7,
             },
             {
                 "workflow": "release-project-review",
@@ -834,7 +782,6 @@ class ChangelogUpdateInvocationTests(unittest.TestCase):
         for workflow, profile in (
             ("pr-documentation-review", "documentation-review"),
             ("issue-feedback", "issue-feedback"),
-            ("issue-implementation", "default-implementation"),
             ("release-project-review", "release-project-review"),
         ):
             with self.subTest(workflow=workflow):
@@ -844,7 +791,7 @@ class ChangelogUpdateInvocationTests(unittest.TestCase):
                     "configuration_profile": profile,
                     "target_file": "CHANGELOG.md",
                 }
-                if workflow in ("pr-documentation-review", "issue-implementation"):
+                if workflow == "pr-documentation-review":
                     kwargs["target_number"] = 1
                 elif workflow == "release-project-review":
                     kwargs["target_repository"] = "a/b"

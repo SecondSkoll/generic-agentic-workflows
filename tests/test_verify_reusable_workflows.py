@@ -30,7 +30,6 @@ REMOTE_HELPER_WORKFLOWS = (
 WORKFLOWS = (
     "opencode-documentation-review.yml",
     "opencode-issue-feedback.yml",
-    "opencode-issue-implementation.yml",
     "opencode-release-project-review.yml",
     "opencode-changelog-update.yml",
     "verify-reusable-workflows.yml",
@@ -150,7 +149,7 @@ class ReusableWorkflowVerificationTests(unittest.TestCase):
                 )
 
     def test_workflows_install_pinned_opencode_with_scoped_allow_scripts(self) -> None:
-        """All six workflows install the exact-pinned OpenCode CLI, allow only
+        """All five workflows install the exact-pinned OpenCode CLI, allow only
         its required postinstall, and fail fast when the binary is unusable."""
         workflows_root = REPO_ROOT / ".github/workflows"
         matching = sorted(
@@ -158,7 +157,7 @@ class ReusableWorkflowVerificationTests(unittest.TestCase):
             for path in workflows_root.glob("*.yml")
             if "opencode-ai@1.18.16" in path.read_text(encoding="utf-8")
         )
-        self.assertEqual(len(matching), 6)
+        self.assertEqual(len(matching), 5)
         self.assertEqual(matching, sorted(WORKFLOWS))
         install_command = (
             "npm install -g --allow-scripts=opencode-ai opencode-ai@1.18.16"

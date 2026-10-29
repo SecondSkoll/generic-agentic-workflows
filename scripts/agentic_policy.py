@@ -138,49 +138,6 @@ BUILTIN_SAFETY_POLICY: dict[str, dict[str, Any]] = {
             r"^\.opencode/",
         ],
     },
-    "issue-implementation": {
-        "capabilities": {
-            "filesystem": "repository-workspace-allowlist",
-            "shell": "validation-commands-only",
-            "network": "provider-and-github-api-only",
-            "github_write": "scoped-branch-pr-issue",
-            "delegation": "planner-to-executor",
-        },
-        "required_output_contract": "issue-implementation-decision-v1",
-        "required_source": "trusted-or-allowlisted",
-        "max_tokens": 16000,
-        "temperature_max": 0.2,
-        "timeout_seconds": 300,
-        "max_retries": 1,
-        "allowed_workflows": ("issue-implementation",),
-        "data_classification": "repository-content",
-        #: Issue-implementation changed-path denials. These categories are
-        #: machine-enforced before any push or PR creation. The exact list
-        #: comes from Plan 4: workflows, automation, dependencies, and agent
-        #: instruction files.
-        "deny_path_patterns": [
-            r"^\.github/workflows/",
-            r"^\.github/actions/",
-            r"^\.opencode/agents/",
-            r"^\.opencode/skills/",
-            r"^\.opencode/configuration/",
-            r"^\.opencode/policy/",
-            r"^package\.json$",
-            r"^package-lock\.json$",
-            r"^bun\.lock$",
-            r"^uv\.lock$",
-            r"^pyproject\.toml$",
-            r"^requirements\.txt$",
-            r"^Cargo\.toml$",
-            r"^Cargo\.lock$",
-            r"^go\.mod$",
-            r"^go\.sum$",
-            r"^pnpm-lock\.yaml$",
-            r"^yarn\.lock$",
-            r"^Gemfile$",
-            r"^Gemfile\.lock$",
-        ],
-    },
     "release-project-review": {
         "capabilities": {
             "filesystem": "read-release-context-only",
@@ -308,15 +265,6 @@ MODEL_PROFILES: dict[str, dict[str, Any]] = {
         "allowed_workflows": ["issue-feedback"],
         "data_classification": "repository-content",
     },
-    "implementation-planner": {
-        "provider_model": "openrouter/openai/gpt-5.6-terra",
-        "max_tokens": 16000,
-        "temperature_max": 0.2,
-        "timeout_seconds": 300,
-        "max_retries": 1,
-        "allowed_workflows": ["issue-implementation"],
-        "data_classification": "repository-content",
-    },
     "release-project-review-readonly": {
         "provider_model": "openrouter/openai/gpt-5.6-luna",
         "max_tokens": 8000,
@@ -434,51 +382,6 @@ def agent_request_fits_capability(axis: str, request: str, ceiling: str) -> bool
     )
 
 
-def validate_delegated_agent(text: str, *, workflow: str) -> dict[str, str]:
-    """Validate a delegated (subagent) agent's front matter against policy.
-
-    A delegated agent (``mode: subagent``) must not grant itself capabilities
-    the workflow forbids. For issue-implementation, the executor may edit and
-    run narrowly-allowed validation commands, but must not request network
-    beyond provider/GitHub API, broad delegation, or workflow-file edits.
-    Returns the parsed front matter.
-    """
-    front = {}
-    match = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
-    if not match:
-        raise PolicyError("delegated agent file must start with YAML front matter")
-    body = match.group(1)
-    for line in body.splitlines():
-        stripped = line.strip()
-        m = re.match(r"^([A-Za-z_]+):\s*(.+)$", stripped)
-        if not m:
-            continue
-        front[m.group(1)] = m.group(2).strip()
-    if front.get("mode") != "subagent":
-        raise PolicyError(
-            f"delegated agent {front.get('name', '<unknown>')!r} must have mode: subagent"
-        )
-    caps = parse_agent_capabilities(text)
-    builtin = BUILTIN_SAFETY_POLICY.get(workflow)
-    if builtin is None:
-        raise PolicyError(f"unknown workflow: {workflow!r}")
-    for axis, request in caps.items():
-        if axis not in CAPABILITY_AXES:
-            continue
-        allowed = builtin["capabilities"].get(axis, DENY)
-        # A delegated agent may never request a capability axis the workflow
-        # denies entirely. Scoped axes (e.g. filesystem "workspace-allowlist")
-        # are narrowed by the effective-policy intersection in merge_policy, so
-        # a broad "allow" request there is recorded but not hard-rejected; only
-        # an outright DENY axis is a hard violation for a delegated agent.
-        if allowed == DENY and request != DENY:
-            raise PolicyError(
-                f"delegated agent {front.get('name')!r} requests forbidden {axis}={request!r} "
-                f"for workflow {workflow!r}"
-            )
-    return front
-
-
 # ---------------------------------------------------------------------------
 # Effective policy
 # ---------------------------------------------------------------------------
@@ -501,7 +404,6 @@ class EffectivePolicy:
     data_classification: str
     deny_path_patterns: tuple[str, ...]
     publication_allowed: bool
-    test_commands: tuple[str, ...]
     rejected_conflicts: tuple[str, ...]
     layers: tuple[dict[str, Any], ...]
     sha256: str
@@ -524,7 +426,6 @@ class EffectivePolicy:
             "data_classification": self.data_classification,
             "deny_path_patterns": list(self.deny_path_patterns),
             "publication_allowed": self.publication_allowed,
-            "test_commands": list(self.test_commands),
             "rejected_conflicts": list(self.rejected_conflicts),
             "sha256": self.sha256,
             "context": dict(self.context),
@@ -698,15 +599,6 @@ def merge_policy(
         if "publication" in overlay:
             if not isinstance(overlay["publication"], dict):
                 raise PolicyError("overlay publication must be an object")
-        if "test_commands" in overlay:
-            cmds = overlay["test_commands"]
-            if not isinstance(cmds, list) or not all(isinstance(c, str) for c in cmds):
-                raise PolicyError("overlay test_commands must be a list of strings")
-            # Only implementation workflows may declare test commands.
-            if workflow != "issue-implementation" and cmds:
-                raise PolicyError(
-                    "overlay test_commands are only permitted for issue-implementation"
-                )
         # An overlay may never grant capabilities, broaden network, or
         # introduce secrets.
         for forbidden in ("capabilities", "provider_model", "secrets", "env"):
@@ -766,10 +658,6 @@ def merge_policy(
     if invocation.get("dry_run") or invocation.get("validate_only"):
         publication_allowed = False
 
-    test_commands: tuple[str, ...] = ()
-    if overlay and "test_commands" in overlay:
-        test_commands = tuple(overlay["test_commands"])
-
     deny_patterns = tuple(builtin["deny_path_patterns"])
 
     # Additional PR context can only be narrowed by lower layers. Capability
@@ -826,7 +714,6 @@ def merge_policy(
         "data_classification": profile["data_classification"],
         "deny_path_patterns": deny_patterns,
         "publication_allowed": publication_allowed,
-        "test_commands": test_commands,
         "rejected_conflicts": tuple(rejected),
         "layers": layers,
         "context": context,
@@ -851,181 +738,12 @@ def merge_policy(
         data_classification=profile["data_classification"],
         deny_path_patterns=deny_patterns,
         publication_allowed=publication_allowed,
-        test_commands=test_commands,
         rejected_conflicts=tuple(rejected),
         layers=tuple(layers),
         sha256=sha,
         context=context,
         workflow_commands=workflow_commands,
     )
-
-
-# ---------------------------------------------------------------------------
-# Changed-path enforcement (Plan 4 implementation workflow)
-# ---------------------------------------------------------------------------
-
-
-def enforce_changed_paths(
-    changed_paths: Iterable[str],
-    *,
-    workflow: str,
-    extra_deny_patterns: Iterable[str] | None = None,
-) -> list[str]:
-    """Reject changed paths that match a denied category for ``workflow``.
-
-    Returns the list of offending paths. Empty list means the diff is
-    acceptable. Used by the issue-implementation workflow before any push or
-    PR creation. The denied categories come from
-    :data:`BUILTIN_SAFETY_POLICY` for ``issue-implementation``.
-    """
-    if workflow not in BUILTIN_SAFETY_POLICY:
-        raise PolicyError(f"unknown workflow: {workflow!r}")
-    patterns = list(BUILTIN_SAFETY_POLICY[workflow]["deny_path_patterns"])
-    if extra_deny_patterns:
-        patterns.extend(extra_deny_patterns)
-    compiled = [re.compile(p) for p in patterns]
-    offenders: list[str] = []
-    for path in changed_paths:
-        if not isinstance(path, str):
-            raise PolicyError(f"changed path must be a string, got {path!r}")
-        normalized = path.replace("\\", "/")
-        # Strip a leading "./" only; do not strip other leading characters.
-        while normalized.startswith("./"):
-            normalized = normalized[2:]
-        for pattern in compiled:
-            if pattern.search(normalized):
-                offenders.append(normalized)
-                break
-    return offenders
-
-
-def collect_implementation_changed_paths(
-    repo_root: Path,
-    *,
-    base_ref: str | None = None,
-) -> list[str]:
-    """Collect every changed path in the implementation workspace.
-
-    Captures tracked changes (committed or staged relative to ``base_ref`` or
-    the default branch) AND untracked files, so agent-created files and
-    uncommitted edits cannot bypass enforcement. Uses ``git status --porcelain``
-    for the working tree (untracked + modified + staged) and ``git diff`` for
-    committed ranges when a base ref is supplied.
-
-    When ``base_ref`` is supplied and cannot be resolved (not fetched/unknown),
-    this raises :class:`PolicyError` rather than silently omitting the
-    committed range. The caller must establish a trusted base ref (for example
-    by fetching the default branch) before calling with one.
-    """
-    import subprocess
-
-    paths: set[str] = set()
-    # Working-tree changes: modified, staged, AND untracked files.
-    status = subprocess.run(
-        ["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=all"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    for line in status.stdout.splitlines():
-        if not line:
-            continue
-        # Format: "XY <path>" where XY is status; path may be quoted.
-        path = line[3:]
-        if path.startswith('"') and path.endswith('"'):
-            path = path[1:-1]
-        # Rename format: "old -> new"; take the new path.
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        if path.startswith('"') and path.endswith('"'):
-            path = path[1:-1]
-        paths.add(path.replace("\\", "/"))
-    # Committed changes relative to a base ref (catches agent-created commits).
-    if base_ref:
-        # Verify the base ref is resolvable before diffing; hard-fail if not
-        # so a missing default branch never silently omits committed changes.
-        cat = subprocess.run(
-            ["git", "-C", str(repo_root), "cat-file", "-t", base_ref],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if cat.returncode != 0:
-            raise PolicyError(
-                f"base ref {base_ref!r} is not resolvable in the repository; "
-                f"fetch the default branch before changed-path enforcement"
-            )
-        diff = subprocess.run(
-            ["git", "-C", str(repo_root), "diff", "--name-only", f"{base_ref}...HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        for line in diff.stdout.splitlines():
-            if line:
-                paths.add(line.replace("\\", "/"))
-    return sorted(paths)
-
-
-def resolve_default_branch_ref(repo_root: Path, *, remote: str = "origin") -> str:
-    """Resolve the default branch's remote ref for use as a trusted base.
-
-    Fetches ``refs/heads/<default>`` from ``remote`` and returns the
-    ``refs/remotes/<remote>/<default>`` reference name suitable for use as
-    ``base_ref``. Raises :class:`PolicyError` if the default branch cannot be
-    determined or fetched.
-    """
-    import subprocess
-
-    # Determine the default branch via remote symbolic-ref.
-    sym = subprocess.run(
-        ["git", "-C", str(repo_root), "symbolic-ref", f"refs/remotes/{remote}/HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if sym.returncode != 0:
-        # Fall back to querying the remote directly.
-        sym = subprocess.run(
-            ["git", "-C", str(repo_root), "symbolic-ref", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if sym.returncode != 0:
-            raise PolicyError(
-                f"could not determine default branch for {remote!r}; "
-                f"set AGENTIC_BASE_REF explicitly"
-            )
-    default_ref = sym.stdout.strip()
-    # symbolic-ref returns something like refs/remotes/origin/main or refs/heads/main.
-    if default_ref.startswith("refs/remotes/"):
-        remote_ref = default_ref
-    elif default_ref.startswith("refs/heads/"):
-        branch = default_ref[len("refs/heads/") :]
-        remote_ref = f"refs/remotes/{remote}/{branch}"
-    else:
-        raise PolicyError(f"unexpected default ref format: {default_ref!r}")
-    # Fetch the ref to make it resolvable locally.
-    fetch = subprocess.run(
-        ["git", "-C", str(repo_root), "fetch", "--depth=1", remote, remote_ref],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if fetch.returncode != 0:
-        # The ref may already be present locally; verify resolvability.
-        cat = subprocess.run(
-            ["git", "-C", str(repo_root), "cat-file", "-t", remote_ref],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if cat.returncode != 0:
-            raise PolicyError(
-                f"could not fetch or resolve default branch ref {remote_ref!r}: {fetch.stderr.strip()}"
-            )
-    return remote_ref
 
 
 # ---------------------------------------------------------------------------

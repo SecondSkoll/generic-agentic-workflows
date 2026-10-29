@@ -160,16 +160,6 @@ class LocalResolutionTests(unittest.TestCase):
             resolved.manifest.output_contract, "issue-feedback-markdown-v1"
         )
 
-    def test_implementation_local_bundle_resolves(self):
-        resolved = CFG.resolve_local_bundle(
-            bundle_root=REPO_ROOT / ".opencode" / "configuration",
-            profile="default-implementation",
-            workflow="issue-implementation",
-        )
-        self.assertEqual(
-            resolved.manifest.output_contract, "issue-implementation-decision-v1"
-        )
-
     def test_unknown_profile_rejected(self):
         with self.assertRaises(CFG.ConfigurationError):
             CFG.resolve_local_bundle(

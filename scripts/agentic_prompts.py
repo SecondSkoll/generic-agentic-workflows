@@ -399,21 +399,6 @@ def _issue_feedback_suffix() -> str:
     )
 
 
-def _issue_implementation_suffix() -> str:
-    """Return immutable instructions for the implementation decision contract."""
-    return (
-        "## Output contract: issue-implementation-decision-v1 (non-overrideable)\n"
-        "Return exactly one decision line, then the requested detail:\n"
-        "- `IMPLEMENTATION_DECISION: IMPLEMENT` followed by the implementation "
-        "summary, OR\n"
-        "- `IMPLEMENTATION_DECISION: BLOCKED` followed by exactly one "
-        "`IMPLEMENTATION_BLOCKER: <maintainer-actionable reason>` line.\n"
-        "When blocked, do not create files, make edits, or delegate. The "
-        "workflow consumes these fields to post an issue reply without "
-        "creating a pull request.\n"
-    )
-
-
 def _release_project_issue_suffix() -> str:
     """Return immutable instructions for the release-issue contract."""
     return (
@@ -514,7 +499,6 @@ def _release_project_analysis_handoff_suffix() -> str:
 _CONTRACT_SUFFIXES: dict[str, Any] = {
     "pr-review-json-v1": _pr_review_suffix,
     "issue-feedback-markdown-v1": _issue_feedback_suffix,
-    "issue-implementation-decision-v1": _issue_implementation_suffix,
     "release-project-issue-v1": _release_project_issue_suffix,
     "release-project-analysis-handoff-v1": _release_project_analysis_handoff_suffix,
     "pr-changelog-update-v1": _pr_changelog_update_suffix,
@@ -1086,42 +1070,6 @@ def parse_issue_feedback_output(output: str) -> str:
     return text
 
 
-def parse_implementation_decision_output(output: str) -> tuple[str, str]:
-    """Parse and validate an `issue-implementation-decision-v1` response.
-
-    Returns ``(decision, blocker)`` where ``decision`` is ``IMPLEMENT`` or
-    ``BLOCKED`` and ``blocker`` is empty for ``IMPLEMENT`` and a non-empty
-    maintainer-actionable reason for ``BLOCKED``.
-    """
-    decision_match = re.search(
-        r"^IMPLEMENTATION_DECISION:\s*(IMPLEMENT|BLOCKED)\s*$",
-        output,
-        re.MULTILINE,
-    )
-    if not decision_match:
-        raise ContractError(
-            "issue-implementation-decision-v1 requires an IMPLEMENTATION_DECISION line"
-        )
-    decision = decision_match.group(1)
-    blocker = ""
-    if decision == "BLOCKED":
-        blocker_match = re.search(
-            r"^IMPLEMENTATION_BLOCKER:\s*(.+?)\s*$",
-            output,
-            re.MULTILINE,
-        )
-        if not blocker_match:
-            raise ContractError(
-                "issue-implementation-decision-v1 BLOCKED requires an IMPLEMENTATION_BLOCKER line"
-            )
-        blocker = blocker_match.group(1)
-        if len(blocker.encode("utf-8")) > MAX_DECISION_REASON_BYTES:
-            raise ContractError(
-                "issue-implementation-decision-v1 blocker exceeds the size limit"
-            )
-    return decision, blocker
-
-
 #: Maximum bytes for a changelog-update summary or blocker reason.
 MAX_CHANGELOG_SUMMARY_BYTES = 4 * 1024
 
@@ -1506,8 +1454,6 @@ def parse_output(
         return parse_pr_review_output(output, changed_lines, max_comments=max_comments)
     if contract == "issue-feedback-markdown-v1":
         return parse_issue_feedback_output(output)
-    if contract == "issue-implementation-decision-v1":
-        return parse_implementation_decision_output(output)
     if contract == "release-project-issue-v1":
         return parse_release_project_issue_output(output)
     if contract == "release-project-analysis-handoff-v1":

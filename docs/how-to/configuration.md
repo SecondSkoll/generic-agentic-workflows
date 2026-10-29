@@ -39,8 +39,8 @@ Use [Option A in the deployment guide](deploy-a-workflow.md#option-a-supplied-de
 for the canonical wrapper YAML and end-to-end deployment steps.
 
 Available supplied profiles are `documentation-review`, `issue-feedback`,
-`default-implementation`, and `release-project-review` (the implementation and
-release-project-review workflows are manual-dispatch/reusable only).
+and `release-project-review` (the release-project-review workflow is
+manual-dispatch/reusable only).
 
 ## Pathway 2: caller `local` bundle
 
