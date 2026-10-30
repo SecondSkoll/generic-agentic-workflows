@@ -563,28 +563,6 @@ class OutputContractTests(unittest.TestCase):
         with self.assertRaises(PROMPTS.ContractError):
             PROMPTS.parse_issue_feedback_output("<!-- secret -->")
 
-    def test_implementation_decision_implement(self):
-        output = "IMPLEMENTATION_DECISION: IMPLEMENT\n## Summary\n- done"
-        decision, blocker = PROMPTS.parse_implementation_decision_output(output)
-        self.assertEqual(decision, "IMPLEMENT")
-        self.assertEqual(blocker, "")
-
-    def test_implementation_decision_blocked_requires_blocker(self):
-        with self.assertRaises(PROMPTS.ContractError):
-            PROMPTS.parse_implementation_decision_output(
-                "IMPLEMENTATION_DECISION: BLOCKED\n"
-            )
-
-    def test_implementation_decision_blocked_valid(self):
-        output = "IMPLEMENTATION_DECISION: BLOCKED\nIMPLEMENTATION_BLOCKER: need version info"
-        decision, blocker = PROMPTS.parse_implementation_decision_output(output)
-        self.assertEqual(decision, "BLOCKED")
-        self.assertIn("version info", blocker)
-
-    def test_implementation_decision_missing_decision(self):
-        with self.assertRaises(PROMPTS.ContractError):
-            PROMPTS.parse_implementation_decision_output("no decision here")
-
     def test_dispatch_routes_to_correct_contract(self):
         out = json.dumps({"summary": "s", "comments": []})
         summary, comments = PROMPTS.parse_output(

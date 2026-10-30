@@ -2,13 +2,8 @@
 
 Reusable GitHub Actions workflows that use narrowly permissioned OpenCode agents
 to provide pull-request documentation reviews, issue feedback, a manually
-dispatched issue-to-pull-request implementation path, and a manually
 dispatched/reusable release project-review that creates at most one
 release-readiness issue, and a label-requested changelog update.
-
-Note: Issue implementation is not currently set up for calling as a remote action.
-See [Run issue implementation](docs/developer/running-issue-implementation.md) for the
-manual procedure.
 
 ## Start here
 
@@ -48,7 +43,6 @@ commit SHA; resolution failures fail closed.
 | --- | --- | --- |
 | `.github/workflows/opencode-documentation-review.yml` | Direct PR trigger or reusable call | `contents: read`, `issues: read`, `pull-requests: write` |
 | `.github/workflows/opencode-issue-feedback.yml` | Direct issue trigger or reusable call | `contents: read`, `issues: write` |
-| `.github/workflows/opencode-issue-implementation.yml` | Manual dispatch only | `contents: write`, `issues: write`, `pull-requests: write` |
 | `.github/workflows/opencode-release-project-review.yml` | Manual dispatch or reusable call only | `contents: read`, `issues: write` (plus a target-scoped `release_target_token` for cross-repository reviews) |
 | `.github/workflows/opencode-changelog-update.yml` | Reusable call only (label added to an open PR) | `contents: write`, `pull-requests: write` |
 
@@ -75,8 +69,6 @@ access outside its repository.
 - Output must satisfy a versioned contract before GitHub publication.
 - Provenance artifacts record safe hashes and metadata, never credentials,
   complete prompts, diffs, release bodies, or raw model responses.
-- The implementation workflow blocks edits to workflows, automation,
-  dependencies, and agent/configuration instructions before it can push.
 - The release project-review workflow checks out exactly the resolved
   immutable target commit (read-only), collects a bounded allowlisted release
   context, and the workflow (not the model) owns the issue destination,
@@ -120,7 +112,6 @@ access outside its repository.
 
 - [Developer documentation](docs/developer/index.md)
 - [Operations guide](docs/developer/operations-guide.md)
-- [Run issue implementation](docs/developer/running-issue-implementation.md)
 
 > OpenCode configuration (`.opencode/`) is loaded once at startup and is not
 > hot-reloaded. After changing any configuration in `.opencode/`, quit and

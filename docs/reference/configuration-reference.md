@@ -123,7 +123,6 @@ The available supplied profiles demonstrate the supported workflow mappings:
 | --- | --- | --- | --- |
 | `documentation-review` | `["pr-documentation-review"]` | `pr-review-json-v1` | `{"max_comments": 10}` |
 | `issue-feedback` | `["issue-feedback"]` | `issue-feedback-markdown-v1` | `{"max_comments": 5}` |
-| `default-implementation` | `["issue-implementation"]` | `issue-implementation-decision-v1` | `{}` |
 | `release-project-review` | `["release-project-review"]` | `release-project-issue-v1` | `{}` |
 | `changelog-update` | `["pr-changelog-update"]` | `pr-changelog-update-v1` | `{}` |
 

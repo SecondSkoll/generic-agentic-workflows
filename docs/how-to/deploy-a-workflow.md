@@ -17,10 +17,6 @@ For authoring a local or central profile, see [creating a configuration bundle](
 | Release project review | `opencode-release-project-review.yml` | `workflow_dispatch`, schedule, or a release wrapper | `contents: read`, `issues: write` |
 | Changelog update | `opencode-changelog-update.yml` | `pull_request_target` with `types: [labeled]` | `contents: write`, `pull-requests: write` |
 
-The issue-implementation workflow is manual-dispatch only. It is not available
-as a remote reusable call. To use it in this repository, follow [Run issue
-implementation](../developer/running-issue-implementation.md).
-
 Use the copy-ready wrappers under [configuration-source examples](examples/configuration-sources/index.md)
 when one matches the intended deployment.
 
@@ -57,8 +53,8 @@ reusable workflow in `uses:`.
 
 Choose `default` to use a supplied profile unchanged. Pin both the reusable
 workflow and the supplied bundle revision to a reviewed commit SHA. The
-profiles currently supplied are `documentation-review`, `issue-feedback`,
-`default-implementation`, and `release-project-review`.
+profiles currently supplied are `documentation-review`, `issue-feedback`, and
+`release-project-review`.
 
 ```yaml
 jobs:

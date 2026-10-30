@@ -63,11 +63,6 @@ class RealOpenCodeSmokeTests(unittest.TestCase):
         (REPO_ROOT / ".opencode" / "configuration", "issue-feedback", "issue-feedback"),
         (
             REPO_ROOT / ".opencode" / "configuration",
-            "default-implementation",
-            "issue-implementation",
-        ),
-        (
-            REPO_ROOT / ".opencode" / "configuration",
             "release-project-review",
             "release-project-review",
         ),
@@ -136,31 +131,9 @@ class CollisionSafeStagingTests(unittest.TestCase):
     """Required change #2, #8: staging over a tracked file backs up and
     restores it byte-for-byte; clean git status after cleanup."""
 
-    def test_staging_over_existing_file_restores_bytes(self) -> None:
-        data = _resolved("default-implementation", "issue-implementation")
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            # Pre-create a tracked executor.md with distinct content.
-            dest = root / ".opencode" / "agents" / "executor.md"
-            dest.parent.mkdir(parents=True)
-            original_bytes = (
-                b"---\nname: executor\nmode: subagent\n---\n# original tracked\n"
-            )
-            dest.write_bytes(original_bytes)
-            staged = CFG.materialize_to_opencode_root(data, root)
-            # The staged entry for executor should record it pre-existed.
-            executor_entry = next(e for e in staged if e.name == "executor")
-            self.assertTrue(executor_entry.existed)
-            self.assertIsNotNone(executor_entry.backup_path)
-            # Staged content differs from original.
-            self.assertNotEqual(dest.read_bytes(), original_bytes)
-            # Cleanup restores the original bytes exactly.
-            CFG.cleanup_staged(staged)
-            self.assertEqual(dest.read_bytes(), original_bytes)
-
     def test_staging_into_repo_preserves_git_status(self) -> None:
         """Staging + cleanup over a git repo leaves the working tree clean."""
-        data = _resolved("default-implementation", "issue-implementation")
+        data = _resolved("documentation-review", "pr-documentation-review")
         env = {
             "GIT_CONFIG_GLOBAL": "/dev/null",
             "PATH": os.environ["PATH"],
@@ -184,12 +157,12 @@ class CollisionSafeStagingTests(unittest.TestCase):
                 check=True,
                 env=env,
             )
-            # Commit a tracked executor.md.
+            # Commit a tracked agent file.
             agents = repo / ".opencode" / "agents"
             agents.mkdir(parents=True)
-            tracked = agents / "executor.md"
+            tracked = agents / "documentation-review.md"
             tracked.write_bytes(
-                b"---\nname: executor\nmode: subagent\n---\n# tracked\n"
+                b"---\nname: documentation-review\nmode: primary\n---\n# tracked\n"
             )
             subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, env=env)
             subprocess.run(
@@ -211,10 +184,10 @@ class CollisionSafeStagingTests(unittest.TestCase):
             self.assertEqual(
                 status.stdout.strip(), "", f"git status not clean: {status.stdout!r}"
             )
-            # The tracked executor.md bytes are unchanged.
+            # The tracked agent bytes are unchanged.
             self.assertEqual(
                 tracked.read_bytes(),
-                b"---\nname: executor\nmode: subagent\n---\n# tracked\n",
+                b"---\nname: documentation-review\nmode: primary\n---\n# tracked\n",
             )
 
 
@@ -321,46 +294,6 @@ class ProfileMaxCommentsDefaultTests(unittest.TestCase):
             self.assertEqual(len(body["comments"]), 10)
 
 
-class BaseRefHardeningTests(unittest.TestCase):
-    """Required change #4: base ref resolution hard-fails when unresolvable."""
-
-    def test_collect_raises_on_unresolvable_base_ref(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = Path(tmp)
-            env = {
-                "GIT_CONFIG_GLOBAL": "/dev/null",
-                "PATH": os.environ["PATH"],
-                "GIT_AUTHOR_NAME": "t",
-                "GIT_AUTHOR_EMAIL": "t@t",
-                "GIT_COMMITTER_NAME": "t",
-                "GIT_COMMITTER_EMAIL": "t@t",
-            }
-            subprocess.run(
-                ["git", "init", "-q", "-b", "main", str(repo)], check=True, env=env
-            )
-            subprocess.run(
-                ["git", "-C", str(repo), "config", "user.name", "t"],
-                check=True,
-                env=env,
-            )
-            subprocess.run(
-                ["git", "-C", str(repo), "config", "user.email", "t@t"],
-                check=True,
-                env=env,
-            )
-            (repo / "x").write_text("x\n", encoding="utf-8")
-            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, env=env)
-            subprocess.run(
-                ["git", "-C", str(repo), "commit", "-q", "-m", "init"],
-                check=True,
-                env=env,
-            )
-            with self.assertRaises(POLICY.PolicyError):
-                POLICY.collect_implementation_changed_paths(
-                    repo, base_ref="refs/remotes/origin/nonexistent"
-                )
-
-
 class OverlayWiringTests(unittest.TestCase):
     """Required change #3: overlay loaded and narrows policy."""
 
@@ -435,19 +368,6 @@ class AgentCapabilitiesFromFrontMatterTests(unittest.TestCase):
         self.assertEqual(caps.get("filesystem"), "deny")
         self.assertEqual(caps.get("shell"), "deny")
 
-    def test_parse_capabilities_from_implementation_planner(self) -> None:
-        data = _resolved("default-implementation", "issue-implementation")
-        agent_text = (Path(data["bundle_root"]) / data["agent_file"]).read_text(
-            encoding="utf-8"
-        )
-        caps = POLICY.parse_agent_capabilities(agent_text)
-        # Planner has bash: allow -> shell requested.
-        self.assertEqual(caps.get("shell"), "allow")
-        # Planner has edit: deny -> filesystem denied.
-        self.assertEqual(caps.get("filesystem"), "deny")
-        # Network denied.
-        self.assertEqual(caps.get("network"), "deny")
-
 
 class BoundedReadTests(unittest.TestCase):
     """Required change #7: bounded reads abort before full allocation."""
@@ -458,67 +378,6 @@ class BoundedReadTests(unittest.TestCase):
             p.write_bytes(b"x" * (CFG.MAX_FILE_BYTES + 10))
             with self.assertRaises(CFG.ConfigurationError):
                 CFG._read_bounded(p, max_bytes=CFG.MAX_FILE_BYTES, label="big")
-
-
-class ImplementationBranchInPromptTests(unittest.TestCase):
-    """Required change #7: branch included in implementation prompt context."""
-
-    def test_branch_appears_in_composed_prompt(self) -> None:
-        IMPL = _load("run_agentic_implementation")
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            bundle = _resolved("default-implementation", "issue-implementation")
-            bundle_path = tmp_path / "bundle.json"
-            bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
-            pol = POLICY.merge_policy(
-                workflow="issue-implementation", model_profile="implementation-planner"
-            )
-            policy_path = tmp_path / "policy.json"
-            policy_path.write_text(json.dumps(pol.to_dict()), encoding="utf-8")
-            ctx_path = tmp_path / "ctx.md"
-            ctx_path.write_text("# Issue #1\nbody\n", encoding="utf-8")
-            captured = {}
-
-            def fake_run(cmd, **kwargs):
-                # The composed prompt is deliberately passed through a file to
-                # avoid exceeding argv limits with large issue context.
-                prompt_path = Path(cmd[cmd.index("--file") + 1])
-                captured["prompt"] = prompt_path.read_text(encoding="utf-8")
-                return type(
-                    "R",
-                    (),
-                    {
-                        "stdout": "IMPLEMENTATION_DECISION: BLOCKED\nIMPLEMENTATION_BLOCKER: x",
-                        "stderr": "",
-                        "returncode": 0,
-                    },
-                )()
-
-            with (
-                mock.patch.dict(os.environ, {"GITHUB_TOKEN": "t"}),
-                mock.patch.object(IMPL.subprocess, "run", side_effect=fake_run),
-            ):
-                IMPL.main(
-                    [
-                        "--resolved-config",
-                        str(bundle_path),
-                        "--effective-policy",
-                        str(policy_path),
-                        "--issue-context",
-                        str(ctx_path),
-                        "--issue-number",
-                        "1",
-                        "--issue-author",
-                        "octocat",
-                        "--repository",
-                        "o/r",
-                        "--branch",
-                        "ai/issue-1-impl",
-                        "--repo-root",
-                        str(tmp_path),
-                    ]
-                )
-            self.assertIn("ai/issue-1-impl", captured["prompt"])
 
 
 if __name__ == "__main__":

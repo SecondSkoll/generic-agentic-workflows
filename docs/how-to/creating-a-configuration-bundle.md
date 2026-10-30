@@ -13,8 +13,8 @@ values.
 ## Before you begin
 
 - Select the one workflow that will use the profile:
-  `pr-documentation-review`, `issue-feedback`, `issue-implementation`, or
-  `release-project-review`.
+  `pr-documentation-review`, `issue-feedback`, `release-project-review`, or
+  `pr-changelog-update`.
 - Select a registered, compatible `model_profile` and the workflow's required
   output contract. The profile cannot introduce a new model identifier or
   contract.
@@ -37,8 +37,7 @@ configuration root:
 ```
 
 `bundle.json` declares the content files; optional `hashes.json` records their
-integrity digests. An implementation profile may also declare an additional
-subagent file, for example `executor.md`.
+integrity digests.
 
 All declared paths must be relative POSIX paths inside the profile directory.
 Absolute paths, `..`, empty path segments, backslashes, and symlinks are

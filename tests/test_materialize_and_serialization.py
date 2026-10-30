@@ -29,15 +29,6 @@ def _resolved_review_bundle() -> dict:
     return resolved.to_dict()
 
 
-def _resolved_implementation_bundle() -> dict:
-    resolved = CFG.resolve_local_bundle(
-        bundle_root=REPO_ROOT / ".opencode" / "configuration",
-        profile="default-implementation",
-        workflow="issue-implementation",
-    )
-    return resolved.to_dict()
-
-
 class ResolvedConfigSerializationTests(unittest.TestCase):
     """Required change #3: serialization carries template text + limits."""
 
@@ -53,11 +44,6 @@ class ResolvedConfigSerializationTests(unittest.TestCase):
     def test_to_dict_includes_bundle_policy(self):
         data = _resolved_review_bundle()
         self.assertIn("bundle_policy", data)
-
-    def test_to_dict_includes_additional_agent_names(self):
-        data = _resolved_implementation_bundle()
-        self.assertEqual(data["additional_agent_names"], ["executor"])
-        self.assertIn("executor.md", data["additional_agent_files"])
 
     def test_json_round_trip_preserves_template_and_limits(self):
         data = _resolved_review_bundle()
@@ -91,16 +77,6 @@ class MaterializeToOpencodeRootTests(unittest.TestCase):
                 data["content_hashes"]["skills/documentation/SKILL.md"],
             )
 
-    def test_materialize_stages_additional_agents(self):
-        data = _resolved_implementation_bundle()
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            staged = CFG.materialize_to_opencode_root(data, root)
-            executor_path = root / ".opencode" / "agents" / "executor.md"
-            planner_path = root / ".opencode" / "agents" / "default-implementation.md"
-            self.assertTrue(executor_path.is_file())
-            self.assertTrue(planner_path.is_file())
-
     def test_materialize_fails_closed_on_hash_mismatch(self):
         data = _resolved_review_bundle()
         # Tamper with the source file's recorded hash so re-verification fails.
@@ -125,15 +101,6 @@ class MaterializeToOpencodeRootTests(unittest.TestCase):
             self.assertTrue(agent_path.is_file())
             CFG.cleanup_staged(staged)
             self.assertFalse(agent_path.exists())
-
-
-class ImplementationBundleIncludesExecutorTests(unittest.TestCase):
-    """Required change #1: executor agent included in manifest/hashes."""
-
-    def test_executor_in_hashes_and_manifest(self):
-        data = _resolved_implementation_bundle()
-        self.assertIn("executor.md", data["content_hashes"])
-        self.assertIn("executor.md", data["additional_agent_files"])
 
 
 if __name__ == "__main__":

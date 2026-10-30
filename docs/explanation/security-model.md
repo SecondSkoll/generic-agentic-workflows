@@ -97,13 +97,6 @@ A bundle can deny an already permitted operation or lower a quota, but it
 cannot exchange that scope for a broader one. Review agent front matter that
 requests edit permission is rejected.
 
-The issue-implementation path has a different, deliberately narrow policy:
-its model may plan and use an executor only within the repository workspace
-allowlist and validation-command allowlist. Before push or PR creation, the
-workflow blocks edits to workflow files, automation, dependencies, and agent,
-skill, configuration, or policy files. This protects the automation from
-self-modification and dependency-based escalation.
-
 ## GitHub access and publication
 
 Reusable callers own triggers, concurrency, permission declarations, and

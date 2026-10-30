@@ -114,7 +114,7 @@ uv run python scripts/agentic_configuration.py \
   --result /tmp/issue-feedback.json
 ```
 
-Use the appropriate workflow and profile for other bundles, such as `issue-implementation` and `default-implementation`. Then run the focused configuration and policy tests:
+Use the appropriate workflow and profile for other bundles, such as `issue-feedback` and `release-project-review`. Then run the focused configuration and policy tests:
 
 ```text
 uv run ruff check scripts tests

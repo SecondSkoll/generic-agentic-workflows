@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -56,7 +55,7 @@ class ModelProfileTests(unittest.TestCase):
     def test_profile_workflow_mismatch_rejected(self):
         with self.assertRaises(POLICY.PolicyError):
             POLICY.validate_model_profile(
-                "review-readonly", workflow="issue-implementation"
+                "review-readonly", workflow="release-project-review"
             )
 
     def test_profile_above_ceiling_rejected(self):
@@ -92,14 +91,6 @@ class MergePolicyTests(unittest.TestCase):
                 workflow="pr-documentation-review", model_profile="review-readonly",
                 invocation_inputs={"max_context_rounds": 4},
             )
-
-    def test_default_merge_implementation(self):
-        policy = POLICY.merge_policy(
-            workflow="issue-implementation",
-            model_profile="implementation-planner",
-        )
-        self.assertEqual(policy.capabilities["github_write"], "scoped-branch-pr-issue")
-        self.assertEqual(policy.capabilities["delegation"], "planner-to-executor")
 
     def test_bundle_cannot_broaden_capability(self):
         with self.assertRaises(POLICY.PolicyError):
@@ -190,21 +181,6 @@ class MergePolicyTests(unittest.TestCase):
         # No exception; overlay accepted.
         self.assertEqual(policy.workflow, "pr-documentation-review")
 
-    def test_overlay_test_commands_only_for_implementation(self):
-        with self.assertRaises(POLICY.PolicyError):
-            POLICY.merge_policy(
-                workflow="pr-documentation-review",
-                model_profile="review-readonly",
-                overlay={"test_commands": ["python -m unittest"]},
-            )
-        # Allowed for implementation.
-        policy = POLICY.merge_policy(
-            workflow="issue-implementation",
-            model_profile="implementation-planner",
-            overlay={"test_commands": ["python -m unittest"]},
-        )
-        self.assertEqual(policy.test_commands, ("python -m unittest",))
-
     def test_overlay_unknown_focus_rejected(self):
         with self.assertRaises(POLICY.PolicyError):
             POLICY.merge_policy(
@@ -261,132 +237,6 @@ class MergePolicyTests(unittest.TestCase):
         self.assertIn("builtin-safety", names)
         self.assertIn("model-profile", names)
         self.assertIn("bundle-profile", names)
-
-
-class ChangedPathTests(unittest.TestCase):
-    def test_workflow_file_change_rejected(self):
-        offenders = POLICY.enforce_changed_paths(
-            [".github/workflows/opencode-review.yml", "docs/readme.md"],
-            workflow="issue-implementation",
-        )
-        self.assertIn(".github/workflows/opencode-review.yml", offenders)
-        self.assertNotIn("docs/readme.md", offenders)
-
-    def test_dependency_file_change_rejected(self):
-        offenders = POLICY.enforce_changed_paths(
-            ["package.json", "package-lock.json", "uv.lock", "pyproject.toml"],
-            workflow="issue-implementation",
-        )
-        self.assertEqual(
-            set(offenders),
-            {"package.json", "package-lock.json", "uv.lock", "pyproject.toml"},
-        )
-
-    def test_agent_instruction_change_rejected(self):
-        offenders = POLICY.enforce_changed_paths(
-            [
-                ".opencode/agents/x.md",
-                ".opencode/skills/y/SKILL.md",
-                ".opencode/configuration/z/bundle.json",
-            ],
-            workflow="issue-implementation",
-        )
-        self.assertEqual(len(offenders), 3)
-
-    def test_clean_diff_passes(self):
-        offenders = POLICY.enforce_changed_paths(
-            ["scripts/foo.py", "tests/test_foo.py", "docs/guide.md"],
-            workflow="issue-implementation",
-        )
-        self.assertEqual(offenders, [])
-
-
-class CollectChangedPathsTests(unittest.TestCase):
-    """Required change #2: include untracked and committed files."""
-
-    def setUp(self) -> None:
-        import tempfile
-
-        self._tmp = tempfile.TemporaryDirectory()
-        self.repo = Path(self._tmp.name)
-        import subprocess
-
-        env = os.environ.copy()
-        env["GIT_CONFIG_GLOBAL"] = "/dev/null"
-        env["GIT_AUTHOR_NAME"] = "test"
-        env["GIT_AUTHOR_EMAIL"] = "test@example.com"
-        env["GIT_COMMITTER_NAME"] = "test"
-        env["GIT_COMMITTER_EMAIL"] = "test@example.com"
-        self._env = env
-        subprocess.run(
-            ["git", "init", "-q", "-b", "main", str(self.repo)], check=True, env=env
-        )
-        subprocess.run(
-            ["git", "-C", str(self.repo), "config", "user.name", "test"],
-            check=True,
-            env=env,
-        )
-        subprocess.run(
-            ["git", "-C", str(self.repo), "config", "user.email", "test@example.com"],
-            check=True,
-            env=env,
-        )
-        (self.repo / "README.md").write_text("init\n", encoding="utf-8")
-        subprocess.run(
-            ["git", "-C", str(self.repo), "add", "README.md"], check=True, env=env
-        )
-        subprocess.run(
-            ["git", "-C", str(self.repo), "commit", "-q", "-m", "init"],
-            check=True,
-            env=env,
-        )
-
-    def tearDown(self) -> None:
-        self._tmp.cleanup()
-
-    def _git(self, *args):
-        import subprocess
-
-        return subprocess.run(
-            ["git", "-C", str(self.repo), *args],
-            check=True,
-            env=self._env,
-            capture_output=True,
-            text=True,
-        )
-
-    def test_untracked_workflow_file_is_collected(self):
-        # Create an untracked file in a denied category.
-        wf_dir = self.repo / ".github" / "workflows"
-        wf_dir.mkdir(parents=True)
-        (wf_dir / "evil.yml").write_text("name: evil\n", encoding="utf-8")
-        paths = POLICY.collect_implementation_changed_paths(self.repo)
-        self.assertIn(".github/workflows/evil.yml", paths)
-
-    def test_untracked_workflow_file_rejected_by_enforcer(self):
-        wf_dir = self.repo / ".github" / "workflows"
-        wf_dir.mkdir(parents=True)
-        (wf_dir / "evil.yml").write_text("name: evil\n", encoding="utf-8")
-        paths = POLICY.collect_implementation_changed_paths(self.repo)
-        offenders = POLICY.enforce_changed_paths(paths, workflow="issue-implementation")
-        self.assertIn(".github/workflows/evil.yml", offenders)
-
-    def test_committed_workflow_file_is_collected(self):
-        # Create and commit a workflow file (agent-created commit).
-        wf_dir = self.repo / ".github" / "workflows"
-        wf_dir.mkdir(parents=True)
-        (wf_dir / "evil.yml").write_text("name: evil\n", encoding="utf-8")
-        self._git("add", "-A")
-        self._git("commit", "-q", "-m", "agent commit")
-        paths = POLICY.collect_implementation_changed_paths(
-            self.repo, base_ref="HEAD~1"
-        )
-        self.assertIn(".github/workflows/evil.yml", paths)
-
-    def test_clean_workspace_passes(self):
-        paths = POLICY.collect_implementation_changed_paths(self.repo)
-        # Only README.md tracked, no changes.
-        self.assertEqual(paths, [])
 
 
 class RedactionTests(unittest.TestCase):
@@ -533,32 +383,6 @@ class CliTests(unittest.TestCase):
             self.assertEqual(rc, 1)
 
 
-class DelegatedAgentValidationTests(unittest.TestCase):
-    """Required change #6: validate executor front matter."""
-
-    def test_valid_executor_accepted(self):
-        text = (
-            "---\nname: executor\nmode: subagent\npermission:\n  edit: allow\n  bash: allow\n---\n"
-            "# executor\n"
-        )
-        front = POLICY.validate_delegated_agent(text, workflow="issue-implementation")
-        self.assertEqual(front["name"], "executor")
-
-    def test_executor_must_be_subagent(self):
-        text = "---\nname: executor\nmode: primary\n---\n# executor\n"
-        with self.assertRaises(POLICY.PolicyError):
-            POLICY.validate_delegated_agent(text, workflow="issue-implementation")
-
-    def test_executor_forbidden_capability_rejected(self):
-        # For PR review, shell is DENY; a delegated agent requesting bash
-        # (shell) must be rejected.
-        text = (
-            "---\nname: sub\nmode: subagent\npermission:\n  bash: allow\n---\n# sub\n"
-        )
-        with self.assertRaises(POLICY.PolicyError):
-            POLICY.validate_delegated_agent(text, workflow="pr-documentation-review")
-
-
 class ChangelogUpdatePolicyTests(unittest.TestCase):
     """Builtin policy and model profile for pr-changelog-update."""
 
@@ -589,16 +413,8 @@ class ChangelogUpdatePolicyTests(unittest.TestCase):
     def test_changelog_writer_rejected_for_other_workflows(self):
         with self.assertRaises(POLICY.PolicyError):
             POLICY.validate_model_profile(
-                "changelog-writer", workflow="issue-implementation"
+                "changelog-writer", workflow="release-project-review"
             )
-
-    def test_enforce_changed_paths_uses_changelog_deny_patterns(self):
-        offenders = POLICY.enforce_changed_paths(
-            [".github/workflows/x.yml", "CHANGELOG.md"],
-            workflow="pr-changelog-update",
-        )
-        self.assertIn(".github/workflows/x.yml", offenders)
-        self.assertNotIn("CHANGELOG.md", offenders)
 
 
 if __name__ == "__main__":

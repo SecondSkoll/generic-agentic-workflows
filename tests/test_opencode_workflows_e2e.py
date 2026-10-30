@@ -9,12 +9,9 @@ provenance without requiring Actions, OpenCode, or a provider credential.
 
 from __future__ import annotations
 
-import contextlib
 import importlib.util
-import io
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -41,7 +38,6 @@ CONFIGURATION = _load("agentic_configuration")
 POLICY = _load("agentic_policy")
 RESOLVER = _load("resolve_invocation")
 FEEDBACK = _load("run_agentic_feedback")
-IMPLEMENTATION = _load("run_agentic_implementation")
 
 
 class FakeProcess:
@@ -277,88 +273,6 @@ class OpenCodeWorkflowEndToEndTests(unittest.TestCase):
             record = json.loads(provenance.read_text(encoding="utf-8"))
             self.assertEqual(record["workflow_name"], "issue-feedback")
             self.assertEqual(record["result"], "published")
-
-    def test_issue_implementation_workflow_end_to_end(self) -> None:
-        """Resolve, plan, enforce allowed changes, and dry-run implementation publication."""
-        with tempfile.TemporaryDirectory() as temporary:
-            temp = Path(temporary)
-            remote = temp / "remote.git"
-            repository = temp / "repository"
-            subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
-            subprocess.run(["git", "init", "-b", "main", str(repository)], check=True, capture_output=True)
-            for key, value in (("user.name", "Test User"), ("user.email", "test@example.com")):
-                subprocess.run(["git", "-C", str(repository), "config", key, value], check=True)
-            (repository / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
-            subprocess.run(["git", "-C", str(repository), "add", "app.py"], check=True)
-            subprocess.run(["git", "-C", str(repository), "commit", "-m", "initial"], check=True, capture_output=True)
-            subprocess.run(["git", "-C", str(repository), "remote", "add", "origin", str(remote)], check=True)
-            subprocess.run(["git", "-C", str(repository), "push", "-u", "origin", "main"], check=True, capture_output=True)
-
-            github_output = temp / "github-output"
-            invocation_result = temp / "resolved-invocation.json"
-            resolved_config = temp / "resolved-config.json"
-            effective_policy = temp / "effective-policy.json"
-            runner_output = temp / "runner-output"
-            runner_provenance = temp / "runner-provenance.json"
-            issue_context = temp / "issue-context.md"
-            issue_context.write_text("# Issue #29: Increment value\n\nIncrement VALUE in app.py.\n", encoding="utf-8")
-
-            self.assertEqual(
-                RESOLVER.main(
-                    [
-                        "--workflow", "issue-implementation",
-                        "--configuration-profile", "default-implementation",
-                        "--target-number", "29",
-                        "--request-label", "ai-implementation-requested",
-                        "--dry-run", "true",
-                        "--github-output", str(github_output),
-                        "--result", str(invocation_result),
-                    ]
-                ),
-                0,
-            )
-            invocation = _write_github_output(github_output)
-            bundle, policy = _resolve_policy("issue-implementation", "default-implementation")
-            resolved_config.write_text(json.dumps(bundle), encoding="utf-8")
-            effective_policy.write_text(json.dumps(policy), encoding="utf-8")
-
-            def model_changes_application(cmd, **kwargs):
-                (repository / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
-                return FakeProcess("IMPLEMENTATION_DECISION: IMPLEMENT\n## Summary\n- Incremented VALUE\n")
-
-            with mock.patch.object(IMPLEMENTATION.subprocess, "run", side_effect=model_changes_application):
-                self.assertEqual(
-                    IMPLEMENTATION.main(
-                        [
-                            "--resolved-config", str(resolved_config),
-                            "--effective-policy", str(effective_policy),
-                            "--issue-context", str(issue_context),
-                            "--issue-number", invocation["target_number"],
-                            "--issue-author", "octocat",
-                            "--repository", "acme/widgets",
-                            "--branch", "ai/issue-29-initial-implementation",
-                            "--repo-root", str(repository),
-                            "--github-output", str(runner_output),
-                            "--provenance", str(runner_provenance),
-                        ]
-                    ),
-                    0,
-                )
-            self.assertEqual(_write_github_output(runner_output)["decision"], "IMPLEMENT")
-            base_ref = POLICY.resolve_default_branch_ref(repository, remote="origin")
-            changed = POLICY.collect_implementation_changed_paths(repository, base_ref=base_ref)
-            self.assertEqual(changed, ["app.py"])
-            self.assertEqual(POLICY.enforce_changed_paths(changed, workflow="issue-implementation"), [])
-            self.assertEqual(json.loads(runner_provenance.read_text())["result"], "generated")
-
-            changed_files = "\n".join(f"- `{path}`" for path in changed)
-            publication_log = io.StringIO()
-            with contextlib.redirect_stdout(publication_log):
-                if invocation["dry_run"] == "true":
-                    print(f"Dry run: would commit and push branch ai/issue-29-initial-implementation with:\n{changed_files}")
-                    print("Dry run: would open a pull request for #29.")
-            self.assertIn("would commit and push branch", publication_log.getvalue())
-            self.assertFalse((repository / ".opencode" / "agents" / "default-implementation.md").exists())
 
 
 if __name__ == "__main__":

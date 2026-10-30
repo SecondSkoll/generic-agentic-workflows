@@ -10,7 +10,6 @@
   "model_profile_allowlist": [
     "review-readonly",
     "issue-feedback-readonly",
-    "implementation-planner",
     "release-project-review-readonly",
     "changelog-writer"
   ],
